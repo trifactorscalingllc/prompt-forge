@@ -32,7 +32,11 @@ const fakeFetch = (script) => {
 const secretsWith = (map) => ({ get: async (k) => map[k] });
 const noSecrets = secretsWith({});
 const cfg = (over = {}) => ({ cli: { claudePath: '', geminiPath: '', codexPath: '' }, compatible: { baseUrl: '' }, engine: { timeoutSeconds: 10 }, ...over });
-const fsWith = (present) => ({ existsSync: (p) => present.includes(p), readFileSync: (p) => present.includes(p) ? (present.content || {})[p] || '' : (() => { throw new Error('ENOENT'); })() });
+const norm = (p) => String(p).replace(/\\/g, '/');
+const fsWith = (present) => ({
+  existsSync: (p) => present.includes(norm(p)),
+  readFileSync: (p) => (present.includes(norm(p)) ? (present.content || {})[norm(p)] || '' : (() => { throw new Error('ENOENT'); })()),
+});
 
 // ---- claude ----------------------------------------------------------------------------------
 test('claude.detect: version + auth status from the CLI; a stored key is reported as a boolean only', async () => {
