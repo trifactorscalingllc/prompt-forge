@@ -15,7 +15,7 @@ test('nextBatch folds a leading run of ideas and resolutions into ONE merge', ()
     { kind: 'idea', entryId: 'e3' },
   ];
   const { batch, rest } = nextBatch(ops);
-  assert.deepEqual(batch, { kind: 'merge', entryIds: ['e1', 'e2'], resolutions: [{ conflictId: 'C1', keep: 'new' }] });
+  assert.deepEqual(batch, { kind: 'merge', entryIds: ['e1', 'e2'], resolutions: [{ conflictId: 'C1', keep: 'new' }], revisions: [] });
   assert.deepEqual(rest, [{ kind: 'polish' }, { kind: 'idea', entryId: 'e3' }]);
 });
 
@@ -77,4 +77,10 @@ test('onChange fires when work starts and when it settles', async () => {
   await tick(); await tick();
   assert.ok(seen.some(([busy]) => busy === true), 'a busy notification');
   assert.deepEqual(seen[seen.length - 1], [false, 0], 'ends idle and empty');
+});
+
+test('nextBatch folds revise ops into the merge batch alongside ideas and resolutions', () => {
+  const { batch, rest } = nextBatch([{ kind: 'revise', entryId: 'e1', before: 'old' }, { kind: 'idea', entryId: 'e3' }, { kind: 'polish' }]);
+  assert.deepEqual(batch, { kind: 'merge', entryIds: ['e3'], resolutions: [], revisions: [{ entryId: 'e1', before: 'old' }] });
+  assert.deepEqual(rest, [{ kind: 'polish' }]);
 });

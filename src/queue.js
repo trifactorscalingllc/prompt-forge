@@ -14,15 +14,17 @@ function nextBatch(ops) {
   }
   const entryIds = [];
   const resolutions = [];
+  const revisions = [];
   let i = 0;
-  while (i < ops.length && (ops[i].kind === 'idea' || ops[i].kind === 'resolve')) {
+  while (i < ops.length && ['idea', 'resolve', 'revise'].includes(ops[i].kind)) {
     const op = ops[i];
     if (op.kind === 'idea') entryIds.push(op.entryId);
+    else if (op.kind === 'revise') revisions.push({ entryId: op.entryId, before: op.before });
     else resolutions.push({ conflictId: op.conflictId, keep: op.keep });
     i++;
   }
   if (i === 0) return { batch: { ...first }, rest: ops.slice(1) };
-  return { batch: { kind: 'merge', entryIds, resolutions }, rest: ops.slice(i) };
+  return { batch: { kind: 'merge', entryIds, resolutions, revisions }, rest: ops.slice(i) };
 }
 
 function createQueue({ run, onChange = () => {}, onError = () => {} }) {

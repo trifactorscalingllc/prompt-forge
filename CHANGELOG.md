@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.2.0
+
+- New layout: the welcome text is centred until a prompt exists; then the window shows the Prompts rail and a chat-style log of the ideas you sent, with the composer at the bottom. The formatted document opens to the right, in the pencil editor when installed.
+- Hover a sent idea to edit it (pencil). Editing re-merges the document so it follows the new wording; the old wording is kept in the idea's history.
+- Retry and restore are hover actions on each idea; versions stay one click away.
+
 ## 0.1.3
 
 - Prompts are named inside the panel, not in the VS Code input box.

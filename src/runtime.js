@@ -265,6 +265,11 @@ function create(host) {
       case 'retry':
         if (s) { if (m.entryId) s.retry(m.entryId); else s.retryAll(); }
         return;
+      case 'editIdea':
+        if (!s) return;
+        if (!engine.selection().ok) { notice('error', engine.selection().reason); return; }
+        if (!s.editIdea(m.entryId, m.text)) notice('info', 'Nothing changed.');
+        return;
       case 'openDoc':
         await openDoc();
         return;

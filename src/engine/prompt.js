@@ -13,12 +13,15 @@ const iso = (ts) => { try { return new Date(ts).toISOString(); } catch { return 
 const block = (s) => (String(s == null ? "" : s).endsWith("\n") ? String(s) : `${s}\n`);
 const q = (s) => `"${String(s == null ? '' : s).replace(/\s+/g, ' ').trim()}"`;
 
-function buildMergePrompt({ doc, ideas = [], resolutions = [], conflicts = [], recent = [], target, sections = SECTIONS }) {
+function buildMergePrompt({ doc, ideas = [], resolutions = [], revisions = [], conflicts = [], recent = [], target, sections = SECTIONS }) {
   const label = (target && target.label) || 'the target model';
   const merged = recent.length
     ? recent.map((e) => `- [${iso(e.ts)}] ${String(e.text || '').replace(/\s+/g, ' ').trim()}`).join('\n')
     : '(none yet)';
   const ideaLines = ideas.length ? ideas.map((it, i) => `${i + 1}. ${String(it.text || '').trim()}`).join('\n') : '(none)';
+  const revLines = revisions.length
+    ? revisions.map((r) => `- ${r.id}: was ${q(r.before)} -> now ${q(r.after)}`).join('\n')
+    : '(none)';
   const resLines = resolutions.length
     ? resolutions.map((r) => {
       const c = conflicts.find((x) => x.id === r.conflictId) || {};
@@ -49,6 +52,11 @@ ${ideaLines}
 <resolutions>
 ${resLines}
 </resolutions>
+
+<revisions>
+${revLines}
+</revisions>
+A revision is an earlier idea the person rewrote. Update the document so it reflects the new wording and no longer reflects the old one; do not keep both.
 
 Rules:
 1. Merge every new idea into the section it belongs to. The document's own sections are the structure; the canonical set is ${sections.join(', ')}. Never append an idea as a loose bullet at the end and never invent a "Notes" or "Misc" section. If nothing fits, the closest section takes it; add a section only when the idea is clearly a new kind of thing.

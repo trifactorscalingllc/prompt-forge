@@ -57,6 +57,8 @@
   function renderHeader(s) {
     const a = s.active;
     $('title').textContent = a ? a.title : 'Prompt Forge';
+    $('compose').hidden = !a;
+    $('open-doc').hidden = !a;
     const sel = $('target');
     const want = a ? a.target : '';
     sel.textContent = '';
@@ -292,14 +294,15 @@
     }
   }
 
+  let editing = null; // entry id being edited inline
+
   function renderHistory(s) {
     const root = $('history');
     root.textContent = '';
     const a = s.active;
     if (!a) return;
-    const entries = a.entries.slice().reverse();
     const head = el('div', 'hsec-head');
-    head.append(el('span', 'hsec-title', `Ideas (${a.entries.length})`));
+    head.append(el('span', 'hsec-title', `${a.entries.length} idea${a.entries.length === 1 ? '' : 's'} sent`));
     const vt = el('button', 'link', versionsOpen ? 'hide versions' : `versions (${a.snapshots.length})`);
     vt.addEventListener('click', () => { versionsOpen = !versionsOpen; save(); if (latest) render(latest); });
     head.append(vt);
@@ -307,12 +310,12 @@
 
     if (versionsOpen) {
       const vl = el('div', 'versions');
+      const last = a.snapshots[a.snapshots.length - 1];
       for (const v of a.snapshots.slice().reverse()) {
         const row = el('div', 'vrow');
         row.append(el('span', `vkind ${v.kind}`, v.kind), el('span', 'vwhen', ago(v.ts)));
         if (v.call) row.append(el('span', 'vmeta', `${v.call.provider}/${v.call.model}${v.call.usage ? ` · ${k(v.call.usage.input)}/${k(v.call.usage.output)}` : ''}`));
         if (v.changes && v.changes.length) row.append(el('span', 'vchanges', v.changes.slice(0, 3).join(' · ')));
-        const last = a.snapshots[a.snapshots.length - 1];
         if (v.id !== last.id) {
           const rb = el('button', 'link', 'restore');
           rb.addEventListener('click', () => vscode.postMessage({ type: 'restore', snapshotId: v.id }));
@@ -323,29 +326,58 @@
       root.append(vl);
     }
 
-    if (!entries.length) { root.append(el('p', 'muted', 'No ideas yet. Type one above and press Enter.')); return; }
-    for (const e of entries) {
-      const row = el('div', `entry ${e.status}`);
-      row.append(el('span', `dot ${e.status}`));
-      const body = el('div', 'ebody');
-      body.append(el('div', 'etext', e.text));
-      const meta = el('div', 'emeta');
-      meta.append(el('span', null, `${e.id} · ${ago(e.ts)} · ${e.status}`));
-      if (e.status === 'failed') {
-        meta.append(el('span', 'bad', e.error || ''));
-        const rb = el('button', 'btn small', 'Retry');
-        rb.addEventListener('click', () => vscode.postMessage({ type: 'retry', entryId: e.id }));
-        meta.append(rb);
-      } else if (e.status === 'merged' && e.snapshotId) {
-        const rb = el('button', 'link', 'restore to here');
-        rb.title = `Put the document back to the version right after this idea (${e.snapshotId})`;
-        rb.addEventListener('click', () => vscode.postMessage({ type: 'restore', snapshotId: e.snapshotId }));
-        meta.append(rb);
+    if (!a.entries.length) { root.append(el('p', 'muted chat-empty', 'No ideas yet. Type one below and press Enter.')); return; }
+    const log = el('div', 'log');
+    for (const e of a.entries) {
+      const msg = el('div', `msg ${e.status}`);
+      msg.dataset.id = e.id;
+      const bubble = el('div', 'bubble');
+      if (editing === e.id) {
+        const ta = el('textarea', 'edit-box');
+        ta.value = e.text;
+        ta.rows = Math.min(8, Math.max(2, e.text.split('\n').length + 1));
+        const acts = el('div', 'edit-actions');
+        const ok = el('button', 'btn small primary', 'Re-merge');
+        const cancel = el('button', 'btn small', 'Cancel');
+        const submit = () => { const t = ta.value.trim(); editing = null; if (t && t !== e.text) vscode.postMessage({ type: 'editIdea', entryId: e.id, text: t }); else if (latest) render(latest); };
+        ok.addEventListener('click', submit);
+        cancel.addEventListener('click', () => { editing = null; if (latest) render(latest); });
+        ta.addEventListener('keydown', (ev) => {
+          if (ev.key === 'Enter' && !ev.shiftKey && !ev.isComposing) { ev.preventDefault(); submit(); }
+          if (ev.key === 'Escape') { ev.preventDefault(); editing = null; if (latest) render(latest); }
+        });
+        acts.append(ok, cancel);
+        bubble.append(ta, acts);
+        setTimeout(() => ta.focus(), 0);
+      } else {
+        bubble.append(el('div', 'mtext', e.text));
       }
-      body.append(meta);
-      row.append(body);
-      root.append(row);
+      const meta = el('div', 'mmeta');
+      const stateText = e.status === 'pending' ? 'merging…' : e.status === 'failed' ? `failed: ${e.error || ''}` : (e.edits && e.edits.length ? `merged · edited ${e.edits.length}×` : 'merged');
+      meta.append(el('span', e.status === 'failed' ? 'bad' : null, `${ago(e.ts)} · ${stateText}`));
+      const acts = el('div', 'macts');
+      if (editing !== e.id && e.status !== 'pending') {
+        const edit = el('button', 'icon', '✎');
+        edit.title = 'Edit this idea and re-merge the document';
+        edit.addEventListener('click', () => { editing = e.id; if (latest) render(latest); });
+        acts.append(edit);
+      }
+      if (e.status === 'failed') {
+        const rb = el('button', 'icon', '↻');
+        rb.title = 'Retry';
+        rb.addEventListener('click', () => vscode.postMessage({ type: 'retry', entryId: e.id }));
+        acts.append(rb);
+      } else if (e.status === 'merged' && e.snapshotId) {
+        const rb = el('button', 'icon', '⟲');
+        rb.title = `Put the document back to right after this idea (${e.snapshotId})`;
+        rb.addEventListener('click', () => vscode.postMessage({ type: 'restore', snapshotId: e.snapshotId }));
+        acts.append(rb);
+      }
+      msg.append(bubble, meta, acts);
+      log.append(msg);
     }
+    root.append(log);
+    root.scrollTop = root.scrollHeight;
   }
 
   function renderUsage(s) {
@@ -353,29 +385,34 @@
     const a = s.active;
     if (!a) { root.textContent = ''; return; }
     const u = a.usage;
-    root.textContent = u.calls
-      ? `This prompt: ${u.calls} call${u.calls === 1 ? '' : 's'} · ${k(u.input)} tokens in / ${k(u.output)} out · library ${s.library}`
-      : `Library ${s.library}`;
+    root.textContent = u.calls ? `${u.calls} call${u.calls === 1 ? '' : 's'} · ${k(u.input)} in / ${k(u.output)} out` : '';
   }
 
   function renderEmpty(s) {
     const root = $('empty');
     const a = s.active;
-    root.hidden = Boolean(a);
-    $('compose').hidden = !a;
-    if (a) return;
+    root.hidden = Boolean(a) || engineOpen;
+    $('work').hidden = !a && !engineOpen;
+    if (a || engineOpen) return;
     root.textContent = '';
-    root.append(el('h2', null, 'Build one clear prompt from many rough ideas.'));
-    root.append(el('p', null, 'Create a prompt, then type ideas one at a time. Each Enter merges the idea into a structured document beside this panel. Contradictions are flagged, never guessed away. Polish rewrites the whole thing for the model you are sending it to.'));
+    const box = el('div', 'welcome');
+    box.append(el('h2', null, 'Build one clear prompt from many rough ideas.'));
+    box.append(el('p', null, 'Create a prompt, then type ideas one at a time. Each Enter merges the idea into a structured document beside this panel. Contradictions are flagged, never guessed away. Polish rewrites the whole thing for the model you are sending it to.'));
+    const row = el('div', 'welcome-actions');
     const b = el('button', 'btn primary', 'New prompt');
     b.addEventListener('click', () => showNewForm());
-    root.append(b);
-    if (!s.engine.selected) {
-      root.append(el('p', 'muted', `Engine: ${s.engine.reason || 'none yet'}.`));
-      const eb = el('button', 'btn', 'Set up an engine');
-      eb.addEventListener('click', () => { engineOpen = true; save(); if (latest) render(latest); });
-      root.append(eb);
+    row.append(b);
+    const eb = el('button', 'btn', s.engine.selected ? 'Settings' : 'Set up an engine');
+    eb.addEventListener('click', () => { engineOpen = true; save(); if (latest) render(latest); });
+    row.append(eb);
+    box.append(row);
+    if (s.engine.selected) {
+      const p = s.engine.providers.find((x) => x.id === s.engine.selected.provider) || {};
+      box.append(el('p', 'muted', `Engine ready: ${p.label || s.engine.selected.provider}${p.cli && p.cli.account ? ` · ${p.cli.account}` : ''} · merge ${s.engine.selected.mergeModel} · polish ${s.engine.selected.polishModel}`));
+    } else {
+      box.append(el('p', 'muted', `No engine yet: ${s.engine.reason || 'sign in or add a key'}.`));
     }
+    root.append(box);
   }
 
   function render(s) {
@@ -390,6 +427,7 @@
     renderEmpty(s);
     renderHistory(s);
     renderUsage(s);
+    if (!s.active) editing = null;
     idea.disabled = Boolean(s.bootError) || !s.active || !s.engine.selected;
     idea.placeholder = s.bootError ? 'The prompt library cannot be opened. See the message above.'
       : !s.active ? 'Create or open a prompt first.'

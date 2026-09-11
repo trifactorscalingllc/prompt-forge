@@ -269,3 +269,32 @@ test('retry on an old failure while a merge is running does not blank the busy s
   await session.idle();
   assert.equal(session.snapshot().engine.state, 'idle');
 });
+
+test('editing a sent idea re-merges it: the entry text changes, the engine sees before and after, the snapshot is a revise', async () => {
+  const { s, slug, session, calls, docio, docPath } = setup((req, n) => mergeReply(req, n === 1 ? 'Ship Friday.' : 'Ship Monday.'));
+  await session.load();
+  session.submitIdea('ship friday');
+  await session.idle();
+  session.editIdea('e1', 'ship monday');
+  await session.idle();
+  assert.equal(calls.length, 2);
+  assert.match(calls[1].prompt, /<revisions>[\s\S]*ship friday[\s\S]*ship monday[\s\S]*<\/revisions>/);
+  const sc = s.read(slug);
+  assert.equal(sc.entries.length, 1, 'an edit is not a new entry');
+  assert.equal(sc.entries[0].text, 'ship monday');
+  assert.equal(sc.entries[0].status, 'merged');
+  assert.deepEqual(sc.entries[0].edits.map((e) => e.text), ['ship friday']);
+  assert.equal(sc.snapshots[sc.snapshots.length - 1].kind, 'revise');
+  assert.ok((await docio.readDoc(docPath)).includes('Ship Monday.'));
+});
+
+test('editing with unchanged or empty text is a no-op', async () => {
+  const { session, calls } = setup((req) => mergeReply(req, 'x'));
+  await session.load();
+  session.submitIdea('same');
+  await session.idle();
+  assert.equal(session.editIdea('e1', 'same'), false);
+  assert.equal(session.editIdea('e1', '   '), false);
+  await session.idle();
+  assert.equal(calls.length, 1);
+});

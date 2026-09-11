@@ -53,6 +53,7 @@ function createSession({ slug, store, docio, engine, cfg, log, publish = () => {
     const role = batch.kind === 'polish' ? 'polish' : 'merge';
     const entryIds = batch.entryIds || [];
     const resolutions = batch.resolutions || [];
+    const revised = batch.revisions || [];
     engineState = { state: 'busy', op: role, model: null, startedAt: Date.now(), error: null };
     publish('engine');
     try {
@@ -70,17 +71,19 @@ function createSession({ slug, store, docio, engine, cfg, log, publish = () => {
         const recentN = Number.isFinite(engineCfg().recentEntries) ? engineCfg().recentEntries : 12;
         const recent = sc.entries.filter((e) => e.status === 'merged').slice(-recentN);
         const conflicts = sc.conflicts.map(publicConflict);
+        const revisions = revised.map((r) => { const e = sc.entries.find((x) => x.id === r.entryId); return e ? { id: e.id, before: r.before, after: e.text } : null; }).filter(Boolean);
+        const touched = [...entryIds, ...revised.map((r) => r.entryId)];
         const prompt = role === 'polish'
           ? buildPolishPrompt({ doc: body, conflicts, target, styleGuide: targets.styleGuide(target.family) })
-          : buildMergePrompt({ doc: body, ideas, resolutions, conflicts, recent, target });
+          : buildMergePrompt({ doc: body, ideas, resolutions, revisions, conflicts, recent, target });
         const timeoutMs = (engineCfg().timeoutSeconds || 240) * 1000;
 
         const res = await engine.call({ role, prompt, timeoutMs });
         if (disposed) return;
         if (res.call) engineState.model = res.call.model;
-        if (res.error) return fail(entryIds, res.error, res.call);
+        if (res.error) return fail(touched, res.error, res.call);
         const out = parseEngineOutput(res.text, { kind: role, inputDoc: body });
-        if (!out.ok) return fail(entryIds, out.error, res.call);
+        if (!out.ok) return fail(touched, out.error, res.call);
 
         // Did the person edit while the engine was thinking? Never overwrite that: run once more.
         const nowRaw = await docio.readDoc(docPath);
@@ -100,16 +103,16 @@ function createSession({ slug, store, docio, engine, cfg, log, publish = () => {
           reread();
         }
         await docio.writeDoc(docPath, docm.withConflictBlock(out.doc, sc.conflicts));
-        const kind = role === 'polish' ? 'polish' : entryIds.length ? 'merge' : 'resolve';
-        const snap = store.addSnapshot(slug, { kind, entryIds, doc: out.doc, conflicts: sc.conflicts, changes: out.changes, target: sc.target, call: res.call });
-        for (const id of entryIds) store.updateEntry(slug, id, { status: 'merged', snapshotId: snap.id, error: null });
+        const kind = role === 'polish' ? 'polish' : entryIds.length ? 'merge' : revised.length ? 'revise' : 'resolve';
+        const snap = store.addSnapshot(slug, { kind, entryIds: touched, doc: out.doc, conflicts: sc.conflicts, changes: out.changes, target: sc.target, call: res.call });
+        for (const id of touched) store.updateEntry(slug, id, { status: 'merged', snapshotId: snap.id, error: null });
         reread();
         engineState = { state: 'idle', op: null, model: null, startedAt: 0, error: null };
         publish('landed');
         return;
       }
     } catch (e) {
-      fail(entryIds, e.message || String(e));
+      fail([...entryIds, ...revised.map((r) => r.entryId)], e.message || String(e));
     }
   }
 
@@ -133,6 +136,19 @@ function createSession({ slug, store, docio, engine, cfg, log, publish = () => {
     queue.push({ kind: 'idea', entryId: entry.id });
     publish('idea');
     return entry;
+  }
+
+  /** Rewrite an idea already sent. The document is re-merged so it follows the new wording. */
+  function editIdea(entryId, text) {
+    const t = String(text == null ? '' : text).trim();
+    const e = sc.entries.find((x) => x.id === entryId);
+    if (!t || !e || t === e.text) return false;
+    const before = e.text;
+    store.updateEntry(slug, entryId, { text: t, status: 'pending', error: null, edits: [...(e.edits || []), { ts: Date.now(), text: before }] });
+    reread();
+    queue.push({ kind: 'revise', entryId, before });
+    publish('edit');
+    return true;
   }
 
   function retry(entryId) {
@@ -194,7 +210,7 @@ function createSession({ slug, store, docio, engine, cfg, log, publish = () => {
   }
 
   return {
-    slug, docPath, load, snapshot, submitIdea, retry, retryAll,
+    slug, docPath, load, snapshot, submitIdea, editIdea, retry, retryAll,
     resolve: (conflictId, keep) => queue.push({ kind: 'resolve', conflictId, keep }),
     polish: () => queue.push({ kind: 'polish' }),
     setTarget(target) { store.setTarget(slug, target); reread(); queue.push({ kind: 'polish' }); },

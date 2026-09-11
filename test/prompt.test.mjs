@@ -67,3 +67,10 @@ test('the contract demands one bare JSON object with doc, conflicts, changes', (
   assert.match(OUTPUT_CONTRACT, /"changes"/);
   assert.match(OUTPUT_CONTRACT, /no code fence/i);
 });
+
+test('merge prompt lists revised ideas with their old and new wording and tells the engine to replace, not add', () => {
+  const p = buildMergePrompt({ ...base, ideas: [], revisions: [{ id: 'e1', before: 'ship friday', after: 'ship monday' }] });
+  assert.ok(p.includes('<revisions>'));
+  assert.ok(p.includes('ship friday') && p.includes('ship monday'));
+  assert.match(p, /no longer reflect/i);
+});

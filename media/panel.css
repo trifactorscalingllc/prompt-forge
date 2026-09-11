@@ -32,7 +32,8 @@ h2 { font-size: 1.1em; margin: 0 0 6px; }
 .prow .x { grid-column: 2; grid-row: 1 / span 2; opacity: 0; padding: 0 4px; }
 .prow:hover .x, .prow:focus .x { opacity: 0.7; }
 
-#main { flex: 1; min-width: 0; display: flex; flex-direction: column; padding: var(--gap) 12px; gap: var(--gap); }
+#main { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.work { flex: 1; min-height: 100vh; display: flex; flex-direction: column; padding: var(--gap) 12px; gap: var(--gap); }
 #head { display: flex; flex-direction: column; gap: 4px; }
 .head-row { display: flex; align-items: center; justify-content: space-between; gap: var(--gap); flex-wrap: wrap; }
 .head-actions { display: flex; align-items: center; gap: var(--gap); }
@@ -69,7 +70,7 @@ h2 { font-size: 1.1em; margin: 0 0 6px; }
 #idea { width: 100%; resize: vertical; min-height: 3.2em; padding: 6px 8px; }
 .compose-foot { display: flex; justify-content: space-between; gap: var(--gap); font-size: 0.85em; color: var(--vscode-descriptionForeground); flex-wrap: wrap; }
 
-#history { display: flex; flex-direction: column; gap: 4px; }
+#history { display: flex; flex-direction: column; gap: 4px; flex: 1; min-height: 0; overflow: auto; }
 .hsec-head { display: flex; justify-content: space-between; align-items: center; margin-top: 4px; }
 .versions { border-left: 2px solid var(--vscode-panel-border); padding-left: 8px; display: flex; flex-direction: column; gap: 2px; margin-bottom: 6px; font-size: 0.9em; }
 .vrow { display: flex; gap: 8px; align-items: baseline; flex-wrap: wrap; }
@@ -84,8 +85,11 @@ h2 { font-size: 1.1em; margin: 0 0 6px; }
 .ebody { min-width: 0; flex: 1; }
 .etext { white-space: pre-wrap; word-break: break-word; }
 .emeta { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; font-size: 0.85em; color: var(--vscode-descriptionForeground); }
-.usage { margin-top: auto; font-size: 0.85em; color: var(--vscode-descriptionForeground); padding-top: 6px; }
-.empty { max-width: 560px; display: flex; flex-direction: column; gap: 8px; align-items: flex-start; padding: 12px 0; }
+.usage { font-size: 0.85em; color: var(--vscode-descriptionForeground); }
+.empty { flex: 1; min-height: 100vh; display: flex; align-items: center; justify-content: center; padding: 24px; }
+.welcome { max-width: 560px; display: flex; flex-direction: column; gap: 10px; align-items: center; text-align: center; }
+.welcome h2 { font-size: 1.3em; }
+.welcome-actions { display: flex; gap: 8px; }
 
 @media (max-width: 640px) {
   #app { flex-direction: column; }
@@ -102,3 +106,20 @@ h2 { font-size: 1.1em; margin: 0 0 6px; }
 .sblock-title { font-weight: 600; }
 .blurb { font-size: 0.9em; color: var(--vscode-descriptionForeground); max-width: 70ch; }
 .mrow { display: flex; flex-direction: column; gap: 3px; }
+
+/* chat log */
+.chat-empty { text-align: center; margin: auto; }
+.log { display: flex; flex-direction: column; gap: 10px; padding: 6px 0; }
+.msg { display: grid; grid-template-columns: 1fr auto; grid-template-rows: auto auto; gap: 2px 8px; align-items: start; max-width: 80ch; }
+.bubble { grid-column: 1; background: var(--vscode-editorWidget-background); border: 1px solid var(--vscode-panel-border); border-radius: 10px 10px 10px 2px; padding: 8px 10px; }
+.msg.pending .bubble { border-style: dashed; }
+.msg.failed .bubble { border-color: var(--vscode-errorForeground); }
+.mtext { white-space: pre-wrap; word-break: break-word; }
+.mmeta { grid-column: 1; font-size: 0.8em; color: var(--vscode-descriptionForeground); padding-left: 4px; }
+.macts { grid-column: 2; grid-row: 1; display: flex; gap: 2px; opacity: 0; transition: opacity 120ms; }
+.msg:hover .macts, .msg:focus-within .macts { opacity: 1; }
+.icon { width: 24px; height: 24px; border-radius: 4px; display: inline-flex; align-items: center; justify-content: center; color: var(--vscode-descriptionForeground); }
+.icon:hover { background: var(--vscode-toolbar-hoverBackground); color: var(--vscode-foreground); }
+.edit-box { width: 100%; resize: vertical; padding: 4px 6px; }
+.edit-actions { display: flex; gap: 6px; margin-top: 4px; }
+#compose { border-top: 1px solid var(--vscode-panel-border); padding-top: 8px; }
