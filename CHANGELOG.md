@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.2.3
+
+- Claude CLI calls replace Claude Code's default system prompt with a short one: measured 585 input tokens for a one-word call instead of 9,142. Merges now cost a fraction of the quota they did.
+- Panel: equal-height column bars; the hint and token lines sit above the idea box.
+
 ## 0.2.2
 
 - New prompt opens the panels immediately; no naming step. The prompt names itself from the first idea, and the title can be clicked to rename.

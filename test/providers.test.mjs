@@ -314,3 +314,14 @@ test('compatible.detect never echoes a query string from the base URL', async ()
   const d = await p.detect({ cfg: cfg({ compatible: { baseUrl: 'https://gw.example/v1?api-key=SECRET' } }), secrets: noSecrets });
   assert.ok(!JSON.stringify(d).includes('SECRET'));
 });
+
+test('claude.complete cli: replaces the CLI default system prompt with a short one (the default costs ~9k tokens per call)', async () => {
+  const run = fakeRun(() => ok(JSON.stringify({ result: 'x', usage: { input_tokens: 1, output_tokens: 1 } })));
+  const p = claude.create({ runCli: run, resolveBin: () => '/bin/claude', fetch: null, fs: fsWith([]), home: '/h' });
+  await p.complete({ mode: 'cli', model: 'sonnet', prompt: 'P', timeoutMs: 5000, cfg: cfg(), secrets: noSecrets });
+  const args = run.calls[0].args;
+  const i = args.indexOf('--system-prompt');
+  assert.ok(i >= 0, 'system prompt replaced');
+  assert.ok(args[i + 1].length > 40 && args[i + 1].length < 400, 'short');
+  assert.match(args[i + 1], /Prompt Forge/);
+});

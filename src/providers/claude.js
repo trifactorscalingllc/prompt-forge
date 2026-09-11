@@ -9,8 +9,13 @@ const VERSION = '2023-06-01';
 // Billing switches. Their absence IS the subscription path: a stray key in the host environment
 // would silently move every merge onto the paid API.
 const BILLING = ['ANTHROPIC_API_KEY', 'ANTHROPIC_AUTH_TOKEN'];
+// Claude Code's default system prompt is ~8k tokens and is sent (mostly as a cache read) on every
+// call. Replacing it with this line was measured at 585 input tokens for a one-word call instead
+// of 9,142. Everything the engine must know is in the message itself.
+const SYSTEM = 'You are the engine inside Prompt Forge, a tool that builds one prompt from many ideas. Follow the instructions in the message exactly and output only what they ask for.';
 // Bare-call flags as groups, so a flag an older CLI rejects can be dropped as a unit.
 const BARE = [
+  ['--system-prompt', SYSTEM],
   ['--output-format', 'json'],
   ['--setting-sources', ''],
   ['--exclude-dynamic-system-prompt-sections'],
@@ -109,4 +114,4 @@ function create({ runCli, resolveBin, fetch, fs, home }) {
   };
 }
 
-module.exports = { create, KEY, BARE, BILLING };
+module.exports = { create, KEY, BARE, BILLING, SYSTEM };
