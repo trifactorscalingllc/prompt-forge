@@ -2,7 +2,7 @@
   "name": "prompt-forge",
   "displayName": "Prompt Forge",
   "description": "Build complicated prompts one idea at a time. Every Enter merges an idea into a structured prompt, contradictions surface instead of being guessed away, and Polish rewrites it for the model you are sending it to. Works with your own Claude, Gemini, or OpenAI login, or any API key.",
-  "version": "0.2.3",
+  "version": "0.2.4",
   "publisher": "trifactorscaling",
   "license": "MIT",
   "repository": {

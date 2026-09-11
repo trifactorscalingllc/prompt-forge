@@ -167,3 +167,31 @@ h2 { font-size: 1.1em; margin: 0 0 6px; }
 h1.editable { cursor: text; border-bottom: 1px dashed transparent; }
 h1.editable:hover { border-bottom-color: var(--vscode-descriptionForeground); }
 .title-edit { font-size: 1.15em; font-weight: 600; padding: 2px 6px; min-width: 24ch; }
+
+/* window constraints: never scroll sideways; stack when narrow; the rail moves on top when very narrow */
+html, body { overflow-x: hidden; max-width: 100%; }
+#app { min-width: 0; max-width: 100%; }
+#main { container-type: inline-size; min-width: 0; }
+.columns { grid-template-columns: minmax(0, 1fr) minmax(0, 1.15fr); }
+.head-row h1 { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 100%; }
+.engine { min-width: 0; overflow-wrap: anywhere; }
+@container (max-width: 760px) {
+  .work { min-height: 0; }
+  .columns { grid-template-columns: minmax(0, 1fr); }
+  .col { height: 70vh; min-height: 320px; }
+  .settings { grid-template-columns: 1fr; }
+  .snav { flex-direction: row; flex-wrap: wrap; border-right: none; border-bottom: 1px solid var(--vscode-panel-border); padding: 4px 0; }
+  .snav-spacer { display: none; }
+  .snav .btn { margin: 0 0 0 auto; }
+}
+@container (max-width: 420px) {
+  .head-actions { width: 100%; }
+  .head-actions .lbl { flex: 1; }
+  .head-actions select { width: 100%; }
+  .sctl select { min-width: 0; width: 100%; }
+}
+@media (max-width: 640px) {
+  #rail { max-height: 26vh; }
+  #prompts { display: flex; gap: 6px; overflow-x: auto; overflow-y: hidden; }
+  .prow { flex: 0 0 auto; max-width: 220px; }
+}

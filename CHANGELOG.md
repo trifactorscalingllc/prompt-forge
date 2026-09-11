@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.2.4
+
+- Window constraints: no sideways scrolling at any width. Below about 760px the Ideas and Prompt panels stack; below 640px the prompt list moves to a strip across the top. Settings folds its nav into a row when narrow.
+
 ## 0.2.3
 
 - Claude CLI calls replace Claude Code's default system prompt with a short one: measured 585 input tokens for a one-word call instead of 9,142. Merges now cost a fraction of the quota they did.
