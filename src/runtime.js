@@ -15,6 +15,7 @@ const { createEngine } = require('./engine/engine');
 const { createProviders, secretKey } = require('./providers');
 const { runCli, resolveBin } = require('./providers/spawn');
 const targets = require('./targets');
+const { modelBlurb, ROLE_BLURBS } = require('./blurbs');
 
 const LAST_OPEN = 'promptForge.lastOpen';
 
@@ -50,7 +51,17 @@ function create(host) {
       targets: targets.TARGETS,
       docEditor: config().docEditor,
       engineCfg: config().engine || {},
+      blurbs: blurbs(engine.state()),
     };
+  }
+
+  /** One line per known model id (catalog, API list, or configured), plus the role lines. */
+  function blurbs(engineState) {
+    const models = {};
+    for (const p of engineState.providers || []) for (const m of p.models || []) models[m.id] = modelBlurb(m.id);
+    const e = config().engine || {};
+    for (const id of [e.mergeModel, e.polishModel]) if (id && id !== 'auto') models[id] = modelBlurb(id);
+    return { roles: ROLE_BLURBS, models, targets: Object.fromEntries(targets.TARGETS.map((t) => [t.id, t.blurb])) };
   }
 
   function post() {
@@ -262,6 +273,9 @@ function create(host) {
         return;
       case 'openUrl':
         if (m.url && /^https:\/\//.test(m.url)) await vscode.env.openExternal(vscode.Uri.parse(m.url));
+        return;
+      case 'openSettings':
+        await vscode.commands.executeCommand('workbench.action.openSettings', '@ext:trifactorscaling.prompt-forge');
         return;
       case 'engine.detect':
         await engine.detectAll();

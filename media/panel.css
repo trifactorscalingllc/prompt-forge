@@ -91,3 +91,14 @@ h2 { font-size: 1.1em; margin: 0 0 6px; }
   #app { flex-direction: column; }
   #rail { width: auto; border-right: none; border-bottom: 1px solid var(--vscode-panel-border); max-height: 30vh; }
 }
+
+/* settings module + inline naming */
+.new-form { display: flex; flex-direction: column; gap: 4px; padding: 4px 0 6px; }
+.new-form input { width: 100%; padding: 4px 6px; }
+.new-actions { display: flex; gap: 6px; }
+.btn.active { outline: 1px solid var(--accent); }
+.epart { cursor: help; }
+.sblock { display: flex; flex-direction: column; gap: 6px; padding-top: 4px; border-top: 1px solid var(--vscode-panel-border); }
+.sblock-title { font-weight: 600; }
+.blurb { font-size: 0.9em; color: var(--vscode-descriptionForeground); max-width: 70ch; }
+.mrow { display: flex; flex-direction: column; gap: 3px; }

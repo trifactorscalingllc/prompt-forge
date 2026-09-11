@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.1.3
+
+- Prompts are named inside the panel, not in the VS Code input box.
+- A Settings module (header button) with three parts: Engine (which account), Models (merge and polish, per engine), Target (what the prompt is for).
+- One-line explanations for every choice: each role, each model, each target, and tooltips on the engine line.
+
 ## 0.1.2
 
 - Hidden sections (engine, conflicts, compose) no longer render as empty boxes; the welcome text sits under the header.

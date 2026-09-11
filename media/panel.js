@@ -69,19 +69,26 @@
     }
     if (want && !known) { const o = el('option', null, want); o.value = want; o.selected = true; sel.append(o); }
     sel.disabled = !a;
+    sel.title = (s.blurbs && s.blurbs.targets && s.blurbs.targets[want]) ? `${s.blurbs.roles.target}\n${s.blurbs.targets[want]}` : (s.blurbs && s.blurbs.roles.target) || '';
     $('polish').disabled = !a;
     $('copy').disabled = !a;
 
     const e = s.engine;
     const summary = $('engine-summary');
+    summary.textContent = '';
+    const blurbs = s.blurbs || { roles: {}, models: {}, targets: {} };
+    const part = (text, tip) => { const sp = el('span', 'epart', text); if (tip) sp.title = tip; summary.append(sp); };
     if (e.selected) {
       const p = e.providers.find((x) => x.id === e.selected.provider) || {};
       const who = e.selected.mode === 'cli' ? (p.cli && p.cli.account ? p.cli.account : 'CLI login') : 'API key';
       const plan = e.selected.mode === 'cli' && p.cli && p.cli.plan ? ` · ${p.cli.plan}` : '';
-      summary.textContent = `Engine: ${p.label || e.selected.provider} · ${who}${plan} · merge ${e.selected.mergeModel} · polish ${e.selected.polishModel}`;
+      part(`Engine: ${p.label || e.selected.provider} · ${who}${plan}`, blurbs.roles.provider);
+      part(` · merge ${e.selected.mergeModel}`, `${blurbs.roles.merge || ''}\n${blurbs.models[e.selected.mergeModel] || ''}`);
+      part(` · polish ${e.selected.polishModel}`, `${blurbs.roles.polish || ''}\n${blurbs.models[e.selected.polishModel] || ''}`);
+      part(' · change', 'Open Settings');
       summary.classList.remove('bad');
     } else {
-      summary.textContent = `No engine: ${e.reason || 'sign in'}`;
+      part(`No engine: ${e.reason || 'sign in'}`, 'Open Settings to sign in or add a key');
       summary.classList.add('bad');
     }
 
@@ -111,20 +118,39 @@
     const root = $('engine');
     root.hidden = !engineOpen;
     root.textContent = '';
+    $('settings').classList.toggle('active', engineOpen);
     if (!engineOpen) return;
     const e = s.engine;
+    const blurbs = s.blurbs || { roles: {}, models: {}, targets: {} };
+    const blurbFor = (id) => blurbs.models[id] || 'Custom id, passed through unchanged. Prompt Forge cannot say how it will behave.';
+
     const head = el('div', 'esec-head');
-    head.append(el('span', 'esec-title', 'Engine'), el('span', 'muted', 'Which account does the work. Independent of the target model.'));
+    head.append(el('span', 'esec-title', 'Settings'), el('span', 'muted', 'Tune what runs, for whom, and what the prompt is written for.'));
     const detect = el('button', 'btn small', 'Detect again');
     detect.addEventListener('click', () => vscode.postMessage({ type: 'engine.detect' }));
-    head.append(detect);
+    const all = el('button', 'link', 'All settings in VS Code');
+    all.addEventListener('click', () => vscode.postMessage({ type: 'openSettings' }));
+    const close = el('button', 'btn small', 'Close');
+    close.addEventListener('click', () => { engineOpen = false; save(); if (latest) render(latest); });
+    head.append(detect, all, close);
     root.append(head);
 
+    // --- 1. Engine: which account does the work ---
+    const eng = el('div', 'sblock');
+    eng.append(el('div', 'sblock-title', '1. Engine'), el('div', 'blurb', blurbs.roles.provider || ''));
     for (const p of e.providers) {
-      const card = el('div', `card${e.selected && e.selected.provider === p.id ? ' selected' : ''}`);
+      const inUse = e.selected && e.selected.provider === p.id;
+      const card = el('div', `card${inUse ? ' selected' : ''}`);
       const top = el('div', 'card-top');
       top.append(el('span', 'card-title', p.label));
-      if (e.selected && e.selected.provider === p.id) top.append(el('span', 'tag', `in use · ${e.selected.mode === 'cli' ? 'login' : 'key'}`));
+      if (inUse) top.append(el('span', 'tag', `in use · ${e.selected.mode === 'cli' ? 'login' : 'key'}`));
+      const usable = p.cli.loggedIn || p.apiKey.stored;
+      if (usable && !inUse) {
+        const use = el('button', 'btn small', 'Use this engine');
+        use.title = 'Route merges and polish through this account. Models reset to auto for it.';
+        use.addEventListener('click', () => vscode.postMessage({ type: 'engine.select', provider: p.id, mergeModel: 'auto', polishModel: 'auto' }));
+        top.append(use);
+      }
       card.append(top);
 
       if (p.modes.includes('cli')) {
@@ -141,6 +167,7 @@
         } else {
           line.append(el('span', 'muted', `CLI ${p.cli.version || ''} · not signed in`));
           const btn = el('button', 'btn small', 'Sign in');
+          btn.title = 'Opens the vendor login in a terminal. Your subscription then runs the engine.';
           btn.addEventListener('click', () => vscode.postMessage({ type: 'engine.signIn', provider: p.id, mode: 'cli' }));
           line.append(btn);
         }
@@ -155,56 +182,90 @@
         kb.addEventListener('click', () => vscode.postMessage({ type: 'engine.setKey', provider: p.id }));
         keyLine.append(kb);
       } else if (p.apiKey.stored) {
-        keyLine.append(el('span', null, 'API key stored in your keychain.'));
+        keyLine.append(el('span', null, 'API key stored in your keychain (pay per token).'));
         const fb = el('button', 'link', 'Forget key');
         fb.addEventListener('click', () => vscode.postMessage({ type: 'engine.forgetKey', provider: p.id }));
         keyLine.append(fb);
       } else {
         keyLine.append(el('span', 'muted', 'No API key.'));
         const kb = el('button', 'btn small', 'Set key');
+        kb.title = 'Stored in your OS keychain, never in settings. Pays per token instead of using a subscription.';
         kb.addEventListener('click', () => vscode.postMessage({ type: 'engine.setKey', provider: p.id }));
         keyLine.append(kb);
       }
       card.append(keyLine);
-
-      const usable = p.cli.loggedIn || p.apiKey.stored;
-      if (usable) {
-        const models = el('div', 'models');
-        const mk = (role, current) => {
-          const wrap = el('label', 'lbl', `${role} `);
-          const sel = el('select');
-          const ids = p.models.map((m) => m.id);
-          const custom = customModels[`${p.id}.${role}`];
-          const opts = [['auto', `auto (${p.defaults[role === 'merge' ? 'merge' : 'polish'] || '?'})`], ...p.models.map((m) => [m.id, m.label || m.id]), ['__custom', 'type a model id…']];
-          if (custom && !ids.includes(custom)) opts.splice(opts.length - 1, 0, [custom, custom]);
-          for (const [v, label] of opts) { const o = el('option', null, label); o.value = v; if (v === (current || 'auto')) o.selected = true; sel.append(o); }
-          sel.addEventListener('change', () => {
-            let v = sel.value;
-            if (v === '__custom') {
-              v = window.prompt(`Model id for ${role} on ${p.label}:`, custom || '') || '';
-              v = v.trim();
-              if (!v) { sel.value = current || 'auto'; return; }
-              customModels[`${p.id}.${role}`] = v;
-              save();
-            }
-            vscode.postMessage({ type: 'engine.select', provider: p.id, [role === 'merge' ? 'mergeModel' : 'polishModel']: v === 'auto' ? 'auto' : v });
-          });
-          wrap.append(sel);
-          return wrap;
-        };
-        const inUse = e.selected && e.selected.provider === p.id;
-        models.append(mk('merge', inUse ? s.engineCfg && s.engineCfg.mergeModel : 'auto'), mk('polish', inUse ? s.engineCfg && s.engineCfg.polishModel : 'auto'));
-        if (!inUse) {
-          const use = el('button', 'btn small', 'Use this engine');
-          use.addEventListener('click', () => vscode.postMessage({ type: 'engine.select', provider: p.id, mergeModel: 'auto', polishModel: 'auto' }));
-          models.append(use);
-        }
-        card.append(models);
-      }
-      root.append(card);
+      eng.append(card);
     }
-    const foot = el('div', 'muted small-text', 'Keys live in your OS keychain through VS Code SecretStorage. Prompts go only to the provider you pick. Subscription quota is not exposed by any vendor; the footer shows per-call tokens instead.');
-    root.append(foot);
+    root.append(eng);
+
+    // --- 2. Models: one per role, for the engine in use ---
+    const mod = el('div', 'sblock');
+    mod.append(el('div', 'sblock-title', '2. Models'));
+    const cur = e.selected ? e.providers.find((x) => x.id === e.selected.provider) : null;
+    if (!cur) {
+      mod.append(el('div', 'muted', 'Sign in to an engine above to choose its models.'));
+    } else {
+      for (const role of ['merge', 'polish']) {
+        const row = el('div', 'mrow');
+        const key = role === 'merge' ? 'mergeModel' : 'polishModel';
+        const current = (s.engineCfg && s.engineCfg[key]) || 'auto';
+        const resolved = e.selected[key];
+        const wrap = el('label', 'lbl', `${role === 'merge' ? 'Merge' : 'Polish'} model `);
+        const sel = el('select');
+        const ids = cur.models.map((m) => m.id);
+        const custom = customModels[`${cur.id}.${role}`];
+        const opts = [['auto', `auto (${cur.defaults[role] || '?'})`], ...cur.models.map((m) => [m.id, m.label || m.id]), ['__custom', 'type a model id…']];
+        if (custom && !ids.includes(custom)) opts.splice(opts.length - 1, 0, [custom, custom]);
+        if (current !== 'auto' && !ids.includes(current) && current !== custom) opts.splice(opts.length - 1, 0, [current, current]);
+        for (const [v, label] of opts) { const o = el('option', null, label); o.value = v; if (v === current) o.selected = true; sel.append(o); }
+        const why = el('div', 'blurb');
+        const describe = () => {
+          const v = sel.value === 'auto' ? resolved : sel.value;
+          why.textContent = `${blurbs.roles[role] || ''} Now: ${v}. ${v === '__custom' ? '' : blurbFor(v)}`;
+        };
+        describe();
+        sel.addEventListener('change', () => {
+          let v = sel.value;
+          if (v === '__custom') {
+            v = (window.prompt(`Model id for ${role} on ${cur.label}:`, custom || '') || '').trim();
+            if (!v) { sel.value = current; describe(); return; }
+            customModels[`${cur.id}.${role}`] = v;
+            save();
+          }
+          vscode.postMessage({ type: 'engine.select', provider: cur.id, [key]: v === 'auto' ? 'auto' : v });
+        });
+        wrap.append(sel);
+        row.append(wrap, why);
+        mod.append(row);
+      }
+    }
+    root.append(mod);
+
+    // --- 3. Target: what the prompt is written for ---
+    const tgt = el('div', 'sblock');
+    tgt.append(el('div', 'sblock-title', '3. Target'), el('div', 'blurb', blurbs.roles.target || ''));
+    const a = s.active;
+    if (!a) {
+      tgt.append(el('div', 'muted', 'Open a prompt to set its target. Each prompt remembers its own.'));
+    } else {
+      const trow = el('div', 'mrow');
+      const wrap = el('label', 'lbl', 'Target model ');
+      const sel = el('select');
+      let known = false;
+      for (const t of s.targets) { const o = el('option', null, t.label); o.value = t.id; if (t.id === a.target) { o.selected = true; known = true; } sel.append(o); }
+      if (!known) { const o = el('option', null, a.target); o.value = a.target; o.selected = true; sel.append(o); }
+      const why = el('div', 'blurb');
+      const describe = () => { why.textContent = blurbs.targets[sel.value] || 'Custom target: polished with the Claude style guide unless you pick another family.'; };
+      describe();
+      sel.addEventListener('change', () => { describe(); vscode.postMessage({ type: 'setTarget', target: sel.value }); });
+      wrap.append(sel);
+      trow.append(wrap, why);
+      tgt.append(trow);
+      tgt.append(el('div', 'muted small-text', 'Changing the target runs a Polish with the polish model.'));
+    }
+    root.append(tgt);
+
+    root.append(el('div', 'muted small-text', 'Keys live in your OS keychain through VS Code SecretStorage. Prompts go only to the provider you pick. No vendor exposes subscription quota; the footer shows per-call tokens instead.'));
   }
 
   // ------------------------------------------------------------------------------------------
@@ -307,7 +368,7 @@
     root.append(el('h2', null, 'Build one clear prompt from many rough ideas.'));
     root.append(el('p', null, 'Create a prompt, then type ideas one at a time. Each Enter merges the idea into a structured document beside this panel. Contradictions are flagged, never guessed away. Polish rewrites the whole thing for the model you are sending it to.'));
     const b = el('button', 'btn primary', 'New prompt');
-    b.addEventListener('click', () => vscode.postMessage({ type: 'newPrompt' }));
+    b.addEventListener('click', () => showNewForm());
     root.append(b);
     if (!s.engine.selected) {
       root.append(el('p', 'muted', `Engine: ${s.engine.reason || 'none yet'}.`));
@@ -350,7 +411,21 @@
     }
   });
   idea.addEventListener('input', save);
-  $('new').addEventListener('click', () => vscode.postMessage({ type: 'newPrompt' }));
+  const newForm = $('new-form');
+  const newName = $('new-name');
+  function showNewForm() { newForm.hidden = false; newName.value = ''; newName.focus(); }
+  function hideNewForm() { newForm.hidden = true; }
+  newForm.addEventListener('submit', (ev) => {
+    ev.preventDefault();
+    const title = newName.value.trim();
+    if (!title) { newName.focus(); return; }
+    vscode.postMessage({ type: 'newPrompt', title });
+    hideNewForm();
+  });
+  newName.addEventListener('keydown', (ev) => { if (ev.key === 'Escape') { ev.preventDefault(); hideNewForm(); } });
+  $('new-cancel').addEventListener('click', hideNewForm);
+  $('new').addEventListener('click', showNewForm);
+  $('settings').addEventListener('click', () => { engineOpen = !engineOpen; save(); if (latest) render(latest); });
   $('open-library').addEventListener('click', () => vscode.postMessage({ type: 'openLibrary' }));
   $('open-doc').addEventListener('click', () => vscode.postMessage({ type: 'openDoc' }));
   $('polish').addEventListener('click', () => vscode.postMessage({ type: 'polish' }));

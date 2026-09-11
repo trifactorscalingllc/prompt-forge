@@ -29,6 +29,13 @@ function html({ vscode, webview, mediaRoots, stamp }) {
       <span class="rail-title">Prompts</span>
       <button id="new" class="btn small" title="New prompt">+ New</button>
     </div>
+    <form id="new-form" class="new-form" hidden>
+      <input id="new-name" type="text" placeholder="Name the prompt, then Enter" spellcheck="false" autocomplete="off">
+      <div class="new-actions">
+        <button type="submit" class="btn small primary">Create</button>
+        <button type="button" id="new-cancel" class="btn small">Cancel</button>
+      </div>
+    </form>
     <div id="prompts"></div>
     <button id="open-library" class="link">Open library folder</button>
   </aside>
@@ -42,6 +49,7 @@ function html({ vscode, webview, mediaRoots, stamp }) {
           </label>
           <button id="polish" class="btn" title="Rewrite the whole document in the target model's preferred style">Polish</button>
           <button id="copy" class="btn primary" title="Copy the final prompt to the clipboard">Copy</button>
+          <button id="settings" class="btn" title="Engine, models and target: tune what runs and for whom">Settings</button>
         </div>
       </div>
       <div class="head-row sub">

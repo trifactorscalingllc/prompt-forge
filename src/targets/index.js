@@ -6,14 +6,14 @@ const fs = require('node:fs');
 const path = require('node:path');
 
 const TARGETS = [
-  { id: 'fable-5.1', label: 'Claude Fable 5.1', family: 'claude' },
-  { id: 'opus-5', label: 'Claude Opus 5', family: 'claude' },
-  { id: 'sonnet-5', label: 'Claude Sonnet 5', family: 'claude' },
-  { id: 'haiku-4.5', label: 'Claude Haiku 4.5', family: 'claude' },
-  { id: 'gemini-pro', label: 'Gemini Pro', family: 'gemini' },
-  { id: 'gemini-flash', label: 'Gemini Flash', family: 'gemini' },
-  { id: 'gpt-5', label: 'GPT-5', family: 'gpt' },
-  { id: 'gpt-5-mini', label: 'GPT-5 mini', family: 'gpt' },
+  { id: 'fable-5.1', label: 'Claude Fable 5.1', family: 'claude', blurb: 'XML-tagged sections, explicit literal instructions, examples in tags. States the outcome and the limits, not a step list; Fable does worse when over-scripted.' },
+  { id: 'opus-5', label: 'Claude Opus 5', family: 'claude', blurb: 'Same XML-tagged shape as Fable. Opus follows detailed requirements closely, so be exact about quantities and formats.' },
+  { id: 'sonnet-5', label: 'Claude Sonnet 5', family: 'claude', blurb: 'XML-tagged sections with short, literal lines. Sonnet rewards a precise output-format block.' },
+  { id: 'haiku-4.5', label: 'Claude Haiku 4.5', family: 'claude', blurb: 'XML-tagged sections kept short. Haiku follows simple explicit lines best; long nuance gets lost.' },
+  { id: 'gemini-pro', label: 'Gemini Pro', family: 'gemini', blurb: 'A brief-style framing paragraph, markdown headings, numbered rules, an explicit output schema and fenced examples.' },
+  { id: 'gemini-flash', label: 'Gemini Flash', family: 'gemini', blurb: 'Same brief-style layout as Pro, kept tighter: Flash does best with fewer, sharper rules and one clear example.' },
+  { id: 'gpt-5', label: 'GPT-5', family: 'gpt', blurb: 'Developer-message layout: markdown headings, numbered testable rules, success criteria instead of step-by-step, an exact output spec.' },
+  { id: 'gpt-5-mini', label: 'GPT-5 mini', family: 'gpt', blurb: 'Same layout as GPT-5 with shorter sections; mini benefits from one worked example.' },
 ];
 const FAMILIES = ['claude', 'gemini', 'gpt'];
 const DEFAULT_TARGET = 'fable-5.1';
