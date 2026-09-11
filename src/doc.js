@@ -11,8 +11,15 @@ const CONFLICT_OPEN = '<!-- forge:conflicts -->';
 const CONFLICT_CLOSE = '<!-- /forge:conflicts -->';
 const CONFLICT_HEADING = '## Open conflicts';
 
+/** A new prompt is only its title. Sections are added by the engine as ideas land, so the document never shows empty headings. */
 function seed(title) {
-  return `# ${title}\n\n` + SECTIONS.map((s) => `## ${s}\n`).join('\n');
+  return `# ${title}\n`;
+}
+
+/** True when the document has nothing but its title (or nothing at all). */
+function isBlank(doc) {
+  const body = stripConflictBlock(doc).split('\n').filter((l) => l.trim() && !/^# /.test(l));
+  return body.length === 0;
 }
 
 const oneLine = (s) => String(s == null ? '' : s).replace(/\s+/g, ' ').trim();
@@ -92,5 +99,5 @@ function stripForCopy(doc) {
 
 module.exports = {
   SECTIONS, CONFLICT_OPEN, CONFLICT_CLOSE, CONFLICT_HEADING,
-  seed, renderConflictBlock, withConflictBlock, stripConflictBlock, stripForCopy,
+  seed, isBlank, renderConflictBlock, withConflictBlock, stripConflictBlock, stripForCopy,
 };

@@ -3,19 +3,19 @@
 // setup, not for a spec sheet: speed, cost, and where the model is worth it.
 
 const ROLE_BLURBS = {
-  provider: 'The account that does the work and pays for it. A CLI login uses your subscription; a key pays per token.',
-  merge: 'Runs on every Enter. Decides where each idea lands and spots contradictions, so speed matters more than polish here.',
-  polish: 'Runs when you click Polish or change the target. Rewrites the whole document in the target style, so quality matters most here.',
-  target: 'The model this prompt is being written FOR. Changes the shape of the document, never which engine does the work.',
+  provider: 'Which account does the work. A login uses your subscription; a key pays per token.',
+  merge: 'Runs on every Enter to place each idea and catch contradictions. Speed over polish.',
+  polish: 'Runs on Polish and on target changes to rewrite the whole document. Quality over speed.',
+  target: 'Who the prompt is written for. Changes the document shape, not which engine runs.',
 };
 
 const FALLBACK = 'Custom id, passed through unchanged. Prompt Forge cannot say how it will behave.';
 
 const TABLE = [
-  [/fable|mythos/i, 'Highest quality and judgment; slowest and heaviest on quota. Best for Polish, overkill for merges.'],
-  [/opus/i, 'Strong judgment a step below Fable in quality and cost. A good Polish choice.'],
-  [/sonnet/i, 'Fast and reliable at structure. The default for merges: a few seconds per idea, light on quota.'],
-  [/haiku/i, 'Fastest and cheapest Claude; may misplace subtle ideas. Use for merges when speed beats care.'],
+  [/fable|mythos/i, 'Best judgment; slowest and heaviest on quota. For Polish, overkill for merges.'],
+  [/opus/i, 'Strong judgment, a step below Fable in cost. A good Polish choice.'],
+  [/sonnet/i, 'Fast and reliable at structure; light on quota. The default for merges.'],
+  [/haiku/i, 'Fastest and cheapest Claude; may misplace subtle ideas. Merges only.'],
   [/flash-lite/i, 'Cheapest Gemini; fine for simple merges, weaker at spotting contradictions.'],
   [/flash/i, 'Quick and cheap Gemini; a good merge model.'],
   [/gemini.*pro|^pro$/i, 'Gemini\'s best; slower. Good for Polish.'],

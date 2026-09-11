@@ -51,26 +51,42 @@ function html({ vscode, webview, mediaRoots, stamp }) {
             </label>
             <button id="polish" class="btn" title="Rewrite the whole document in the target model's preferred style">Polish</button>
             <button id="copy" class="btn primary" title="Copy the final prompt to the clipboard">Copy</button>
-            <button id="settings" class="btn" title="Engine, models and target: tune what runs and for whom">Settings</button>
+            <button id="settings" class="btn" title="Engine, models, target and document settings">Settings</button>
           </div>
         </div>
         <div class="head-row sub">
           <button id="engine-summary" class="link engine" title="Which account runs the engine. Click to change."></button>
           <span id="status" class="status"></span>
-          <button id="open-doc" class="link" title="Open the formatted document beside this window">Open document</button>
         </div>
         <div id="notice" class="notice" hidden></div>
       </header>
-      <section id="engine" class="engine-section" hidden></section>
-      <section id="conflicts" class="conflicts" hidden></section>
-      <section id="history" class="chat"></section>
-      <section id="compose">
-        <textarea id="idea" rows="3" placeholder="Type an idea and press Enter. Shift+Enter for a new line." spellcheck="true"></textarea>
-        <div class="compose-foot">
-          <span class="hint">Enter merges the idea into the document. Hover a sent idea to edit it.</span>
-          <span id="usage" class="usage"></span>
-        </div>
-      </section>
+      <section id="engine" class="settings" hidden></section>
+      <div id="columns" class="columns">
+        <section id="ideas" class="col">
+          <div class="col-head">
+            <span class="col-title">Ideas</span>
+            <span id="ideas-meta" class="muted small-text"></span>
+            <button id="versions" class="link small-text"></button>
+          </div>
+          <section id="conflicts" class="conflicts" hidden></section>
+          <section id="history" class="chat"></section>
+          <section id="compose">
+            <textarea id="idea" rows="3" placeholder="Type an idea and press Enter. Shift+Enter for a new line." spellcheck="true"></textarea>
+            <div class="compose-foot">
+              <span class="hint">Enter merges the idea into the prompt. Hover a sent idea to edit it.</span>
+              <span id="usage" class="usage"></span>
+            </div>
+          </section>
+        </section>
+        <section id="preview" class="col">
+          <div class="col-head">
+            <span class="col-title">Prompt</span>
+            <span id="preview-meta" class="muted small-text"></span>
+            <button id="open-doc" class="icon" title="Edit the document by hand in the editor">&#9998;</button>
+          </div>
+          <div id="doc" class="doc"></div>
+        </section>
+      </div>
     </section>
   </main>
 </div>

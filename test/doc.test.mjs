@@ -7,16 +7,14 @@ const doc = require('../src/doc.js');
 
 const ONE = [{ id: 'C1', section: 'Goal', existing: 'Ship it.', incoming: 'Do not ship.' }];
 
-test('seed: an H1 title then every canonical section, in order', () => {
+test('seed: a new prompt is only its title; isBlank tells a title-only document from a started one', () => {
   const s = doc.seed('My prompt');
-  assert.ok(s.startsWith('# My prompt\n'));
-  let last = -1;
-  for (const name of doc.SECTIONS) {
-    const i = s.indexOf(`\n## ${name}\n`);
-    assert.ok(i > last, `${name} present and after the previous section`);
-    last = i;
-  }
-  assert.ok(s.endsWith('\n'));
+  assert.equal(s, '# My prompt\n');
+  assert.equal(doc.isBlank(s), true);
+  assert.equal(doc.isBlank(''), true);
+  assert.equal(doc.isBlank('# T\n\n## Goal\n\nShip.\n'), false);
+  assert.equal(doc.isBlank(doc.withConflictBlock('# T\n', [{ id: 'C1', section: 'Goal', existing: 'a', incoming: 'b' }])), true, 'the conflict block alone is not content');
+  assert.ok(doc.SECTIONS.length === 7, 'the canonical sections still guide the engine');
 });
 
 test('renderConflictBlock: nothing for an empty list', () => {

@@ -47,7 +47,6 @@ h2 { font-size: 1.1em; margin: 0 0 6px; }
 .notice { padding: 4px 8px; border-radius: 3px; background: var(--vscode-editorInfo-background, rgba(127,127,127,0.15)); }
 .notice.error { background: var(--vscode-inputValidation-errorBackground); border: 1px solid var(--vscode-inputValidation-errorBorder); }
 
-.engine-section { border: 1px solid var(--vscode-panel-border); border-radius: 4px; padding: var(--gap); display: flex; flex-direction: column; gap: var(--gap); }
 .esec-head { display: flex; align-items: center; gap: var(--gap); flex-wrap: wrap; }
 .esec-title, .csec-title, .hsec-title { font-weight: 600; }
 .card { border: 1px solid var(--vscode-panel-border); border-radius: 4px; padding: 6px 8px; display: flex; flex-direction: column; gap: 4px; }
@@ -123,3 +122,45 @@ h2 { font-size: 1.1em; margin: 0 0 6px; }
 .edit-box { width: 100%; resize: vertical; padding: 4px 6px; }
 .edit-actions { display: flex; gap: 6px; margin-top: 4px; }
 #compose { border-top: 1px solid var(--vscode-panel-border); padding-top: 8px; }
+
+/* two columns of work */
+.columns { flex: 1; min-height: 0; display: grid; grid-template-columns: minmax(300px, 1fr) minmax(320px, 1.15fr); gap: 12px; }
+.col { display: flex; flex-direction: column; min-height: 0; min-width: 0; border: 1px solid var(--vscode-panel-border); border-radius: 6px; overflow: hidden; }
+.col-head { display: flex; align-items: center; gap: 8px; padding: 6px 10px; border-bottom: 1px solid var(--vscode-panel-border); background: var(--vscode-sideBar-background); }
+.col-title { font-weight: 600; }
+.col-head .link, .col-head .icon { margin-left: auto; }
+#ideas .conflicts { margin: 8px 10px 0; }
+#history { padding: 0 10px; }
+#compose { margin: 0 10px 8px; }
+.placeholder { margin: auto; max-width: 42ch; text-align: center; color: var(--vscode-descriptionForeground); padding: 24px; }
+.placeholder h3 { margin: 0 0 6px; color: var(--vscode-foreground); font-size: 1.05em; }
+.placeholder p { margin: 0; }
+.doc { flex: 1; min-height: 0; overflow: auto; padding: 8px 14px 16px; display: flex; flex-direction: column; line-height: 1.45; }
+.doc h1 { font-size: 1.25em; margin: 8px 0 4px; }
+.doc h2 { font-size: 1.05em; margin: 12px 0 4px; }
+.doc h3, .doc h4 { font-size: 1em; margin: 10px 0 2px; }
+.doc p { margin: 4px 0; }
+.doc ul, .doc ol { margin: 4px 0; padding-left: 22px; }
+.doc li { margin: 2px 0; }
+.doc code { font-family: var(--vscode-editor-font-family); font-size: 0.92em; background: var(--vscode-textCodeBlock-background); padding: 0 3px; border-radius: 3px; }
+.doc pre { background: var(--vscode-textCodeBlock-background); padding: 8px; border-radius: 4px; overflow: auto; }
+.doc .xtag { font-family: var(--vscode-editor-font-family); font-size: 0.9em; color: var(--vscode-descriptionForeground); margin: 8px 0 2px; }
+.doc .xtag + .xtag { margin-top: 2px; }
+
+/* settings, VS Code style */
+.settings { flex: 1; min-height: 0; display: grid; grid-template-columns: 150px 1fr; gap: 0 16px; }
+.snav { display: flex; flex-direction: column; gap: 2px; padding-top: 8px; border-right: 1px solid var(--vscode-panel-border); }
+.snav-item { text-align: left; padding: 4px 10px; border-radius: 3px; color: var(--vscode-foreground); }
+.snav-item:hover { background: var(--vscode-list-hoverBackground); }
+.snav-spacer { flex: 1; }
+.snav .btn { margin: 8px 10px; }
+.sbody { overflow: auto; min-height: 0; padding: 4px 8px 24px 0; max-width: 720px; }
+.shead { font-size: 1.15em; font-weight: 600; margin: 14px 0 6px; display: flex; align-items: baseline; gap: 10px; }
+.shead .link { font-weight: normal; }
+.srow { padding: 8px 8px; border-left: 2px solid transparent; }
+.srow:hover { background: var(--vscode-list-hoverBackground); }
+.srow.inuse { border-left-color: var(--accent); }
+.stitle { font-weight: 600; }
+.sdesc { color: var(--vscode-descriptionForeground); font-size: 0.9em; margin: 2px 0 4px; }
+.sctl { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+.sctl select { min-width: 220px; padding: 2px 4px; }

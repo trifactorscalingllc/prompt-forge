@@ -17,7 +17,7 @@ const docOf = (prompt) => /<document>\n([\s\S]*?)<\/document>/.exec(prompt)[1];
 const mergeReply = (req, line, conflicts = []) => {
   const doc = docOf(req.prompt);
   return {
-    text: JSON.stringify({ doc: doc.replace('## Goal\n', `## Goal\n\n${line}\n`), conflicts, changes: [line] }),
+    text: JSON.stringify({ doc: doc.includes('## Goal\n') ? doc.replace('## Goal\n', `## Goal\n\n${line}\n`) : `${doc}\n## Goal\n\n${line}\n`, conflicts, changes: [line] }),
     usage: { input: 10, output: 2 }, error: null,
     call: { provider: 'fake', mode: 'cli', model: req.role === 'polish' ? 'best' : 'fast', role: req.role, ms: 1, usage: { input: 10, output: 2 } },
   };

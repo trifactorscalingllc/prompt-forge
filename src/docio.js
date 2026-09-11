@@ -62,7 +62,7 @@ function createDocio(vscode, { echoMs = 900, log = null } = {}) {
     return 'text';
   }
 
-  return { readDoc, writeDoc, openBeside, noteSaved, isOpen: (p) => Boolean(find(p)) };
+  return { readDoc, writeDoc, openBeside, noteSaved, isOpen: (p) => Boolean(find(p)), same: (a, b) => key(a) === key(b) };
 }
 
 module.exports = { createDocio };

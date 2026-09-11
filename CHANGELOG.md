@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.2.1
+
+- Settings is now a compact page in the VS Code style: a short nav (Engine, Models, Target, Document) and one-line rows.
+- A new prompt opens two panels inside the window, Ideas and Prompt, each with a short description centred in it until content arrives. The prompt panel renders the document live; the pencil opens it in the editor for hand edits.
+- A new prompt starts as its title only; sections appear as ideas land.
+
 ## 0.2.0
 
 - New layout: the welcome text is centred until a prompt exists; then the window shows the Prompts rail and a chat-style log of the ideas you sent, with the composer at the bottom. The formatted document opens to the right, in the pencil editor when installed.

@@ -15,6 +15,7 @@ const { createEngine } = require('./engine/engine');
 const { createProviders, secretKey } = require('./providers');
 const { runCli, resolveBin } = require('./providers/spawn');
 const targets = require('./targets');
+const docm = require('./doc');
 const { modelBlurb, ROLE_BLURBS } = require('./blurbs');
 
 const LAST_OPEN = 'promptForge.lastOpen';
@@ -68,7 +69,20 @@ function create(host) {
     const p = getPanel();
     const data = buildState();
     if (!p || !data) return;
-    p.webview.postMessage({ type: 'state', data });
+    const s = active();
+    if (!s || !data.active) { p.webview.postMessage({ type: 'state', data }); return; }
+    // The live document rides along so the prompt panel is the same text the editor holds.
+    docio.readDoc(s.docPath).then((raw) => {
+      data.active.doc = docm.stripConflictBlock(raw == null ? '' : raw);
+      data.active.docBlank = docm.isBlank(raw == null ? '' : raw);
+      p.webview.postMessage({ type: 'state', data });
+    }, () => p.webview.postMessage({ type: 'state', data }));
+  }
+
+  let repaintTimer = null;
+  function repaintSoon() {
+    clearTimeout(repaintTimer);
+    repaintTimer = setTimeout(() => { if (!disposed) post(); }, 300);
   }
 
   function notice(level, text) {
@@ -81,7 +95,7 @@ function create(host) {
   // Sessions
   // ------------------------------------------------------------------------------------------
 
-  async function openSession(slug, { reveal = true } = {}) {
+  async function openSession(slug, { reveal = false } = {}) {
     let s = sessions.get(slug);
     if (!s) {
       s = createSession({
@@ -207,7 +221,7 @@ function create(host) {
         post();
         return;
       case 'panelOpened':
-        if (s) await openDoc();
+        post();
         return;
       case 'openPrompt':
         if (m.slug && store.exists(m.slug)) await openSession(m.slug);
@@ -282,6 +296,12 @@ function create(host) {
       case 'openSettings':
         await vscode.commands.executeCommand('workbench.action.openSettings', '@ext:trifactorscaling.prompt-forge');
         return;
+      case 'setDocEditor':
+        if (m.value === 'office' || m.value === 'text') {
+          await vscode.workspace.getConfiguration('promptForge').update('docEditor', m.value, vscode.ConfigurationTarget.Global);
+          post();
+        }
+        return;
       case 'engine.detect':
         await engine.detectAll();
         post();
@@ -332,6 +352,11 @@ function create(host) {
     start() {
       openStore();
       disposables.push(vscode.workspace.onDidSaveTextDocument((d) => { if (d && d.uri) docio.noteSaved(d.uri.fsPath); }));
+      // A hand edit in the editor shows up in the prompt panel within a moment.
+      disposables.push(vscode.workspace.onDidChangeTextDocument((e) => {
+        const s = active();
+        if (s && e.document && e.document.uri && docio.same(e.document.uri.fsPath, s.docPath)) repaintSoon();
+      }));
       // The kit watches sourcePath/autoReload; the settings that change behaviour are watched here.
       disposables.push(vscode.workspace.onDidChangeConfiguration((e) => {
         if (e.affectsConfiguration('promptForge.libraryPath')) { openStore(); post(); }
@@ -354,6 +379,7 @@ function create(host) {
     },
     dispose() {
       disposed = true;
+      clearTimeout(repaintTimer);
       for (const s of sessions.values()) s.dispose();
       sessions.clear();
       for (const d of disposables) { try { d.dispose(); } catch { /* already gone */ } }
