@@ -1,0 +1,208 @@
+'use strict';
+// The prompt library on disk: `<slug>.md` (the document the person edits) and `<slug>.forge.json`
+// (everything else: entries, snapshots, conflicts). Plain files, atomic writes, no database.
+// Everything here is synchronous on purpose: the writes are small and a half-written sidecar is
+// the one failure this module must never produce.
+const fs = require('node:fs');
+const os = require('node:os');
+const path = require('node:path');
+const { seed } = require('./doc');
+const { DEFAULT_TARGET } = require('./targets');
+
+function expandHome(p, home = os.homedir()) {
+  const s = String(p == null ? '' : p).trim();
+  if (s === '~') return home;
+  if (s.startsWith('~/') || s.startsWith('~\\')) return path.join(home, s.slice(2));
+  return s;
+}
+
+function slugify(title) {
+  const s = String(title == null ? '' : title)
+    .normalize('NFKD')
+    .replace(/[̀-ͯ]/g, '')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '');
+  return s || 'prompt';
+}
+
+function nextId(list, prefix) {
+  let max = 0;
+  for (const it of list) {
+    const m = new RegExp(`^${prefix}(\\d+)$`).exec(String(it && it.id));
+    if (m) max = Math.max(max, Number(m[1]));
+  }
+  return `${prefix}${max + 1}`;
+}
+
+function readJson(p) {
+  try {
+    const v = JSON.parse(fs.readFileSync(p, 'utf8'));
+    return v && typeof v === 'object' ? v : null;
+  } catch {
+    return null;
+  }
+}
+
+function writeJson(p, obj) {
+  const tmp = `${p}.tmp`;
+  fs.writeFileSync(tmp, `${JSON.stringify(obj, null, 2)}\n`);
+  fs.renameSync(tmp, p);
+}
+
+function open(libraryPath, { home } = {}) {
+  const dir = expandHome(libraryPath, home);
+  fs.mkdirSync(dir, { recursive: true });
+
+  // Strictly increasing stamps within one store, so "newest first" is never a coin toss when two
+  // writes land in the same millisecond.
+  let last = 0;
+  const now = () => { last = Math.max(Date.now(), last + 1); return last; };
+
+  const docPath = (slug) => path.join(dir, `${slug}.md`);
+  const sidecarPath = (slug) => path.join(dir, `${slug}.forge.json`);
+  const exists = (slug) => fs.existsSync(sidecarPath(slug)) || fs.existsSync(docPath(slug));
+
+  function read(slug) {
+    const sc = readJson(sidecarPath(slug));
+    if (!sc || sc.version !== 1) return null;
+    for (const k of ['entries', 'snapshots', 'conflicts', 'resolved']) if (!Array.isArray(sc[k])) sc[k] = [];
+    return sc;
+  }
+
+  function write(slug, sc) {
+    sc.updatedAt = now();
+    writeJson(sidecarPath(slug), sc);
+    return sc;
+  }
+
+  function withSidecar(slug, fn) {
+    const sc = read(slug);
+    if (!sc) throw new Error(`no prompt named "${slug}" in ${dir}`);
+    const out = fn(sc);
+    write(slug, sc);
+    return out;
+  }
+
+  function create(title, { target } = {}) {
+    const base = slugify(title);
+    let slug = base;
+    for (let n = 2; exists(slug); n++) slug = `${base}-${n}`;
+    const t = now();
+    const body = seed(title);
+    fs.writeFileSync(docPath(slug), body);
+    const sc = {
+      version: 1,
+      slug,
+      title: String(title),
+      target: target || DEFAULT_TARGET,
+      createdAt: t,
+      updatedAt: t,
+      entries: [],
+      snapshots: [{ id: 's1', ts: t, kind: 'seed', entryIds: [], doc: body, conflicts: [], changes: [], target: target || DEFAULT_TARGET, call: null }],
+      conflicts: [],
+      resolved: [],
+    };
+    writeJson(sidecarPath(slug), sc);
+    return { slug, sidecar: sc };
+  }
+
+  function list() {
+    const out = [];
+    for (const name of fs.readdirSync(dir)) {
+      if (!name.endsWith('.forge.json')) continue;
+      const slug = name.slice(0, -'.forge.json'.length);
+      const sc = read(slug);
+      if (!sc) continue;
+      out.push({
+        slug,
+        title: sc.title,
+        target: sc.target,
+        updatedAt: sc.updatedAt,
+        createdAt: sc.createdAt,
+        entries: sc.entries.length,
+        openConflicts: sc.conflicts.length,
+      });
+    }
+    return out.sort((a, b) => (b.updatedAt - a.updatedAt) || (b.createdAt - a.createdAt) || a.slug.localeCompare(b.slug));
+  }
+
+  function appendEntry(slug, text) {
+    return withSidecar(slug, (sc) => {
+      const entry = { id: nextId(sc.entries, 'e'), ts: now(), text: String(text), status: 'pending', snapshotId: null, error: null };
+      sc.entries.push(entry);
+      return entry;
+    });
+  }
+
+  function updateEntry(slug, id, patch) {
+    return withSidecar(slug, (sc) => {
+      const e = sc.entries.find((x) => x.id === id);
+      if (e) Object.assign(e, patch);
+      return e || null;
+    });
+  }
+
+  function addSnapshot(slug, { kind, entryIds = [], doc, conflicts = [], changes = [], target, call = null, from = null }) {
+    return withSidecar(slug, (sc) => {
+      const snap = { id: nextId(sc.snapshots, 's'), ts: now(), kind, entryIds, doc, conflicts, changes, target: target || sc.target, call, from };
+      sc.snapshots.push(snap);
+      return snap;
+    });
+  }
+
+  const setTarget = (slug, target) => withSidecar(slug, (sc) => { sc.target = target; return sc.target; });
+
+  function setConflicts(slug, conflicts, { entryId = null } = {}) {
+    return withSidecar(slug, (sc) => {
+      const prev = new Map(sc.conflicts.map((c) => [c.id, c]));
+      sc.conflicts = (conflicts || []).map((c) => {
+        const was = prev.get(c.id);
+        return {
+          id: c.id,
+          section: c.section || '',
+          existing: c.existing || '',
+          incoming: c.incoming || '',
+          raisedAt: was ? was.raisedAt : now(),
+          entryId: was ? was.entryId : entryId,
+        };
+      });
+      return sc.conflicts;
+    });
+  }
+
+  function resolveConflict(slug, id, keep) {
+    return withSidecar(slug, (sc) => {
+      const i = sc.conflicts.findIndex((c) => c.id === id);
+      if (i < 0) return null;
+      const [c] = sc.conflicts.splice(i, 1);
+      sc.resolved.push({ id: c.id, keep, ts: now(), section: c.section, existing: c.existing, incoming: c.incoming });
+      return c;
+    });
+  }
+
+  function remove(slug) {
+    const trash = path.join(dir, '.trash');
+    fs.mkdirSync(trash, { recursive: true });
+    const stamp = now();
+    const moved = [];
+    for (const [src, ext] of [[docPath(slug), '.md'], [sidecarPath(slug), '.forge.json']]) {
+      if (!fs.existsSync(src)) continue;
+      const dest = path.join(trash, `${slug}-${stamp}${ext}`);
+      fs.renameSync(src, dest);
+      moved.push(dest);
+    }
+    return moved;
+  }
+
+  const readDoc = (slug) => (fs.existsSync(docPath(slug)) ? fs.readFileSync(docPath(slug), 'utf8') : null);
+  const writeDoc = (slug, text) => fs.writeFileSync(docPath(slug), text);
+
+  return {
+    dir, docPath, sidecarPath, exists, read, write, create, list,
+    appendEntry, updateEntry, addSnapshot, setTarget, setConflicts, resolveConflict, remove,
+    readDoc, writeDoc,
+  };
+}
+
+module.exports = { open, expandHome, slugify };

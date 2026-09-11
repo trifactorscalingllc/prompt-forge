@@ -1,0 +1,19 @@
+{
+  "lastVerified": "2026-09-11",
+  "note": "Model lists for CLI modes, where no vendor exposes a list endpoint. Any id can be typed in the panel; these are the starting points.",
+  "claude": [
+    { "id": "sonnet", "label": "Sonnet (latest)", "tier": "fast" },
+    { "id": "fable", "label": "Fable (latest)", "tier": "best" },
+    { "id": "opus", "label": "Opus (latest)", "tier": "other" },
+    { "id": "claude-haiku-4-5", "label": "Haiku 4.5", "tier": "other" }
+  ],
+  "gemini": [
+    { "id": "gemini-2.5-flash", "label": "Gemini 2.5 Flash", "tier": "fast" },
+    { "id": "gemini-2.5-pro", "label": "Gemini 2.5 Pro", "tier": "best" }
+  ],
+  "openai": [
+    { "id": "gpt-5-mini", "label": "GPT-5 mini", "tier": "fast" },
+    { "id": "gpt-5", "label": "GPT-5", "tier": "best" },
+    { "id": "gpt-5-codex", "label": "GPT-5 Codex", "tier": "other" }
+  ]
+}

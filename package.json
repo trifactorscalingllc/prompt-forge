@@ -1,0 +1,246 @@
+{
+  "name": "prompt-forge",
+  "displayName": "Prompt Forge",
+  "description": "Build complicated prompts one idea at a time. Every Enter merges an idea into a structured prompt, contradictions surface instead of being guessed away, and Polish rewrites it for the model you are sending it to. Works with your own Claude, Gemini, or OpenAI login, or any API key.",
+  "version": "0.1.0",
+  "publisher": "trifactorscaling",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/trifactorscalingllc/prompt-forge.git"
+  },
+  "bugs": {
+    "url": "https://github.com/trifactorscalingllc/prompt-forge/issues"
+  },
+  "homepage": "https://github.com/trifactorscalingllc/prompt-forge#readme",
+  "engines": {
+    "vscode": "^1.94.0",
+    "node": ">=20"
+  },
+  "categories": [
+    "AI",
+    "Other"
+  ],
+  "keywords": [
+    "prompt",
+    "prompt engineering",
+    "claude",
+    "gemini",
+    "openai",
+    "chatgpt",
+    "llm",
+    "copilot"
+  ],
+  "main": "./extension.js",
+  "activationEvents": [
+    "onStartupFinished"
+  ],
+  "extensionKind": [
+    "workspace"
+  ],
+  "capabilities": {
+    "untrustedWorkspaces": {
+      "supported": "limited",
+      "restrictedConfigurations": [
+        "promptForge.libraryPath",
+        "promptForge.cli.claudePath",
+        "promptForge.cli.geminiPath",
+        "promptForge.cli.codexPath",
+        "promptForge.compatible.baseUrl",
+        "promptForge.sourcePath"
+      ],
+      "description": "Prompt Forge runs a vendor CLI as a child process and sends prompts to an endpoint you configure. Paths and endpoints are not read from an untrusted workspace."
+    },
+    "virtualWorkspaces": {
+      "supported": false,
+      "description": "Needs a real filesystem for the prompt library and a process host for the vendor CLIs."
+    }
+  },
+  "contributes": {
+    "commands": [
+      {
+        "command": "promptForge.open",
+        "title": "Open Prompt Forge",
+        "category": "Prompt Forge",
+        "icon": "$(tools)"
+      },
+      {
+        "command": "promptForge.newPrompt",
+        "title": "New Prompt",
+        "category": "Prompt Forge",
+        "icon": "$(add)"
+      },
+      {
+        "command": "promptForge.polish",
+        "title": "Polish for Target Model",
+        "category": "Prompt Forge",
+        "icon": "$(sparkle)"
+      },
+      {
+        "command": "promptForge.copy",
+        "title": "Copy Final Prompt",
+        "category": "Prompt Forge",
+        "icon": "$(copy)"
+      },
+      {
+        "command": "promptForge.signIn",
+        "title": "Sign In to an Engine",
+        "category": "Prompt Forge",
+        "icon": "$(sign-in)"
+      },
+      {
+        "command": "promptForge.setApiKey",
+        "title": "Set an API Key",
+        "category": "Prompt Forge",
+        "icon": "$(key)"
+      },
+      {
+        "command": "promptForge.forgetApiKey",
+        "title": "Forget an API Key",
+        "category": "Prompt Forge",
+        "icon": "$(trash)"
+      },
+      {
+        "command": "promptForge.reload",
+        "title": "Reload Prompt Forge Code",
+        "category": "Prompt Forge",
+        "icon": "$(debug-restart)"
+      }
+    ],
+    "configuration": {
+      "title": "Prompt Forge",
+      "properties": {
+        "promptForge.libraryPath": {
+          "type": "string",
+          "default": "~/.prompt-forge/prompts",
+          "scope": "machine-overridable",
+          "order": 1,
+          "markdownDescription": "Folder holding one `<name>.md` (the prompt) and one `<name>.forge.json` (its history) per prompt. Created on first use. `~` is your home folder."
+        },
+        "promptForge.engine.provider": {
+          "type": "string",
+          "enum": [
+            "auto",
+            "claude",
+            "gemini",
+            "openai",
+            "compatible"
+          ],
+          "default": "auto",
+          "scope": "window",
+          "order": 2,
+          "enumDescriptions": [
+            "The first provider you are signed in to (CLI login first, then a stored API key).",
+            "Claude: the `claude` CLI login or an Anthropic API key.",
+            "Gemini: the `gemini` CLI login or a Google AI Studio API key.",
+            "OpenAI: the `codex` CLI login or an OpenAI API key.",
+            "Any OpenAI-compatible endpoint (Ollama, LM Studio, OpenRouter, ...)."
+          ],
+          "description": "Which account runs the engine. Independent of the target model the prompt is written for."
+        },
+        "promptForge.engine.mergeModel": {
+          "type": "string",
+          "default": "auto",
+          "scope": "window",
+          "order": 3,
+          "description": "Model used on every Enter to merge an idea into the document. `auto` picks the provider's fast model."
+        },
+        "promptForge.engine.polishModel": {
+          "type": "string",
+          "default": "auto",
+          "scope": "window",
+          "order": 4,
+          "description": "Model used by Polish and by every target-model change. `auto` picks the provider's best model."
+        },
+        "promptForge.engine.timeoutSeconds": {
+          "type": "number",
+          "default": 240,
+          "minimum": 30,
+          "maximum": 900,
+          "scope": "window",
+          "order": 5,
+          "description": "Hard limit for one engine call."
+        },
+        "promptForge.engine.recentEntries": {
+          "type": "number",
+          "default": 12,
+          "minimum": 0,
+          "maximum": 100,
+          "scope": "window",
+          "order": 6,
+          "description": "How many already-merged ideas the engine is shown as context on each merge."
+        },
+        "promptForge.cli.claudePath": {
+          "type": "string",
+          "default": "",
+          "scope": "machine",
+          "order": 10,
+          "markdownDescription": "Path to the `claude` binary. Empty finds it on PATH."
+        },
+        "promptForge.cli.geminiPath": {
+          "type": "string",
+          "default": "",
+          "scope": "machine",
+          "order": 11,
+          "markdownDescription": "Path to the `gemini` binary. Empty finds it on PATH."
+        },
+        "promptForge.cli.codexPath": {
+          "type": "string",
+          "default": "",
+          "scope": "machine",
+          "order": 12,
+          "markdownDescription": "Path to the `codex` binary. Empty finds it on PATH."
+        },
+        "promptForge.compatible.baseUrl": {
+          "type": "string",
+          "default": "",
+          "scope": "machine",
+          "order": 13,
+          "markdownDescription": "Base URL of an OpenAI-compatible API, e.g. `http://localhost:11434/v1` (Ollama) or `https://openrouter.ai/api/v1`. The optional key is stored with *Prompt Forge: Set an API Key*."
+        },
+        "promptForge.docEditor": {
+          "type": "string",
+          "enum": [
+            "office",
+            "text"
+          ],
+          "default": "office",
+          "scope": "window",
+          "order": 20,
+          "enumDescriptions": [
+            "Office Viewer's WYSIWYG markdown editor when that extension is installed, else the text editor.",
+            "Always the plain text editor."
+          ],
+          "description": "How the prompt document opens beside the panel."
+        },
+        "promptForge.sourcePath": {
+          "type": "string",
+          "default": "",
+          "scope": "machine",
+          "order": 90,
+          "markdownDescription": "Developer setting. Absolute path to a working copy of the extension. When set, `src/` and `media/` are loaded from there and reloaded on save without restarting the extension host."
+        },
+        "promptForge.autoReload": {
+          "type": "boolean",
+          "default": true,
+          "scope": "machine",
+          "order": 91,
+          "markdownDescription": "Developer setting. Reload automatically when a file under `promptForge.sourcePath` changes."
+        }
+      }
+    }
+  },
+  "scripts": {
+    "test": "node --test \"test/*.test.mjs\"",
+    "check": "node --check extension.js && node --check src/runtime.js",
+    "package": "vsce package --no-dependencies"
+  },
+  "devDependencies": {
+    "@vscode/vsce": "^3.9.2"
+  },
+  "icon": "media/icon.png",
+  "galleryBanner": {
+    "color": "#0e0e10",
+    "theme": "dark"
+  }
+}

@@ -1,0 +1,145 @@
+'use strict';
+// Prompt Forge, the COLD shell.
+//
+// Registers only what VS Code will not let us re-register: the commands, the status bar item, and
+// the panel. Every behaviour lives in src/ and is re-required on reload, so shipping a change does
+// NOT restart the extension host (which would also kill any AI coding session running in it).
+//
+// If you are editing THIS file to change behaviour, the behaviour is in the wrong file.
+const vscode = require('vscode');
+const path = require('node:path');
+const { createHotHost } = require('./src/hot/hot');
+
+const PANEL_ID = 'promptForge.panel';
+
+let log;
+let statusItem;
+let panel = null;
+let hot = null;
+let ctx = null;
+
+function readConfig() {
+  const c = vscode.workspace.getConfiguration('promptForge');
+  return {
+    libraryPath: c.get('libraryPath', '~/.prompt-forge/prompts'),
+    engine: {
+      provider: c.get('engine.provider', 'auto'),
+      mergeModel: c.get('engine.mergeModel', 'auto'),
+      polishModel: c.get('engine.polishModel', 'auto'),
+      timeoutSeconds: c.get('engine.timeoutSeconds', 240),
+      recentEntries: c.get('engine.recentEntries', 12),
+    },
+    cli: {
+      claudePath: c.get('cli.claudePath', ''),
+      geminiPath: c.get('cli.geminiPath', ''),
+      codexPath: c.get('cli.codexPath', ''),
+    },
+    compatible: { baseUrl: c.get('compatible.baseUrl', '') },
+    docEditor: c.get('docEditor', 'office'),
+    sourcePath: c.get('sourcePath', ''),
+    autoReload: c.get('autoReload', true),
+  };
+}
+
+/** Every directory the webview may load media from: the working copy and the installed copy. */
+function mediaRoots(root) {
+  const roots = [path.join(root, 'media')];
+  const installed = path.join(ctx.extensionPath, 'media');
+  if (!roots.includes(installed)) roots.push(installed);
+  return roots;
+}
+
+function paint(runtime) {
+  if (!panel || !runtime) return;
+  panel.webview.html = runtime.html({
+    vscode,
+    webview: panel.webview,
+    mediaRoots: mediaRoots(hot.root()),
+    stamp: `${hot.generation()}-${Date.now()}`,
+  });
+  runtime.replay();
+}
+
+/** Create the Prompt Forge window if it is not open, and reveal it. */
+function ensurePanel() {
+  if (panel) { panel.reveal(vscode.ViewColumn.One); return panel; }
+  panel = vscode.window.createWebviewPanel(PANEL_ID, 'Prompt Forge', vscode.ViewColumn.One, {
+    enableScripts: true,
+    retainContextWhenHidden: true,
+    localResourceRoots: mediaRoots(hot.root()).map((r) => vscode.Uri.file(r)),
+  });
+  panel.iconPath = vscode.Uri.file(path.join(ctx.extensionPath, 'media', 'forge.svg'));
+  panel.onDidDispose(() => { panel = null; }, null, ctx.subscriptions);
+  panel.webview.onDidReceiveMessage((m) => {
+    const rt = hot.current();
+    if (rt) rt.handleMessage(m).catch((e) => log.error(`message failed: ${e.stack || e.message}`));
+  }, null, ctx.subscriptions);
+  paint(hot.current());
+  const rt = hot.current();
+  if (rt) rt.handleMessage({ type: 'panelOpened' }).catch((e) => log.error(`panelOpened failed: ${e.message}`));
+  return panel;
+}
+
+function send(m) {
+  ensurePanel();
+  const rt = hot.current();
+  if (rt) rt.handleMessage(m).catch((e) => log.error(`${m.type} failed: ${e.stack || e.message}`));
+}
+
+function activate(context) {
+  ctx = context;
+  // A LogOutputChannel, not console.log: in a remote extension host, console output reaches nobody.
+  log = vscode.window.createOutputChannel('Prompt Forge', { log: true });
+  context.subscriptions.push(log);
+
+  statusItem = vscode.window.createStatusBarItem('promptForge.status', vscode.StatusBarAlignment.Right, 90);
+  statusItem.name = 'Prompt Forge';
+  statusItem.text = '$(tools) Forge';
+  statusItem.tooltip = 'Open Prompt Forge';
+  statusItem.command = 'promptForge.open';
+  statusItem.show();
+  context.subscriptions.push(statusItem);
+
+  hot = createHotHost({
+    vscode,
+    context,
+    log,
+    section: 'promptForge',
+    runtimeRel: 'src/runtime.js',
+    hostApi: () => ({
+      log,
+      vscode,
+      config: readConfig,
+      getPanel: () => panel,
+      ensurePanel,
+      globalState: context.globalState,
+      secrets: context.secrets,
+      extensionPath: context.extensionPath,
+    }),
+    // Rebuild the page too, or the logic reloads behind the media/panel.js the webview already has.
+    afterBoot: (runtime) => paint(runtime),
+  });
+
+  context.subscriptions.push(
+    vscode.commands.registerCommand('promptForge.open', () => ensurePanel()),
+    vscode.commands.registerCommand('promptForge.newPrompt', () => send({ type: 'newPrompt' })),
+    vscode.commands.registerCommand('promptForge.polish', () => send({ type: 'polish' })),
+    vscode.commands.registerCommand('promptForge.copy', () => send({ type: 'copy' })),
+    vscode.commands.registerCommand('promptForge.signIn', () => send({ type: 'engine.signIn' })),
+    vscode.commands.registerCommand('promptForge.setApiKey', () => send({ type: 'engine.setKey' })),
+    vscode.commands.registerCommand('promptForge.forgetApiKey', () => send({ type: 'engine.forgetKey' })),
+  );
+  // NOTE: the kit registers `promptForge.reload` and its own configuration watcher for
+  // sourcePath / autoReload. Anything else that must react to a settings change belongs in the
+  // runtime, which reads config() fresh on every call.
+
+  hot.boot('activate');
+  hot.watch();
+  log.info('activated');
+}
+
+function deactivate() {
+  // The kit registered its own disposable on context.subscriptions; nothing to undo here.
+}
+
+module.exports = { activate, deactivate };

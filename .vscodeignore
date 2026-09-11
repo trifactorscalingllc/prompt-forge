@@ -1,0 +1,10 @@
+.github/**
+.vscode/**
+test/**
+docs/**
+.no-doe
+.gitignore
+CHANGELOG.md.bak
+node_modules/**
+*.vsix
+.tmp/**

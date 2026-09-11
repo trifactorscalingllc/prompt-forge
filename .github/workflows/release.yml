@@ -1,0 +1,32 @@
+name: Release
+on:
+  push:
+    tags: ['v*']
+permissions:
+  contents: write
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: npm test
+      - name: Package
+        run: npx --yes @vscode/vsce@3 package --no-dependencies --out prompt-forge-${GITHUB_REF_NAME#v}.vsix
+      - name: GitHub Release with the vsix
+        uses: softprops/action-gh-release@v2
+        with:
+          files: prompt-forge-*.vsix
+          generate_release_notes: true
+      - name: Publish to the VS Code Marketplace
+        if: ${{ env.VSCE_PAT != '' }}
+        env:
+          VSCE_PAT: ${{ secrets.VSCE_PAT }}
+        run: npx --yes @vscode/vsce@3 publish --packagePath prompt-forge-*.vsix
+      - name: Publish to Open VSX
+        if: ${{ env.OVSX_PAT != '' }}
+        env:
+          OVSX_PAT: ${{ secrets.OVSX_PAT }}
+        run: npx --yes ovsx publish prompt-forge-*.vsix -p "$OVSX_PAT"
