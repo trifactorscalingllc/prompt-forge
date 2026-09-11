@@ -196,7 +196,7 @@
         models.append(mk('merge', inUse ? s.engineCfg && s.engineCfg.mergeModel : 'auto'), mk('polish', inUse ? s.engineCfg && s.engineCfg.polishModel : 'auto'));
         if (!inUse) {
           const use = el('button', 'btn small', 'Use this engine');
-          use.addEventListener('click', () => vscode.postMessage({ type: 'engine.select', provider: p.id }));
+          use.addEventListener('click', () => vscode.postMessage({ type: 'engine.select', provider: p.id, mergeModel: 'auto', polishModel: 'auto' }));
           models.append(use);
         }
         card.append(models);
@@ -319,6 +319,9 @@
 
   function render(s) {
     latest = s;
+    if (s.bootError) {
+      showNotice('error', `Cannot open the prompt library: ${s.bootError}. Fix promptForge.libraryPath in Settings.`, true);
+    }
     renderRail(s);
     renderHeader(s);
     renderEngine(s);
@@ -326,8 +329,9 @@
     renderEmpty(s);
     renderHistory(s);
     renderUsage(s);
-    idea.disabled = !s.active || !s.engine.selected;
-    idea.placeholder = !s.active ? 'Create or open a prompt first.'
+    idea.disabled = Boolean(s.bootError) || !s.active || !s.engine.selected;
+    idea.placeholder = s.bootError ? 'The prompt library cannot be opened. See the message above.'
+      : !s.active ? 'Create or open a prompt first.'
       : !s.engine.selected ? 'Sign in to an engine (click the engine line above) to start merging ideas.'
         : 'Type an idea and press Enter. Shift+Enter for a new line.';
   }
@@ -355,13 +359,13 @@
   $('engine-summary').addEventListener('click', () => { engineOpen = !engineOpen; save(); if (latest) render(latest); });
 
   let noticeTimer = null;
-  function showNotice(level, text) {
+  function showNotice(level, text, sticky = false) {
     const n = $('notice');
     n.textContent = text;
     n.className = `notice ${level}`;
     n.hidden = false;
     clearTimeout(noticeTimer);
-    noticeTimer = setTimeout(() => { n.hidden = true; }, level === 'error' ? 12000 : 5000);
+    if (!sticky) noticeTimer = setTimeout(() => { n.hidden = true; }, level === 'error' ? 12000 : 5000);
   }
 
   window.addEventListener('message', (e) => {

@@ -107,14 +107,26 @@ function open(libraryPath, { home } = {}) {
     return { slug, sidecar: sc };
   }
 
+  // list() runs on every state push and a sidecar carries every version of its document, so a
+  // row is re-parsed only when the file's mtime or size moved.
+  const rows = new Map();
+  let parsed = 0;
+
   function list() {
     const out = [];
+    const seen = new Set();
     for (const name of fs.readdirSync(dir)) {
       if (!name.endsWith('.forge.json')) continue;
       const slug = name.slice(0, -'.forge.json'.length);
+      seen.add(slug);
+      let st;
+      try { st = fs.statSync(path.join(dir, name)); } catch { continue; }
+      const cached = rows.get(slug);
+      if (cached && cached.mtimeMs === st.mtimeMs && cached.size === st.size) { out.push(cached.row); continue; }
       const sc = read(slug);
-      if (!sc) continue;
-      out.push({
+      parsed += 1;
+      if (!sc) { rows.delete(slug); continue; }
+      const row = {
         slug,
         title: sc.title,
         target: sc.target,
@@ -122,10 +134,15 @@ function open(libraryPath, { home } = {}) {
         createdAt: sc.createdAt,
         entries: sc.entries.length,
         openConflicts: sc.conflicts.length,
-      });
+      };
+      rows.set(slug, { mtimeMs: st.mtimeMs, size: st.size, row });
+      out.push(row);
     }
+    for (const slug of rows.keys()) if (!seen.has(slug)) rows.delete(slug);
     return out.sort((a, b) => (b.updatedAt - a.updatedAt) || (b.createdAt - a.createdAt) || a.slug.localeCompare(b.slug));
   }
+
+  const stats = () => ({ parsed, cached: rows.size });
 
   function appendEntry(slug, text) {
     return withSidecar(slug, (sc) => {
@@ -199,7 +216,7 @@ function open(libraryPath, { home } = {}) {
   const writeDoc = (slug, text) => fs.writeFileSync(docPath(slug), text);
 
   return {
-    dir, docPath, sidecarPath, exists, read, write, create, list,
+    dir, docPath, sidecarPath, exists, read, write, create, list, stats,
     appendEntry, updateEntry, addSnapshot, setTarget, setConflicts, resolveConflict, remove,
     readDoc, writeDoc,
   };

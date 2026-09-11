@@ -232,3 +232,40 @@ test('load() turns entries left pending by a crash into failed: interrupted, wit
   assert.equal(e.status, 'failed');
   assert.match(e.error, /interrupted/);
 });
+
+test('a polish never touches open conflicts, even when the engine returns none', async () => {
+  const { s, slug, session, docio, docPath } = setup((req, n) => (n === 1
+    ? mergeReply(req, 'Short.', [{ id: 'C1', section: 'Goal', existing: 'Short.', incoming: 'Long.' }])
+    : { text: JSON.stringify({ doc: docOf(req.prompt), changes: [] }), usage: null, error: null, call: { provider: 'fake', mode: 'cli', model: 'best', role: 'polish', ms: 1 } }));
+  await session.load();
+  session.submitIdea('long');
+  await session.idle();
+  assert.equal(s.read(slug).conflicts.length, 1);
+  session.polish();
+  await session.idle();
+  const sc = s.read(slug);
+  assert.equal(sc.conflicts.length, 1, 'still open');
+  assert.equal(sc.resolved.length, 0);
+  assert.ok((await docio.readDoc(docPath)).includes('## Open conflicts'));
+});
+
+test('retry on an old failure while a merge is running does not blank the busy state', async () => {
+  let release;
+  const gate = new Promise((r) => { release = r; });
+  const { session } = setup(async (req, n) => {
+    if (n === 1) return { text: '', usage: null, error: 'boom', call: { provider: 'fake', mode: 'cli', model: 'fast', role: 'merge', ms: 1 } };
+    if (n === 2) await gate;
+    return mergeReply(req, `L${n}`);
+  });
+  await session.load();
+  session.submitIdea('fails');
+  await session.idle();
+  session.submitIdea('second');
+  await new Promise((r) => setImmediate(r));
+  assert.equal(session.snapshot().engine.state, 'busy');
+  session.retry('e1');
+  assert.equal(session.snapshot().engine.state, 'busy', 'retry queued behind the running merge');
+  release();
+  await session.idle();
+  assert.equal(session.snapshot().engine.state, 'idle');
+});

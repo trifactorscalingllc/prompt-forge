@@ -22,6 +22,7 @@ function create(host) {
   const { log, vscode, config, getPanel, ensurePanel, globalState, secrets } = host;
 
   let store = null;
+  let bootError = null;
   let disposed = false;
   const sessions = new Map();
   let activeSlug = null;
@@ -36,7 +37,10 @@ function create(host) {
   // ------------------------------------------------------------------------------------------
 
   function buildState() {
-    if (!store) return null;
+    if (!store) {
+      if (!bootError) return null;
+      return { bootError, library: config().libraryPath, prompts: [], active: null, engine: engine.state(), targets: targets.TARGETS, docEditor: config().docEditor, engineCfg: config().engine || {} };
+    }
     const session = activeSlug ? sessions.get(activeSlug) : null;
     return {
       library: store.dir,
@@ -152,6 +156,12 @@ function create(host) {
   async function selectEngine({ provider, mergeModel, polishModel }) {
     const c = vscode.workspace.getConfiguration('promptForge');
     const target = vscode.ConfigurationTarget.Global;
+    // Model ids belong to a provider. Switching providers without naming models resets both to
+    // auto, or Gemini would be asked for a Claude model id.
+    if (provider && provider !== c.get('engine.provider', 'auto')) {
+      if (mergeModel === undefined) mergeModel = 'auto';
+      if (polishModel === undefined) polishModel = 'auto';
+    }
     if (provider) await c.update('engine.provider', provider, target);
     if (mergeModel !== undefined) await c.update('engine.mergeModel', mergeModel || 'auto', target);
     if (polishModel !== undefined) await c.update('engine.polishModel', polishModel || 'auto', target);
@@ -165,7 +175,21 @@ function create(host) {
 
   async function handleMessage(m) {
     if (!m || typeof m !== 'object' || !m.type) return;
-    if (!store && m.type !== 'ready') { notice('error', 'Prompt Forge is still starting.'); return; }
+    if (!store && m.type !== 'ready') {
+      notice('error', bootError ? `Prompt Forge cannot open its library folder: ${bootError}` : 'Prompt Forge is still starting.');
+      return;
+    }
+    try {
+      await dispatch(m);
+    } catch (e) {
+      // A thrown handler must never be a silent loss: the panel already cleared the idea box.
+      notice('error', `${m.type} failed: ${e.message || e}`);
+      log.error(`${m.type} failed: ${e.stack || e.message}`);
+      post();
+    }
+  }
+
+  async function dispatch(m) {
     const s = active();
     switch (m.type) {
       case 'ready':
@@ -260,6 +284,26 @@ function create(host) {
     }
   }
 
+  /** Open (or re-open, after a libraryPath change) the prompt library. Failure is a state, not a crash. */
+  function openStore() {
+    const cfg = config();
+    const wanted = cfg.libraryPath || '~/.prompt-forge/prompts';
+    try {
+      const next = storeMod.open(wanted);
+      if (store && store.dir === next.dir) return;
+      for (const s of sessions.values()) s.dispose();
+      sessions.clear();
+      activeSlug = null;
+      store = next;
+      bootError = null;
+      log.info(`library: ${store.dir}`);
+    } catch (e) {
+      store = null;
+      bootError = `${wanted}: ${e.message}`;
+      log.error(`cannot open the prompt library: ${bootError}`);
+    }
+  }
+
   // ------------------------------------------------------------------------------------------
 
   return {
@@ -267,16 +311,16 @@ function create(host) {
     handleMessage,
     replay() { post(); },
     start() {
-      const cfg = config();
-      try {
-        store = storeMod.open(cfg.libraryPath || '~/.prompt-forge/prompts');
-      } catch (e) {
-        log.error(`cannot open the prompt library: ${e.message}`);
-        vscode.window.showErrorMessage(`Prompt Forge cannot open its library folder (${cfg.libraryPath}): ${e.message}`);
-        return;
-      }
-      log.info(`library: ${store.dir}`);
+      openStore();
       disposables.push(vscode.workspace.onDidSaveTextDocument((d) => { if (d && d.uri) docio.noteSaved(d.uri.fsPath); }));
+      // The kit watches sourcePath/autoReload; the settings that change behaviour are watched here.
+      disposables.push(vscode.workspace.onDidChangeConfiguration((e) => {
+        if (e.affectsConfiguration('promptForge.libraryPath')) { openStore(); post(); }
+        if (['promptForge.engine', 'promptForge.cli', 'promptForge.compatible'].some((k) => e.affectsConfiguration(k))) {
+          engine.detectAll().then(() => { if (!disposed) post(); });
+        }
+      }));
+      if (!store) { post(); return; }
       engine.detectAll().then((sel) => {
         if (disposed) return;
         log.info(sel.ok ? `engine: ${sel.provider}/${sel.mode} merge=${sel.mergeModel} polish=${sel.polishModel}` : `engine: ${sel.reason}`);

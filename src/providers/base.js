@@ -32,7 +32,7 @@ function pickDefaults(models) {
 
 /** Find the binary and read its version. Never throws. */
 async function detectCli({ name, runCli, resolveBin, configured }) {
-  const bin = resolveBin(name, { configured });
+  const bin = resolveBin(name, { configured, fresh: true });
   if (!bin) return { found: false, path: null, version: null, loggedIn: false, account: null, plan: null, note: null };
   const v = await runCli({ bin, args: ['--version'], timeoutMs: 20000 });
   return { found: true, path: bin, version: v.ok ? parseVersion(v.stdout) : null, loggedIn: false, account: null, plan: null, note: v.ok ? null : `\`${name} --version\` failed: ${v.error}` };
@@ -52,4 +52,21 @@ function cliError(res) {
 
 const num = (v) => (Number.isFinite(Number(v)) ? Number(v) : 0);
 
-module.exports = { catalog, secretKey, parseVersion, firstMatching, pickDefaults, detectCli, readJsonFile, cliError, extractJson, num, path };
+/**
+ * Run a CLI with a fixed `head` plus prunable flag `groups`. When the CLI rejects a flag an older
+ * version does not know, that group is dropped and the call retried. Returns the last run result.
+ */
+async function runPruned({ runCli, bin, head, groups, stdin, timeoutMs, scrub }) {
+  let flags = groups.slice();
+  for (let attempt = 0; attempt <= groups.length; attempt++) {
+    const res = await runCli({ bin, args: [...head, ...flags.flat()], stdin, timeoutMs, scrub });
+    if (res.ok) return res;
+    const m = /unknown (?:option|argument)s?:?\s*'?(?:--?)?([\w-]+)/i.exec(`${res.stderr || ''}\n${res.error || ''}`);
+    const i = m ? flags.findIndex((g) => String(g[0]).replace(/^-+/, '') === m[1]) : -1;
+    if (i < 0) return res;
+    flags = flags.filter((_, k) => k !== i);
+  }
+  return { ok: false, stdout: '', stderr: '', code: null, error: 'the CLI rejected every flag combination', ms: 0, collected: null };
+}
+
+module.exports = { catalog, secretKey, parseVersion, firstMatching, pickDefaults, detectCli, readJsonFile, cliError, extractJson, num, path, runPruned };

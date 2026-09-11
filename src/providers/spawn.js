@@ -37,34 +37,60 @@ function engineEnv({ base = process.env, platform = process.platform, home = os.
 function spawnSpec({ bin, args = [], platform = process.platform, env = process.env }) {
   if (platform === 'win32' && /\.(cmd|bat)$/i.test(bin)) {
     const quote = (s) => (s === '' || /[\s"]/.test(s) ? `"${String(s).replace(/"/g, '\\"')}"` : String(s));
+    // cmd /s strips the first and last quote of the line it is given, so the whole line is wrapped
+    // in one more pair (the same thing Node does for shell: true).
     const line = [`"${bin}"`, ...args.map(quote)].join(' ');
-    return { command: (env && env.ComSpec) || 'cmd.exe', args: ['/d', '/s', '/c', line], options: { windowsVerbatimArguments: true } };
+    return { command: (env && env.ComSpec) || 'cmd.exe', args: ['/d', '/s', '/c', `"${line}"`], options: { windowsVerbatimArguments: true } };
   }
   return { command: bin, args: [...args], options: {} };
+}
+
+/**
+ * The line to run from a `where`/`which` listing. On Windows an npm-installed CLI lists its
+ * extensionless POSIX shim first; that file cannot be spawned, its .cmd sibling can.
+ */
+function pickBin(lines, platform = process.platform) {
+  const list = (lines || []).map((s) => String(s).trim()).filter(Boolean);
+  if (!list.length) return null;
+  if (platform === 'win32') {
+    const runnable = list.find((l) => /\.(exe|cmd|bat)$/i.test(l));
+    if (runnable) return runnable;
+  }
+  return list[0];
 }
 
 function defaultWhich(name, platform = process.platform) {
   try {
     const r = spawnSync(platform === 'win32' ? 'where' : 'which', [name], { encoding: 'utf8', env: engineEnv({ platform }), timeout: 5000 });
     if (r.status !== 0) return null;
-    const first = String(r.stdout || '').split(/\r?\n/).map((s) => s.trim()).find(Boolean);
-    return first || null;
+    return pickBin(String(r.stdout || '').split(/\r?\n/), platform);
   } catch {
     return null;
   }
 }
 
+// PATH lookups are a blocking spawnSync on the extension host, so they happen once per detection
+// (`fresh: true`) and are served from here for every call in between.
+const binCache = new Map();
+const clearBinCache = () => binCache.clear();
+
 /** A configured path wins when it exists; otherwise the PATH lookup; otherwise null. */
-function resolveBin(name, { configured = '', which = defaultWhich, exists = fs.existsSync, platform = process.platform } = {}) {
+function resolveBin(name, { configured = '', which = defaultWhich, exists = fs.existsSync, platform = process.platform, fresh = false } = {}) {
   const cfg = String(configured || '').trim();
   if (cfg) return exists(cfg) ? cfg : null;
-  return which(name, platform) || null;
+  const key = `${platform}|${name}`;
+  if (!fresh && binCache.has(key)) return binCache.get(key);
+  const found = which(name, platform) || null;
+  binCache.set(key, found);
+  return found;
 }
 
 function runCli({ bin, args = [], stdin = null, timeoutMs = 240000, env = null, cwd = null, platform = process.platform, maxBytes = 8 * 1024 * 1024, collect = null, scrub = [] }) {
   return new Promise((resolve) => {
     const t0 = Date.now();
-    const childEnv = env || engineEnv({ platform, scrub });
+    // Scrubbing applies even to an explicit env: the subscription-billing guarantee must not
+    // depend on which overload the caller reached for.
+    const childEnv = engineEnv({ base: env || process.env, platform, scrub });
     let tmp = null;
     let dir = cwd;
     if (!dir) {
@@ -130,4 +156,4 @@ function runCli({ bin, args = [], stdin = null, timeoutMs = 240000, env = null, 
   });
 }
 
-module.exports = { runCli, engineEnv, spawnSpec, resolveBin, HOST_VARS };
+module.exports = { runCli, engineEnv, spawnSpec, resolveBin, pickBin, clearBinCache, HOST_VARS };

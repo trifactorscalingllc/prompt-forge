@@ -19,7 +19,7 @@ function create({ fetch }) {
     return {
       cli: { found: false, loggedIn: false, path: null, version: null, account: null, plan: null, note: null },
       apiKey: { stored: Boolean(url) },
-      note: url ? `${url}${key ? ' (key stored)' : ' (no key; fine for local servers)'}` : 'Set promptForge.compatible.baseUrl to use a local or compatible server.',
+      note: url ? `${url.replace(/\?.*$/, '')}${key ? ' (key stored)' : ' (no key; fine for local servers)'}` : 'Set promptForge.compatible.baseUrl to use a local or compatible server.',
     };
   }
 

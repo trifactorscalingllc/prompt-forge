@@ -91,10 +91,14 @@ function createSession({ slug, store, docio, engine, cfg, log, publish = () => {
           continue;
         }
 
-        for (const r of resolutions) store.resolveConflict(slug, r.conflictId, r.keep);
-        reread();
-        store.setConflicts(slug, out.conflicts, { entryId: entryIds.length ? entryIds[entryIds.length - 1] : null });
-        reread();
+        // Only a merge may change the open-conflict list. A polish that returns none (or forgets
+        // the key) must not make a contradiction disappear; that is the one thing this tool is for.
+        if (role === 'merge') {
+          for (const r of resolutions) store.resolveConflict(slug, r.conflictId, r.keep);
+          reread();
+          store.setConflicts(slug, out.conflicts, { entryId: entryIds.length ? entryIds[entryIds.length - 1] : null });
+          reread();
+        }
         await docio.writeDoc(docPath, docm.withConflictBlock(out.doc, sc.conflicts));
         const kind = role === 'polish' ? 'polish' : entryIds.length ? 'merge' : 'resolve';
         const snap = store.addSnapshot(slug, { kind, entryIds, doc: out.doc, conflicts: sc.conflicts, changes: out.changes, target: sc.target, call: res.call });
@@ -136,7 +140,7 @@ function createSession({ slug, store, docio, engine, cfg, log, publish = () => {
     if (!e || e.status !== 'failed') return false;
     store.updateEntry(slug, entryId, { status: 'pending', error: null });
     reread();
-    engineState = { state: 'idle', op: null, model: null, startedAt: 0, error: null };
+    if (!queue.busy() && !queue.size()) engineState = { state: 'idle', op: null, model: null, startedAt: 0, error: null };
     queue.push({ kind: 'idea', entryId });
     return true;
   }

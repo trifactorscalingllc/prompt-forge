@@ -1,6 +1,6 @@
 'use strict';
 // Gemini: the `gemini` CLI (Google login) or a Google AI Studio API key.
-const { catalog, secretKey, firstMatching, detectCli, readJsonFile, cliError, extractJson, num, path } = require('./base');
+const { catalog, secretKey, firstMatching, detectCli, readJsonFile, cliError, extractJson, num, path, runPruned } = require('./base');
 const { jsonRequest } = require('./http');
 
 const KEY = secretKey('gemini');
@@ -8,6 +8,10 @@ const API = 'https://generativelanguage.googleapis.com/v1beta';
 // The prompt itself goes on stdin (no argv limits); -p is required for headless mode and the CLI
 // appends it after stdin, so it is a pointer back up, nothing more.
 const POINTER = 'Follow the instructions above exactly and produce the output they specify.';
+// The CLI is a tool-capable agent that loads the user's own settings, hooks and MCP servers; the
+// document it is handed is user-pasted text. Plan mode makes it read-only. Dropped on a CLI too
+// old to know the flag.
+const SAFE = [['--approval-mode', 'plan']];
 
 function create({ runCli, resolveBin, fetch, fs, home, env = process.env }) {
   const bin = (cfg) => resolveBin('gemini', { configured: cfg.cli && cfg.cli.geminiPath });
@@ -34,7 +38,7 @@ function create({ runCli, resolveBin, fetch, fs, home, env = process.env }) {
   async function completeCli({ model, prompt, timeoutMs, cfg }) {
     const b = bin(cfg);
     if (!b) return { text: '', usage: null, error: 'gemini CLI not found on PATH' };
-    const res = await runCli({ bin: b, args: ['-p', POINTER, '-o', 'json', '-m', model], stdin: prompt, timeoutMs });
+    const res = await runPruned({ runCli, bin: b, head: ['-p', POINTER, '-o', 'json', '-m', model], groups: SAFE, stdin: prompt, timeoutMs, scrub: [] });
     if (!res.ok) return { text: '', usage: null, error: cliError(res) };
     const j = extractJson(res.stdout);
     if (!j || typeof j.response !== 'string') return { text: '', usage: null, error: `unexpected output from gemini: ${res.stdout.trim().slice(0, 200)}` };

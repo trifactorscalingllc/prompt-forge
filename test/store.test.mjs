@@ -138,3 +138,16 @@ test('writeDoc replaces the .md on disk', () => {
   s.writeDoc(slug, '# P\n\nnew body\n');
   assert.equal(s.readDoc(slug), '# P\n\nnew body\n');
 });
+
+test('list parses a sidecar only when its file changed on disk', () => {
+  const s = store.open(tmp());
+  const { slug } = s.create('Cached');
+  s.list();
+  const before = s.stats().parsed;
+  s.list();
+  assert.equal(s.stats().parsed, before, 'unchanged sidecar served from the cache');
+  s.appendEntry(slug, 'idea');
+  s.list();
+  assert.equal(s.stats().parsed, before + 1, 'a changed sidecar is re-read');
+  assert.equal(s.list()[0].entries, 1);
+});

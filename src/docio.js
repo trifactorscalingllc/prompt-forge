@@ -12,14 +12,17 @@ const fs = require('node:fs');
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 function createDocio(vscode, { echoMs = 900, log = null } = {}) {
-  const saves = new Map();      // fsPath -> ts of the last save the editor made itself
-  const selfSaving = new Set(); // paths whose next save event is ours, not the editor's
+  const saves = new Map();      // key -> ts of the last save the editor made itself
+  const selfSaving = new Set(); // keys whose next save event is ours, not the editor's
+  // VS Code lowercases the drive letter in Uri.fsPath; os.homedir() does not. Windows paths are
+  // case-insensitive anyway, so compare them that way.
+  const key = (p) => (process.platform === 'win32' ? String(p).toLowerCase() : String(p));
 
-  const find = (fsPath) => (vscode.workspace.textDocuments || []).find((d) => d.uri && d.uri.fsPath === fsPath) || null;
+  const find = (fsPath) => (vscode.workspace.textDocuments || []).find((d) => d.uri && key(d.uri.fsPath) === key(fsPath)) || null;
 
   function noteSaved(fsPath, ts = Date.now()) {
-    if (selfSaving.has(fsPath)) return;
-    saves.set(fsPath, ts);
+    if (selfSaving.has(key(fsPath))) return;
+    saves.set(key(fsPath), ts);
   }
 
   async function readDoc(fsPath) {
@@ -32,7 +35,7 @@ function createDocio(vscode, { echoMs = 900, log = null } = {}) {
     const d = find(fsPath);
     if (!d) { fs.writeFileSync(fsPath, text); return 'disk'; }
     if (d.getText() === text) return 'none';
-    const wait = echoMs - (Date.now() - (saves.get(fsPath) || 0));
+    const wait = echoMs - (Date.now() - (saves.get(key(fsPath)) || 0));
     if (wait > 0) await sleep(wait);
     const edit = new vscode.WorkspaceEdit();
     edit.replace(d.uri, new vscode.Range(0, 0, d.lineCount, 0), text);
@@ -42,8 +45,8 @@ function createDocio(vscode, { echoMs = 900, log = null } = {}) {
       fs.writeFileSync(fsPath, text);
       return 'disk-fallback';
     }
-    selfSaving.add(fsPath);
-    try { await d.save(); } finally { setTimeout(() => selfSaving.delete(fsPath), 50); }
+    selfSaving.add(key(fsPath));
+    try { await d.save(); } finally { setTimeout(() => selfSaving.delete(key(fsPath)), 50); }
     return 'edit';
   }
 

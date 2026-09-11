@@ -70,7 +70,7 @@ test('engineEnv scrubs case-insensitively and does not mutate the base', () => {
 test('spawnSpec wraps a Windows .cmd shim in cmd.exe with a quoted command line; POSIX is a direct spawn', () => {
   const w = spawnSpec({ bin: 'C:\\x\\claude.cmd', args: ['-p', '--model', 'x y'], platform: 'win32', env: { ComSpec: 'C:\\W\\cmd.exe' } });
   assert.equal(w.command, 'C:\\W\\cmd.exe');
-  assert.deepEqual(w.args, ['/d', '/s', '/c', '"C:\\x\\claude.cmd" -p --model "x y"']);
+  assert.deepEqual(w.args, ['/d', '/s', '/c', '""C:\\x\\claude.cmd" -p --model "x y""']);
   assert.equal(w.options.windowsVerbatimArguments, true);
   const p = spawnSpec({ bin: '/x/claude', args: ['-p'], platform: 'darwin' });
   assert.deepEqual(p, { command: '/x/claude', args: ['-p'], options: {} });
@@ -98,4 +98,44 @@ test('runCli accepts args as a function of the temp cwd and a collect hook that 
   });
   assert.equal(r.ok, true);
   assert.equal(r.collected, 'from child');
+});
+
+test('spawnSpec: the cmd.exe command line is wrapped in one more pair of quotes, as cmd /s requires', () => {
+  const w = spawnSpec({ bin: 'C:\\x\\claude.cmd', args: ['--mcp-config', '{"a":1}'], platform: 'win32', env: { ComSpec: 'cmd.exe' } });
+  const line = w.args[3];
+  assert.ok(line.startsWith('"') && line.endsWith('"'), 'outer quotes present');
+  assert.equal(line, '""C:\\x\\claude.cmd" --mcp-config "{\\"a\\":1}""');
+});
+
+test('pickBin prefers a runnable Windows extension over the extensionless npm shim', () => {
+  const { pickBin } = require('../src/providers/spawn.js');
+  const lines = ['C:\\Users\\me\\AppData\\Roaming\\npm\\claude', 'C:\\Users\\me\\AppData\\Roaming\\npm\\claude.cmd', 'C:\\Users\\me\\AppData\\Roaming\\npm\\claude.ps1'];
+  assert.equal(pickBin(lines, 'win32'), 'C:\\Users\\me\\AppData\\Roaming\\npm\\claude.cmd');
+  assert.equal(pickBin(['C:\\a\\x.exe', 'C:\\b\\x.cmd'], 'win32'), 'C:\\a\\x.exe');
+  assert.equal(pickBin(['C:\\only\\shim'], 'win32'), 'C:\\only\\shim');
+  assert.equal(pickBin(['/usr/local/bin/claude', '/opt/x/claude'], 'darwin'), '/usr/local/bin/claude');
+});
+
+test('runCli still scrubs when an explicit env is passed', async () => {
+  const r = await runCli({
+    bin: node,
+    args: ['-e', 'process.stdout.write(String(process.env.FORGE_SECRET || "") + "|" + String(process.env.FORGE_KEEP || ""))'],
+    env: { ...process.env, FORGE_SECRET: 'leak', FORGE_KEEP: 'kept' },
+    scrub: ['FORGE_SECRET'],
+    timeoutMs: 10000,
+  });
+  assert.equal(r.stdout, '|kept');
+});
+
+test('resolveBin caches the PATH lookup until asked for a fresh one', () => {
+  let n = 0;
+  const which = () => { n += 1; return '/x/claude'; };
+  const { clearBinCache } = require('../src/providers/spawn.js');
+  clearBinCache();
+  resolveBin('claude', { configured: '', which, exists: () => true });
+  resolveBin('claude', { configured: '', which, exists: () => true });
+  assert.equal(n, 1, 'second lookup served from the cache');
+  resolveBin('claude', { configured: '', which, exists: () => true, fresh: true });
+  assert.equal(n, 2, 'fresh forces a lookup');
+  clearBinCache();
 });

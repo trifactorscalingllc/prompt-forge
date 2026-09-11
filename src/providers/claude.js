@@ -1,6 +1,6 @@
 'use strict';
 // Claude: the `claude` CLI (your Claude subscription) or an Anthropic API key.
-const { catalog, secretKey, firstMatching, detectCli, cliError, extractJson, num } = require('./base');
+const { catalog, secretKey, firstMatching, detectCli, cliError, extractJson, num, runPruned } = require('./base');
 const { jsonRequest } = require('./http');
 
 const KEY = secretKey('claude');
@@ -41,25 +41,18 @@ function create({ runCli, resolveBin, fetch, fs, home }) {
   async function completeCli({ model, prompt, timeoutMs, cfg }) {
     const b = bin(cfg);
     if (!b) return { text: '', usage: null, error: 'claude CLI not found on PATH' };
-    let flags = BARE.slice();
-    for (let attempt = 0; attempt < BARE.length + 1; attempt++) {
-      const args = ['-p', '--model', model, ...flags.flat()];
-      const res = await runCli({ bin: b, args, stdin: prompt, timeoutMs, scrub: BILLING });
-      if (!res.ok) {
-        const m = /unknown option '([^']+)'/i.exec(res.stderr || res.error || '');
-        const i = m ? flags.findIndex((g) => g[0] === m[1]) : -1;
-        if (i >= 0) { flags = flags.filter((_, k) => k !== i); continue; }
-        return { text: '', usage: null, error: cliError(res) };
-      }
-      const j = extractJson(res.stdout);
-      if (!j) return { text: '', usage: null, error: `unexpected output from claude: ${res.stdout.trim().slice(0, 200)}` };
-      const u = j.usage || {};
-      const usage = { input: num(u.input_tokens) + num(u.cache_creation_input_tokens) + num(u.cache_read_input_tokens), output: num(u.output_tokens) };
-      if (j.is_error) return { text: '', usage, error: String(j.result || 'claude reported an error').slice(0, 800) };
-      return { text: String(j.result || '').trim(), usage, error: null };
-    }
-    return { text: '', usage: null, error: 'claude rejected every flag combination' };
+    const res = await runPruned({ runCli, bin: b, head: ['-p', '--model', model], groups: BARE, stdin: prompt, timeoutMs, scrub: BILLING });
+    if (!res.ok) return { text: '', usage: null, error: cliError(res) };
+    const j = extractJson(res.stdout);
+    if (!j) return { text: '', usage: null, error: `unexpected output from claude: ${res.stdout.trim().slice(0, 200)}` };
+    const u = j.usage || {};
+    const usage = { input: num(u.input_tokens) + num(u.cache_creation_input_tokens) + num(u.cache_read_input_tokens), output: num(u.output_tokens) };
+    if (j.is_error) return { text: '', usage, error: String(j.result || 'claude reported an error').slice(0, 800) };
+    return { text: String(j.result || '').trim(), usage, error: null };
   }
+
+  // Output caps differ by generation; the document comes back inside a JSON string every call.
+  const maxTokensFor = (model) => (/haiku|claude-3/.test(String(model)) ? 8192 : 16000);
 
   async function completeApi({ model, prompt, timeoutMs, secrets }) {
     const key = await secrets.get(KEY);
@@ -67,13 +60,16 @@ function create({ runCli, resolveBin, fetch, fs, home }) {
     const r = await jsonRequest(fetch, `${API}/messages`, {
       method: 'POST',
       headers: { 'x-api-key': key, 'anthropic-version': VERSION },
-      body: { model, max_tokens: 16000, messages: [{ role: 'user', content: prompt }] },
+      body: { model, max_tokens: maxTokensFor(model), messages: [{ role: 'user', content: prompt }] },
       timeoutMs,
     });
     if (!r.ok) return { text: '', usage: null, error: r.error };
     const j = r.json || {};
     const u = j.usage || {};
     const usage = { input: num(u.input_tokens) + num(u.cache_creation_input_tokens) + num(u.cache_read_input_tokens), output: num(u.output_tokens) };
+    if (j.stop_reason === 'max_tokens') {
+      return { text: '', usage, error: `the reply was cut off at ${maxTokensFor(model)} output tokens: the document is too long for ${model}'s output limit. Shorten it or pick a model with a larger output cap.` };
+    }
     if (j.stop_reason === 'refusal') {
       const cat = j.stop_details && j.stop_details.category;
       return { text: '', usage, error: `the model refused this request${cat ? ` (${cat})` : ''}` };

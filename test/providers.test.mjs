@@ -285,3 +285,32 @@ test('the registry builds all four providers in a stable order with the shared d
     assert.equal(registry.secretKey(p.id), `promptForge.apiKey.${p.id}`);
   }
 });
+
+test('gemini.complete cli: runs in read-only plan mode, and drops the flag if an older CLI rejects it', async () => {
+  const run = fakeRun((req, n) => (n === 1 && req.args.includes('--approval-mode')
+    ? fail('Unknown argument: approval-mode')
+    : ok(JSON.stringify({ response: 'OK', stats: {} }))));
+  const p = gemini.create({ runCli: run, resolveBin: () => '/bin/gemini', fetch: null, fs: fsWith([]), home: '/h' });
+  const r = await p.complete({ mode: 'cli', model: 'gemini-2.5-flash', prompt: 'x', timeoutMs: 5000, cfg: cfg(), secrets: noSecrets });
+  assert.equal(r.text, 'OK');
+  assert.equal(run.calls.length, 2);
+  assert.equal(run.calls[0].args[run.calls[0].args.indexOf('--approval-mode') + 1], 'plan');
+  assert.ok(!run.calls[1].args.includes('--approval-mode'));
+});
+
+test('claude apiKey: a reply cut off at max_tokens is a clear error, and the cap follows the model', async () => {
+  const f = fakeFetch(() => [200, { content: [{ type: 'text', text: '{"doc": "# cut' }], usage: { input_tokens: 1, output_tokens: 16000 }, stop_reason: 'max_tokens' }]);
+  const p = claude.create({ runCli: null, resolveBin: () => null, fetch: f, fs: fsWith([]), home: '/h' });
+  const secrets = secretsWith({ 'promptForge.apiKey.claude': 'k' });
+  const r = await p.complete({ mode: 'apiKey', model: 'claude-sonnet-5', prompt: 'P', timeoutMs: 5000, cfg: cfg(), secrets });
+  assert.match(r.error, /cut off/i);
+  assert.equal(f.calls[0].body.max_tokens, 16000);
+  await p.complete({ mode: 'apiKey', model: 'claude-haiku-4-5', prompt: 'P', timeoutMs: 5000, cfg: cfg(), secrets });
+  assert.equal(f.calls[1].body.max_tokens, 8192);
+});
+
+test('compatible.detect never echoes a query string from the base URL', async () => {
+  const p = compatible.create({ runCli: null, resolveBin: () => null, fetch: null, fs: fsWith([]), home: '/h' });
+  const d = await p.detect({ cfg: cfg({ compatible: { baseUrl: 'https://gw.example/v1?api-key=SECRET' } }), secrets: noSecrets });
+  assert.ok(!JSON.stringify(d).includes('SECRET'));
+});
