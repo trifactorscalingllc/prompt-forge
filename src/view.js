@@ -50,6 +50,7 @@ function html({ vscode, webview, mediaRoots, stamp }) {
       </div>
       <div id="notice" class="notice" hidden></div>
     </header>
+    <div id="empty" class="empty" hidden></div>
     <section id="engine" class="engine-section" hidden></section>
     <section id="conflicts" class="conflicts" hidden></section>
     <section id="compose">
@@ -61,7 +62,6 @@ function html({ vscode, webview, mediaRoots, stamp }) {
     </section>
     <section id="history"></section>
     <footer id="usage" class="usage"></footer>
-    <div id="empty" class="empty" hidden></div>
   </main>
 </div>
 <script nonce="${nonce}" src="${asset('panel.js')}"></script>

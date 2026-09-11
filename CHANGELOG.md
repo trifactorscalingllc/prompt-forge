@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.1.2
+
+- Hidden sections (engine, conflicts, compose) no longer render as empty boxes; the welcome text sits under the header.
+
 ## 0.1.1
 
 - Windows: the CLI command line is quoted the way `cmd /s` expects, and the `.cmd` shim is preferred over the extensionless npm shim.

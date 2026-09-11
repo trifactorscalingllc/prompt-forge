@@ -1,5 +1,6 @@
 :root { --gap: 8px; --accent: var(--vscode-focusBorder); }
 * { box-sizing: border-box; }
+[hidden] { display: none !important; }
 body { margin: 0; padding: 0; color: var(--vscode-foreground); background: var(--vscode-editor-background); font-family: var(--vscode-font-family); font-size: var(--vscode-font-size); }
 button { font: inherit; color: inherit; background: none; border: none; cursor: pointer; padding: 0; }
 select, textarea { font: inherit; color: var(--vscode-input-foreground); background: var(--vscode-input-background); border: 1px solid var(--vscode-input-border, transparent); border-radius: 3px; }
