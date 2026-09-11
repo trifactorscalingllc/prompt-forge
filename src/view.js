@@ -65,11 +65,11 @@ function html({ vscode, webview, mediaRoots, stamp }) {
           <section id="conflicts" class="conflicts" hidden></section>
           <section id="history" class="chat"></section>
           <section id="compose">
-            <textarea id="idea" rows="3" placeholder="Type an idea and press Enter. Shift+Enter for a new line." spellcheck="true"></textarea>
-            <div class="compose-foot">
+            <div class="compose-head">
               <span class="hint">Enter merges the idea into the prompt. Hover a sent idea to edit it.</span>
-              <span id="usage" class="usage"></span>
+              <span id="usage" class="usage" title="Tokens the engine read and wrote for this prompt, summed over every call. Counts toward your plan's rate limits."></span>
             </div>
+            <textarea id="idea" rows="3" placeholder="Type an idea and press Enter. Shift+Enter for a new line." spellcheck="true"></textarea>
           </section>
         </section>
         <section id="preview" class="col">
