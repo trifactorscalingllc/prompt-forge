@@ -169,6 +169,7 @@ function open(libraryPath, { home } = {}) {
   }
 
   const setTarget = (slug, target) => withSidecar(slug, (sc) => { sc.target = target; return sc.target; });
+  const setTitle = (slug, title) => withSidecar(slug, (sc) => { sc.title = String(title); return sc.title; });
 
   function setConflicts(slug, conflicts, { entryId = null } = {}) {
     return withSidecar(slug, (sc) => {
@@ -217,7 +218,7 @@ function open(libraryPath, { home } = {}) {
 
   return {
     dir, docPath, sidecarPath, exists, read, write, create, list, stats,
-    appendEntry, updateEntry, addSnapshot, setTarget, setConflicts, resolveConflict, remove,
+    appendEntry, updateEntry, addSnapshot, setTarget, setTitle, setConflicts, resolveConflict, remove,
     readDoc, writeDoc,
   };
 }

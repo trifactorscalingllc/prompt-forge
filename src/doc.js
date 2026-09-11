@@ -16,6 +16,21 @@ function seed(title) {
   return `# ${title}\n`;
 }
 
+/** A short title from the first idea: first line, first eight words, capitalised. */
+function titleFrom(text) {
+  const line = String(text == null ? '' : text).split('\n').map((l) => l.replace(/^[\s#>*-]+/, '').trim()).find(Boolean) || '';
+  const words = line.replace(/\s+/g, ' ').split(' ').filter(Boolean).slice(0, 8).join(' ').replace(/[.,;:!?]+$/, '');
+  if (!words) return 'Untitled';
+  return words.charAt(0).toUpperCase() + words.slice(1);
+}
+
+/** The document with its first H1 replaced (or an H1 added). */
+function setTitle(doc, title) {
+  const s = String(doc == null ? '' : doc);
+  if (/^# .*$/m.test(s)) return s.replace(/^# .*$/m, `# ${title}`);
+  return `# ${title}\n\n${s.replace(/^\n+/, '')}`;
+}
+
 /** True when the document has nothing but its title (or nothing at all). */
 function isBlank(doc) {
   const body = stripConflictBlock(doc).split('\n').filter((l) => l.trim() && !/^# /.test(l));
@@ -99,5 +114,5 @@ function stripForCopy(doc) {
 
 module.exports = {
   SECTIONS, CONFLICT_OPEN, CONFLICT_CLOSE, CONFLICT_HEADING,
-  seed, isBlank, renderConflictBlock, withConflictBlock, stripConflictBlock, stripForCopy,
+  seed, isBlank, titleFrom, setTitle, renderConflictBlock, withConflictBlock, stripConflictBlock, stripForCopy,
 };

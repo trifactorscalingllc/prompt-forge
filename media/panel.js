@@ -57,6 +57,7 @@
   function renderHeader(s) {
     const a = s.active;
     $('title').textContent = a ? a.title : 'Prompt Forge';
+    $('title').classList.toggle('editable', Boolean(a));
     const sel = $('target');
     const want = a ? a.target : '';
     sel.textContent = '';
@@ -451,7 +452,7 @@
     box.append(el('p', null, 'Create a prompt, then type ideas one at a time. Each Enter merges the idea into a structured document beside this panel. Contradictions are flagged, never guessed away. Polish rewrites the whole thing for the model you are sending it to.'));
     const row = el('div', 'welcome-actions');
     const b = el('button', 'btn primary', 'New prompt');
-    b.addEventListener('click', () => showNewForm());
+    b.addEventListener('click', () => vscode.postMessage({ type: 'newPrompt' }));
     row.append(b);
     const eb = el('button', 'btn', s.engine.selected ? 'Settings' : 'Set up an engine');
     eb.addEventListener('click', () => { engineOpen = true; save(); if (latest) render(latest); });
@@ -501,20 +502,29 @@
     }
   });
   idea.addEventListener('input', save);
-  const newForm = $('new-form');
-  const newName = $('new-name');
-  function showNewForm() { newForm.hidden = false; newName.value = ''; newName.focus(); }
-  function hideNewForm() { newForm.hidden = true; }
-  newForm.addEventListener('submit', (ev) => {
-    ev.preventDefault();
-    const title = newName.value.trim();
-    if (!title) { newName.focus(); return; }
-    vscode.postMessage({ type: 'newPrompt', title });
-    hideNewForm();
+  $('new').addEventListener('click', () => vscode.postMessage({ type: 'newPrompt' }));
+  // Rename: click the title, type, Enter. Escape puts the old name back.
+  const titleEl = $('title');
+  const titleEdit = $('title-edit');
+  titleEl.addEventListener('click', () => {
+    if (!latest || !latest.active) return;
+    titleEdit.value = latest.active.title;
+    titleEl.hidden = true;
+    titleEdit.hidden = false;
+    titleEdit.focus();
+    titleEdit.select();
   });
-  newName.addEventListener('keydown', (ev) => { if (ev.key === 'Escape') { ev.preventDefault(); hideNewForm(); } });
-  $('new-cancel').addEventListener('click', hideNewForm);
-  $('new').addEventListener('click', showNewForm);
+  const endRename = (commit) => {
+    const t = titleEdit.value.trim();
+    titleEdit.hidden = true;
+    titleEl.hidden = false;
+    if (commit && t && latest && latest.active && t !== latest.active.title) vscode.postMessage({ type: 'rename', title: t });
+  };
+  titleEdit.addEventListener('keydown', (ev) => {
+    if (ev.key === 'Enter') { ev.preventDefault(); endRename(true); }
+    if (ev.key === 'Escape') { ev.preventDefault(); endRename(false); }
+  });
+  titleEdit.addEventListener('blur', () => { if (!titleEdit.hidden) endRename(true); });
   $('settings').addEventListener('click', () => { engineOpen = !engineOpen; save(); if (latest) render(latest); });
   $('open-library').addEventListener('click', () => vscode.postMessage({ type: 'openLibrary' }));
   $('open-doc').addEventListener('click', () => vscode.postMessage({ type: 'openDoc' }));

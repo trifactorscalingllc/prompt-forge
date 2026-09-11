@@ -96,9 +96,6 @@ h2 { font-size: 1.1em; margin: 0 0 6px; }
 }
 
 /* settings module + inline naming */
-.new-form { display: flex; flex-direction: column; gap: 4px; padding: 4px 0 6px; }
-.new-form input { width: 100%; padding: 4px 6px; }
-.new-actions { display: flex; gap: 6px; }
 .btn.active { outline: 1px solid var(--accent); }
 .epart { cursor: help; }
 .sblock { display: flex; flex-direction: column; gap: 6px; padding-top: 4px; border-top: 1px solid var(--vscode-panel-border); }
@@ -164,3 +161,8 @@ h2 { font-size: 1.1em; margin: 0 0 6px; }
 .sdesc { color: var(--vscode-descriptionForeground); font-size: 0.9em; margin: 2px 0 4px; }
 .sctl { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
 .sctl select { min-width: 220px; padding: 2px 4px; }
+
+/* rename in place */
+h1.editable { cursor: text; border-bottom: 1px dashed transparent; }
+h1.editable:hover { border-bottom-color: var(--vscode-descriptionForeground); }
+.title-edit { font-size: 1.15em; font-weight: 600; padding: 2px 6px; min-width: 24ch; }

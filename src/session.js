@@ -102,6 +102,13 @@ function createSession({ slug, store, docio, engine, cfg, log, publish = () => {
           store.setConflicts(slug, out.conflicts, { entryId: entryIds.length ? entryIds[entryIds.length - 1] : null });
           reread();
         }
+        // An untitled prompt takes its name from the first idea that lands.
+        if (role === 'merge' && entryIds.length && /^Untitled( \d+)?$/.test(sc.title) && !sc.entries.some((e) => e.status === 'merged')) {
+          const title = docm.titleFrom(ideas[0] ? ideas[0].text : '');
+          store.setTitle(slug, title);
+          out.doc = docm.setTitle(out.doc, title);
+          reread();
+        }
         await docio.writeDoc(docPath, docm.withConflictBlock(out.doc, sc.conflicts));
         const kind = role === 'polish' ? 'polish' : entryIds.length ? 'merge' : revised.length ? 'revise' : 'resolve';
         const snap = store.addSnapshot(slug, { kind, entryIds: touched, doc: out.doc, conflicts: sc.conflicts, changes: out.changes, target: sc.target, call: res.call });
@@ -181,6 +188,20 @@ function createSession({ slug, store, docio, engine, cfg, log, publish = () => {
     return { ok: true };
   }
 
+  /** Rename the prompt: sidecar title and the document's H1, recorded as its own version. */
+  async function rename(title) {
+    const t = String(title == null ? '' : title).replace(/\s+/g, ' ').trim();
+    if (!t || t === sc.title) return false;
+    store.setTitle(slug, t);
+    reread();
+    const body = docm.setTitle(await currentBody(), t);
+    await docio.writeDoc(docPath, docm.withConflictBlock(body, sc.conflicts));
+    store.addSnapshot(slug, { kind: 'rename', entryIds: [], doc: body, conflicts: sc.conflicts, changes: [`renamed to ${t}`], target: sc.target });
+    reread();
+    publish('rename');
+    return true;
+  }
+
   async function copyText() {
     const raw = await docio.readDoc(docPath);
     return docm.stripForCopy(raw == null ? lastSnapshot().doc : raw);
@@ -214,7 +235,7 @@ function createSession({ slug, store, docio, engine, cfg, log, publish = () => {
     resolve: (conflictId, keep) => queue.push({ kind: 'resolve', conflictId, keep }),
     polish: () => queue.push({ kind: 'polish' }),
     setTarget(target) { store.setTarget(slug, target); reread(); queue.push({ kind: 'polish' }); },
-    restore, copyText, idle,
+    restore, rename, copyText, idle,
     busy: () => queue.busy() || queue.size() > 0,
     dispose() { disposed = true; queue.clear(); },
   };

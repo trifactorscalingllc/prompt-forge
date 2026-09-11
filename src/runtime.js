@@ -227,8 +227,8 @@ function create(host) {
         if (m.slug && store.exists(m.slug)) await openSession(m.slug);
         return;
       case 'newPrompt': {
-        const title = (m.title || await vscode.window.showInputBox({ prompt: 'Name the prompt', placeHolder: 'e.g. Landing page rewrite brief', ignoreFocusOut: true }) || '').trim();
-        if (!title) return;
+        // No naming step: the prompt names itself from the first idea, and the title is editable.
+        const title = String(m.title || 'Untitled').trim() || 'Untitled';
         const { slug } = store.create(title);
         await openSession(slug);
         const p = getPanel();
@@ -254,6 +254,9 @@ function create(host) {
         return;
       case 'setTarget':
         if (s && m.target) s.setTarget(String(m.target));
+        return;
+      case 'rename':
+        if (s) await s.rename(m.title);
         return;
       case 'polish':
         if (!s) return;

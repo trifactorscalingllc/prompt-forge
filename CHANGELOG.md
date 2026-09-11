@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.2.2
+
+- New prompt opens the panels immediately; no naming step. The prompt names itself from the first idea, and the title can be clicked to rename.
+
 ## 0.2.1
 
 - Settings is now a compact page in the VS Code style: a short nav (Engine, Models, Target, Document) and one-line rows.

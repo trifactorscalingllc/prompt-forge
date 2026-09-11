@@ -29,13 +29,6 @@ function html({ vscode, webview, mediaRoots, stamp }) {
       <span class="rail-title">Prompts</span>
       <button id="new" class="btn small" title="New prompt">+ New</button>
     </div>
-    <form id="new-form" class="new-form" hidden>
-      <input id="new-name" type="text" placeholder="Name the prompt, then Enter" spellcheck="false" autocomplete="off">
-      <div class="new-actions">
-        <button type="submit" class="btn small primary">Create</button>
-        <button type="button" id="new-cancel" class="btn small">Cancel</button>
-      </div>
-    </form>
     <div id="prompts"></div>
     <button id="open-library" class="link">Open library folder</button>
   </aside>
@@ -44,7 +37,8 @@ function html({ vscode, webview, mediaRoots, stamp }) {
     <section id="work" class="work" hidden>
       <header id="head">
         <div class="head-row">
-          <h1 id="title">Prompt Forge</h1>
+          <h1 id="title" title="Click to rename">Prompt Forge</h1>
+          <input id="title-edit" class="title-edit" type="text" spellcheck="false" autocomplete="off" hidden>
           <div class="head-actions">
             <label class="lbl">Target
               <select id="target" title="The model this prompt is being written for"></select>

@@ -72,3 +72,11 @@ test('stripForCopy: no block, no forge comments, exactly one trailing newline', 
 test('stripForCopy on a plain document is a no-op apart from the trailing newline', () => {
   assert.equal(doc.stripForCopy('# T\n\ntext'), '# T\n\ntext\n');
 });
+
+test('titleFrom turns the first idea into a short title; setTitle rewrites the H1', () => {
+  assert.equal(doc.titleFrom('make the landing page sell the 6-week course to freelance designers who want more'), 'Make the landing page sell the 6-week course');
+  assert.equal(doc.titleFrom('- ship by friday, no excuses\nsecond line ignored'), 'Ship by friday, no excuses');
+  assert.equal(doc.titleFrom('   '), 'Untitled');
+  assert.equal(doc.setTitle('# Untitled\n\n## Goal\n\nx\n', 'Brief'), '# Brief\n\n## Goal\n\nx\n');
+  assert.equal(doc.setTitle('no heading\n', 'Brief'), '# Brief\n\nno heading\n');
+});

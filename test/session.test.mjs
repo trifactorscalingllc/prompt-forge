@@ -298,3 +298,22 @@ test('editing with unchanged or empty text is a no-op', async () => {
   await session.idle();
   assert.equal(calls.length, 1);
 });
+
+test('an untitled prompt names itself from the first idea, once; rename changes the title and the H1', async () => {
+  const { s, slug, session, docio, docPath } = setup((req, n) => mergeReply(req, `L${n}`), { title: 'Untitled' });
+  await session.load();
+  session.submitIdea('make the landing page sell the six week course');
+  await session.idle();
+  let sc = s.read(slug);
+  assert.equal(sc.title, 'Make the landing page sell the six week');
+  assert.ok((await docio.readDoc(docPath)).startsWith('# Make the landing page sell the six week\n'));
+  session.submitIdea('another idea that must not rename it');
+  await session.idle();
+  assert.equal(s.read(slug).title, 'Make the landing page sell the six week');
+  await session.rename('Landing brief');
+  sc = s.read(slug);
+  assert.equal(sc.title, 'Landing brief');
+  assert.ok((await docio.readDoc(docPath)).startsWith('# Landing brief\n'));
+  assert.equal(sc.snapshots[sc.snapshots.length - 1].kind, 'rename');
+  assert.equal(session.snapshot().title, 'Landing brief');
+});
