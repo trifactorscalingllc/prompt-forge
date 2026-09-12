@@ -16,6 +16,22 @@ const TARGETS = [
   { id: 'gpt-5-mini', label: 'GPT-5 mini', family: 'gpt', blurb: 'Same layout as GPT-5 with shorter sections and one worked example.' },
 ];
 const FAMILIES = ['claude', 'gemini', 'gpt'];
+
+// Polish renames the sections, and the next merge then reads a document whose headings no longer
+// match the canonical list. That round trip is the normal loop, so the mapping cannot be left for
+// the engine to infer -- it is written down once, here, and both prompts are given it.
+// Every value must be the heading exactly as the family's style guide tells polish to write it.
+const SECTION_NAMES = {
+  claude: { Goal: '<goal>', Context: '<context>', Requirements: '<requirements>', Constraints: '<constraints>', 'Output format': '<output_format>', Examples: '<examples>', 'Open questions': '<open_questions>' },
+  gemini: { Goal: '## Goal', Context: '## Context', Requirements: '## Requirements', Constraints: '## Constraints', 'Output format': '## Output format', Examples: '## Examples', 'Open questions': '## Open questions' },
+  gpt: { Goal: '# Task', Context: '# Context', Requirements: '# Requirements', Constraints: '# Constraints', 'Output format': '# Output format', Examples: '# Examples', 'Open questions': '# Open questions' },
+};
+
+/** [{ canonical, name }] for a family: what each canonical section is called once polished. */
+function sectionsFor(family) {
+  const map = SECTION_NAMES[FAMILIES.includes(family) ? family : 'claude'];
+  return Object.entries(map).map(([canonical, name]) => ({ canonical, name }));
+}
 const DEFAULT_TARGET = 'fable-5.1';
 
 const find = (id) => TARGETS.find((t) => t.id === id) || null;
@@ -43,4 +59,4 @@ function styleGuide(family) {
   return fs.readFileSync(path.join(__dirname, `${f}.md`), 'utf8');
 }
 
-module.exports = { TARGETS, FAMILIES, DEFAULT_TARGET, familyOf, labelOf, resolve, styleGuide };
+module.exports = { TARGETS, FAMILIES, DEFAULT_TARGET, SECTION_NAMES, familyOf, labelOf, resolve, sectionsFor, styleGuide };

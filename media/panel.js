@@ -680,11 +680,25 @@
   // control. A floating list rather than a <select> so each option can carry its one-line blurb;
   // a native select shows the label alone.
   // ------------------------------------------------------------------------------------------
+  // Vendor marks, by family. Kept here rather than in the state so the SVG never rides along on
+  // every repaint, and in one map so an official asset can replace a drawn one in a single line.
+  const MARK = {
+    claude: '<svg viewBox="0 0 16 16" width="13" height="13" fill="currentColor" aria-hidden="true"><g transform="translate(8 8)"><path d="M-.62-7.4h1.24l.3 4.75a24 24 0 0 0-1.84 0z"/><path d="M-.62 7.4h1.24l.3-4.75a24 24 0 0 1-1.84 0z" transform="rotate(180)"/><path d="M-.62-7.4h1.24l.3 4.75a24 24 0 0 0-1.84 0z" transform="rotate(30)"/><path d="M-.62-7.4h1.24l.3 4.75a24 24 0 0 0-1.84 0z" transform="rotate(60)"/><path d="M-.62-7.4h1.24l.3 4.75a24 24 0 0 0-1.84 0z" transform="rotate(90)"/><path d="M-.62-7.4h1.24l.3 4.75a24 24 0 0 0-1.84 0z" transform="rotate(120)"/><path d="M-.62-7.4h1.24l.3 4.75a24 24 0 0 0-1.84 0z" transform="rotate(150)"/><path d="M-.62-7.4h1.24l.3 4.75a24 24 0 0 0-1.84 0z" transform="rotate(210)"/><path d="M-.62-7.4h1.24l.3 4.75a24 24 0 0 0-1.84 0z" transform="rotate(240)"/><path d="M-.62-7.4h1.24l.3 4.75a24 24 0 0 0-1.84 0z" transform="rotate(270)"/><path d="M-.62-7.4h1.24l.3 4.75a24 24 0 0 0-1.84 0z" transform="rotate(300)"/><path d="M-.62-7.4h1.24l.3 4.75a24 24 0 0 0-1.84 0z" transform="rotate(330)"/></g></svg>',
+    gemini: '<svg viewBox="0 0 16 16" width="13" height="13" fill="currentColor" aria-hidden="true"><path d="M8 .8c.35 3.02 1.36 5.03 2.83 6.1.9.65 2.06 1 3.57 1.1-3.02.35-5.03 1.36-6.1 2.83-.65.9-1 2.06-1.1 3.57-.35-3.02-1.36-5.03-2.83-6.1-.9-.65-2.06-1-3.57-1.1 3.02-.35 5.03-1.36 6.1-2.83.65-.9 1-2.06 1.1-3.57z"/></svg>',
+    gpt: '<svg viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.15" stroke-linejoin="round" aria-hidden="true"><path d="M8 1.9 12.6 4.5v5.2L8 12.3 3.4 9.7V4.5z"/><path d="M8 1.9v4.6l4.6 2.6M8 6.5 3.4 9.1M8 6.5v5.8"/></svg>',
+  };
+
+  function markFor(family) {
+    const svg = MARK[family];
+    const span = el('span', 'fitem-mark');
+    if (svg) span.innerHTML = svg;              // a constant in this file, never user text
+    return span;
+  }
+
   function renderTarget(s) {
     const a = s.active;
     const btn = $('target-btn');
     btn.disabled = !a;
-    $('for-word').hidden = !a;
     if (!a) { $('target-label').textContent = ''; closeTargetMenu(); return; }
     const t = s.targets.find((x) => x.id === a.target);
     $('target-label').textContent = (t && t.label) || a.target;
@@ -709,8 +723,10 @@
     for (const t of s.targets) {
       const item = el('button', `fitem${t.id === s.active.target ? ' on' : ''}`);
       item.setAttribute('role', 'option');
-      item.append(el('span', 'fitem-label', t.label));
-      if (blurbs[t.id]) item.append(el('span', 'fitem-desc', blurbs[t.id]));
+      const text = el('span', 'fitem-text');
+      text.append(el('span', 'fitem-label', t.label));
+      if (blurbs[t.id]) text.append(el('span', 'fitem-desc', blurbs[t.id]));
+      item.append(markFor(t.family), text);
       item.addEventListener('click', () => { closeTargetMenu(); vscode.postMessage({ type: 'setTarget', target: t.id }); });
       menu.append(item);
     }

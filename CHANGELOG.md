@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.5.0
+
+Three faults in the engine prompts, found by reading them against each other rather than by a bug report.
+
+- **Polish renames the sections; the next merge was never told.** The Claude guide turns *Goal* into `<goal>`, and the GPT guide turns it into `# Task` — so a polished document has headings the merge prompt's “canonical set” does not contain, and polish→merge→polish is the normal loop. The mapping is now written down once (`targets.SECTION_NAMES`), handed to every merge, and **a test asserts each name actually appears in that family's style guide**, so editing a guide without the table fails the build instead of quietly producing duplicate sections.
+- **Merge had no rule against inventing.** Polish has always carried *“add nothing the document does not say”*; merge carried only *“prefer a concrete statement over a vague one”*, which under pressure manufactures specifics — most visibly in *Examples*, a section nobody dictates. Merge now has rule 10: every line must come from an idea, a resolution, or text already there; no inventing names, numbers or file paths; a section with no material is left out rather than filled. It disclaims rule 9 by name, or the two read as contradictory.
+- **“Already merged” was a silent window of 12.** The engine was shown the last twelve merged ideas and told *“do not add them again”*, with nothing to say the other twenty-eight existed — so the duplicate-folding rule could not fire on anything older. The block now declares `showing="12" of="40"` and points at the document as the complete record.
+
+Also: the vendor's mark sits next to each model in the target list, the word “for” is gone (“Prompt … Claude Fable 5.1” reads without it), and the brief inside the idea box is smaller and fainter — it is guidance, and should never compete with what you are typing.
+
 ## 0.4.3
 
 - **The target moved out of the window header and onto the Prompt panel**, where it reads as a sentence: *Prompt — for **Claude Fable 5.1***. The word “for” is a divider, not part of the control; the model name is the button.

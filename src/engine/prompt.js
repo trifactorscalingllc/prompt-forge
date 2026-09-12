@@ -14,11 +14,16 @@ const iso = (ts) => { try { return new Date(ts).toISOString(); } catch { return 
 const block = (s) => (String(s == null ? "" : s).endsWith("\n") ? String(s) : `${s}\n`);
 const q = (s) => `"${String(s == null ? '' : s).replace(/\s+/g, ' ').trim()}"`;
 
-function buildMergePrompt({ doc, ideas = [], resolutions = [], revisions = [], conflicts = [], recent = [], target, projects = [], needsTitle = false, sections = SECTIONS }) {
+function buildMergePrompt({ doc, ideas = [], resolutions = [], revisions = [], conflicts = [], recent = [], target, projects = [], needsTitle = false, sections = SECTIONS, sectionNames = [], mergedTotal = null }) {
   const label = (target && target.label) || 'the target model';
   const merged = recent.length
     ? recent.map((e) => `- [${iso(e.ts)}] ${String(e.text || '').replace(/\s+/g, ' ').trim()}`).join('\n')
     : '(none yet)';
+  const total = Number.isFinite(mergedTotal) ? mergedTotal : recent.length;
+  const partial = total > recent.length;
+  const aliases = sectionNames.length
+    ? sectionNames.map((x) => `- ${x.canonical} → ${x.name}`).join('\n')
+    : '';
   const ideaLines = ideas.length ? ideas.map((it, i) => `${i + 1}. ${String(it.text || '').trim()}`).join('\n') : '(none)';
   const revLines = revisions.length
     ? revisions.map((r) => `- ${r.id}: was ${q(r.before)} -> now ${q(r.after)}`).join('\n')
@@ -37,10 +42,11 @@ ${block(doc)}</document>
 
 The document is the source of truth. The person may have edited it by hand since the last merge, and every word of it is deliberate: keep hand edits, keep the section order and headings as they are (whatever style they are in), and keep the wording of anything you are not changing.
 
-<already-merged>
+<already-merged${partial ? ` showing="${recent.length}" of="${total}"` : ''}>
 ${merged}
 </already-merged>
-Those ideas are already reflected in the document. Do not add them again.
+Those ideas are already reflected in the document. Do not add them again.${partial ? `
+This list is the ${recent.length} most recent of ${total}; the earlier ${total - recent.length} are not shown. The DOCUMENT is the complete record of what has been merged, so check it, not this list, before deciding an idea is new.` : ''}
 
 <open-conflicts>
 ${JSON.stringify(conflicts, null, 2)}
@@ -60,7 +66,9 @@ ${revLines}
 A revision is an earlier idea the person rewrote. Update the document so it reflects the new wording and no longer reflects the old one; do not keep both.
 
 Rules:
-1. Merge every new idea into the section it belongs to. The document's own sections are the structure; the canonical set is ${sections.join(', ')}. Never append an idea as a loose bullet at the end and never invent a "Notes" or "Misc" section. If nothing fits, the closest section takes it; add a section only when the idea is clearly a new kind of thing.
+1. Merge every new idea into the section it belongs to. The document's own sections are the structure; the canonical set is ${sections.join(', ')}.${aliases ? ` This document has been polished for ${label}, so those sections appear under these names — they are the same sections, and a heading below is never a reason to add a second one:
+${aliases}
+   Keep whatever naming the document already uses.` : ''} Never append an idea as a loose bullet at the end and never invent a "Notes" or "Misc" section. If nothing fits, the closest section takes it; add a section only when the idea is clearly a new kind of thing.
 2. Fold duplicates: if an idea restates something already present, strengthen the existing line instead of adding a second one.
 3. Never resolve a contradiction silently. If a new idea contradicts the document (including a hand edit), leave the EXISTING text in place, keep the incoming text OUT of the body, and report it in "conflicts" with a stable id (C1, C2, ... continuing after the highest id in <open-conflicts>), the section, the existing text verbatim and the incoming text verbatim. Open conflicts stay open unless a resolution closes them.
 4. If the existing text of an open conflict is no longer in the document, the person resolved it by hand: leave it out of "conflicts".
@@ -69,6 +77,7 @@ Rules:
 7. Structure only. Do not restyle the document for ${label} now; polishing is a separate step.
 8. Return the COMPLETE document, not a diff, and not a summary of it.
 9. Write clearly enough that a model reading the finished prompt has nothing to assume: prefer a concrete statement over a vague one, and put anything the person left undecided under Open questions rather than guessing.
+10. Add nothing of your own. Every line you write must come from a new idea, a resolution, or text already in the document. Do not invent requirements, constraints, examples, names, numbers or file paths the person has not given, and do not fill a section to make it look complete — a section with no material is left out. Rule 9 asks you to state the person's material precisely; it is not permission to supply material they did not.
 
 ${OUTPUT_CONTRACT}${needsTitle ? `
 Also return "title": a name for this prompt of AT MOST FIVE WORDS, describing what the finished prompt is for. Name the subject, not the act of asking: "Collapsible prompt sidebar", not "Oh idea" or "User wants changes". No trailing punctuation, no quotes.` : ''}

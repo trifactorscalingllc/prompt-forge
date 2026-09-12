@@ -160,8 +160,8 @@ test('the target reads as "for <model>" on the Prompt head, and is a floating li
   assert.ok(!/<select id="target"/.test(view), 'no native select survives');
 
   const nav = view.slice(view.indexOf('<section id="preview"'), view.indexOf('<div id="doc"'));
-  assert.ok(/id="for-word"[^>]*>for</.test(nav), '"for" is the divider, and it is not part of the control');
-  assert.ok(/id="target-btn"/.test(nav) && nav.indexOf('id="for-word"') < nav.indexOf('id="target-btn"'));
+  assert.ok(!/for-word/.test(view), 'nothing labels the control; "Prompt … Claude Fable 5.1" reads on its own');
+  assert.ok(/id="target-btn"/.test(nav));
   assert.ok(/aria-haspopup="listbox"/.test(nav));
 
   const panel = fs.readFileSync(path.join(ROOT, 'media/panel.js'), 'utf8');
@@ -175,6 +175,10 @@ test('the target reads as "for <model>" on the Prompt head, and is a floating li
   const css = fs.readFileSync(path.join(ROOT, 'media/panel.css'), 'utf8');
   assert.ok(/\.floating \{[^}]*position: fixed/.test(css), 'fixed, so the panel overflow cannot clip it');
   assert.ok(/\.fitem-desc/.test(css), 'each option carries its blurb, which is why this is not a select');
+  // A vendor mark per family, from one map, so an official asset replaces a drawn one in one line.
+  assert.ok(/const MARK = \{/.test(panel) && /claude:/.test(panel) && /gemini:/.test(panel) && /gpt:/.test(panel));
+  assert.ok(/function markFor/.test(panel) && /item\.append\(markFor\(t\.family\)/.test(panel));
+  assert.ok(/#idea::placeholder \{[^}]*opacity: 0\.5/.test(css), 'the in-box brief is the quietest thing on the panel');
 });
 
 test('the compose hint lives in the box, and a collapsed rail still starts a prompt', () => {

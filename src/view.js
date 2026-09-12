@@ -78,7 +78,6 @@ function html({ vscode, webview, mediaRoots, stamp }) {
         <section id="preview" class="col">
           <div class="col-head">
             <span class="col-title">Prompt</span>
-            <span id="for-word" class="muted small-text">for</span>
             <button id="target-btn" class="targetpick" aria-haspopup="listbox" aria-expanded="false" title="The model this prompt is being written for. Click to change it."><span id="target-label"></span>${ICON.caret}</button>
             <button id="polish" class="iconbtn" title="Rewrite the whole document in the target model&#39;s preferred style">${ICON.hammer}</button>
             <button id="copy" class="iconbtn swap" title="Copy the final prompt to the clipboard"><span class="i-off">${ICON.copy}</span><span class="i-on">${ICON.check}</span></button>

@@ -75,9 +75,11 @@ function createSession({ slug, store, docio, engine, cfg, log, publish = () => {
         const touched = [...entryIds, ...revised.map((r) => r.entryId)];
         const projects = sc.projects || [];
         const needsTitle = role === 'merge' && /^Untitled( \d+)?$/.test(sc.title) && !sc.entries.some((e) => e.status === 'merged');
+        const mergedTotal = sc.entries.filter((e) => e.status === 'merged').length;
+        const sectionNames = targets.sectionsFor(target.family);
         const prompt = role === 'polish'
           ? buildPolishPrompt({ doc: body, conflicts, target, styleGuide: targets.styleGuide(target.family), projects })
-          : buildMergePrompt({ doc: body, ideas, resolutions, revisions, conflicts, recent, target, projects, needsTitle });
+          : buildMergePrompt({ doc: body, ideas, resolutions, revisions, conflicts, recent, target, projects, needsTitle, sectionNames, mergedTotal });
         const timeoutMs = (engineCfg().timeoutSeconds || 240) * 1000;
 
         const res = await engine.call({ role, prompt, timeoutMs });
