@@ -99,6 +99,7 @@ h2 { font-size: 1.1em; margin: 0 0 6px; }
 .etext { white-space: pre-wrap; word-break: break-word; }
 .emeta { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; font-size: 0.85em; color: var(--vscode-descriptionForeground); }
 .usage { font-size: 0.85em; color: var(--vscode-descriptionForeground); }
+.usage.over { color: var(--vscode-editorWarning-foreground, #e0b341); cursor: help; }
 .empty { flex: 1; min-height: 0; overflow: auto; display: flex; align-items: center; justify-content: center; padding: 24px; }
 .welcome { max-width: 560px; display: flex; flex-direction: column; gap: 10px; align-items: center; text-align: center; }
 .welcome h2 { font-size: 1.3em; }

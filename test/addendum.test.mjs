@@ -24,16 +24,29 @@ test('nothing copied-to-now means nothing to say', () => {
   assert.equal(a.removed, 0);
 });
 
-test('an addendum carries the change, not the prompt again', () => {
+test('a changed section arrives whole, so the additions read in place', () => {
   const v2 = V1.replace('- The boss must delegate to subagents.\n', '- The boss must delegate to subagents.\n- Token usage must be visible per subagent.\n');
   const a = buildAddendum(V1, v2);
   assert.equal(a.added, 1);
+  assert.ok(a.text.includes('- Token usage must be visible per subagent.'), 'the new line is there');
+  // A bare delta reads as a fragment. The whole changed section reads as an instruction, and the
+  // model does not have to work out where the fragment belongs.
+  assert.ok(a.text.includes('- The extension must provide a boss agent.'), 'with the lines around it');
+  assert.ok(a.text.includes('## Requirements'), 'under its own heading');
+  // Sections that did not change are still left out: this is a follow-up, not the prompt again.
+  assert.ok(!a.text.includes('Ship a VS Code extension'), 'unchanged sections stay out');
+  assert.ok(/Continuing the prompt I sent earlier/.test(a.text), 'it reads as the next message');
+  assert.ok(/replace the versions you have/.test(a.text), 'and says what to do with the sections it carries');
+  // Context must not cost precision: what is actually new is still listed exactly.
+  assert.ok(/What changed since the version you have:/.test(a.text));
+  assert.ok(/- New in Requirements: Token usage must be visible per subagent\./.test(a.text));
+});
+
+test('delta-only is still available, and is what context: false means', () => {
+  const v2 = V1.replace('- The boss must delegate to subagents.\n', '- The boss must delegate to subagents.\n- Token usage must be visible per subagent.\n');
+  const a = buildAddendum(V1, v2, { context: false });
   assert.ok(a.text.includes('- Token usage must be visible per subagent.'));
-  // The model already has the prompt; sending it a second time is the thing this avoids.
-  assert.ok(!a.text.includes('Ship a VS Code extension'), 'unchanged sections are left out');
-  assert.ok(!a.text.includes('- The boss must delegate to subagents.'), 'unchanged lines are left out');
-  assert.ok(a.text.includes('## Requirements'), 'but the section it lands in is named');
-  assert.ok(/Continuing the prompt I sent earlier/.test(a.text), 'it reads as the next message, not a new prompt');
+  assert.ok(!a.text.includes('- The extension must provide a boss agent.'), 'no surrounding lines');
 });
 
 test('a new section arrives whole', () => {
@@ -49,14 +62,16 @@ test('a removal is reported, because a follow-up that only adds would be wrong',
   const a = buildAddendum(V1, v2);
   assert.equal(a.removed, 1);
   assert.equal(a.added, 0);
-  assert.ok(/No longer applies:/.test(a.text));
-  assert.ok(a.text.includes('The boss must delegate to subagents.'));
+  assert.ok(/No longer applies in Requirements: The boss must delegate to subagents\./.test(a.text));
+  assert.ok(a.text.includes('- The extension must provide a boss agent.'), 'and the section as it now stands is given');
 });
 
 test('a whole section disappearing is reported too', () => {
   const a = buildAddendum(V1, '# Deligator\n\n## Goal\n\nShip a VS Code extension with a boss agent.\n');
   assert.equal(a.removed, 2);
-  assert.ok(/No longer applies:/.test(a.text));
+  // Nothing is left of it to quote, so it appears only in the summary -- never as an empty heading.
+  assert.ok(/No longer applies in Requirements:/.test(a.text));
+  assert.ok(!/## Requirements\n\nWhat changed/.test(a.text), 'no orphaned heading');
 });
 
 test('a line that only moved is not reported as new', () => {
@@ -83,8 +98,9 @@ test('headings are matched across a restyle, so a polish does not fake a rewrite
   const claude = '# D\n\n<requirements>\n\n- One.\n\n</requirements>\n';
   const md = '# D\n\n## Requirements\n\n- One.\n- Two.\n';
   const a = buildAddendum(claude, md);
-  assert.equal(a.added, 1, 'only the real addition');
-  assert.ok(a.text.includes('- Two.') && !a.text.includes('- One.'));
+  assert.equal(a.added, 1, 'only the real addition is counted');
+  assert.ok(a.text.includes('- Two.'));
+  assert.ok(/- New in Requirements: Two\./.test(a.text), 'and only it is called new');
 });
 
 test('a restyle of the whole prompt says so instead of pretending to be an addendum', () => {

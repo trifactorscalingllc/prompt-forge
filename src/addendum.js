@@ -96,7 +96,7 @@ function diffSections(before, after) {
  * { text, added, removed, restyled } — `text` is '' when nothing of substance changed.
  * `restyled` means so much moved that an addendum would be noise: send the whole prompt instead.
  */
-function buildAddendum(before, after, { restyleRatio = 0.6 } = {}) {
+function buildAddendum(before, after, { restyleRatio = 0.6, context = true } = {}) {
   const A = sections(before);
   const B = sections(after);
   const byKey = new Map(A.map((s) => [key(s.heading), s]));
@@ -106,35 +106,53 @@ function buildAddendum(before, after, { restyleRatio = 0.6 } = {}) {
   let removed = 0;
   for (const s of B) {
     const was = byKey.get(key(s.heading));
-    // Reordering is not a change worth sending: the content is identical, so LCS would report one
-    // line added and one removed and the follow-up would say nothing.
     if (was && sameLines(was.lines, s.lines)) continue;
     const d = diffLines(was ? was.lines : [], s.lines);
     if (!d.added.length && !d.removed.length) continue;
     added += d.added.length;
     removed += d.removed.length;
-    blocks.push({ heading: s.heading, ...d });
+    blocks.push({ heading: s.heading, lines: s.lines, ...d });
   }
   // A section that existed and is now gone entirely.
   const nowKeys = new Set(B.map((s) => key(s.heading)));
   for (const s of A) {
     if (nowKeys.has(key(s.heading)) || !s.lines.length) continue;
     removed += s.lines.length;
-    blocks.push({ heading: s.heading, added: [], removed: s.lines });
+    blocks.push({ heading: s.heading, lines: [], added: [], removed: s.lines });
   }
 
   const beforeLines = A.reduce((n, s) => n + s.lines.length, 0);
   const restyled = beforeLines > 0 && (added + removed) / (beforeLines + added) > restyleRatio;
   if (!blocks.length) return { text: '', added: 0, removed: 0, restyled: false };
 
-  const parts = ['Continuing the prompt I sent earlier. Everything in it still applies; these are the additions and changes since then.', ''];
+  // A changed section is given IN FULL rather than as its new lines alone. A bare delta reads as a
+  // list of fragments; the whole section reads as an instruction, and the model can act on it
+  // without reconstructing where the fragments belong. What is actually new is then listed
+  // separately, so precision is not lost to context.
+  const parts = context
+    ? ['Continuing the prompt I sent earlier. Everything in it still applies, except that these sections replace the versions you have.', '']
+    : ['Continuing the prompt I sent earlier. Everything in it still applies; these are the additions and changes since then.', ''];
+
   for (const b of blocks) {
+    if (context && !b.lines.length && b.removed.length) continue;   // covered by the summary below
     if (b.heading) parts.push(b.heading, '');
-    if (b.added.length) { parts.push(...b.added, ''); }
-    if (b.removed.length) {
+    if (context) { if (b.lines.length) parts.push(...b.lines, ''); }
+    else if (b.added.length) parts.push(...b.added, '');
+    if (!context && b.removed.length) {
       parts.push('No longer applies:', ...b.removed.map((l) => `- ${l.replace(/^[-*]\s*/, '')}`), '');
     }
   }
+
+  if (context) {
+    const what = [];
+    for (const b of blocks) {
+      const where = b.heading ? ` in ${b.heading.replace(/^#+\s*/, '').replace(/^<|>$/g, '').replace(/_/g, ' ')}` : '';
+      for (const l of b.added) what.push(`- New${where}: ${l.replace(/^[-*]\s*/, '')}`);
+      for (const l of b.removed) what.push(`- No longer applies${where}: ${l.replace(/^[-*]\s*/, '')}`);
+    }
+    if (what.length) parts.push('What changed since the version you have:', ...what, '');
+  }
+
   return { text: `${parts.join('\n').replace(/\n{3,}/g, '\n\n').trim()}\n`, added, removed, restyled };
 }
 

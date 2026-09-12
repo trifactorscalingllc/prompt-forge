@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.11.0
+
+Tier 3, and one correction.
+
+- **The add-on copy now carries context.** A changed section is sent **whole** rather than as its new lines alone, so the additions read in place and the model can act on them without working out where the fragments belong — then *What changed since the version you have* lists exactly what is new, so context costs no precision. Unchanged sections are still left out; this is a follow-up, not the prompt again. (This reverses the answer given to that open question in 0.7.0; the finished spec decided otherwise.)
+- **Export**: the prompt as markdown, as JSON carrying its ideas, versions and conflicts, or written into `.claude/commands/<slug>.md` so it becomes a `/slash` command in the open workspace. *Prompt Forge: Export This Prompt*.
+- **Per-idea project search** (`promptForge.projectContext: brief+lookup`). Before each merge the attached project is searched for the words in your idea and at most three excerpts are attached, with paths and line numbers. A search, not an embedding: a bad match is visibly a bad match, and the excerpt block tells the engine these are search results that may be irrelevant and are never a requirement you made. Off by default — it costs a filesystem scan on every Enter.
+- **Token budget** (`promptForge.tokenBudget`). The footer turns amber once a prompt passes it. Tokens rather than money on purpose: a CLI login draws on a plan rather than billing per token, and a confident wrong dollar figure is worse than no figure.
+
 ## 0.10.0
 
 - **Paste a screenshot into an idea.** It is written beside the prompt in `<slug>.images/` and given to the merge engine by absolute path, with permission to open it — so “make it look like this” works. Deleting a prompt takes its screenshots to `.trash` with it.

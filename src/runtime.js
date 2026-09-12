@@ -202,7 +202,8 @@ function create(host) {
     const p = config().project || {};
     return {
       roots: Array.isArray(p.roots) ? p.roots : [],
-      context: p.context === 'off' ? 'off' : 'brief',
+      context: ['off', 'brief', 'brief+lookup'].includes(p.context) ? p.context : 'brief',
+      tokenBudget: Number.isFinite(p.tokenBudget) ? p.tokenBudget : 0,
       attachDefault: p.attachDefault === 'workspace' ? 'workspace' : 'none',
       maxFiles: Number.isFinite(p.maxFiles) ? p.maxFiles : 400,
       maxBytes: Number.isFinite(p.maxBytes) ? p.maxBytes : 2000000,
@@ -575,6 +576,42 @@ function create(host) {
         await vscode.window.showTextDocument(doc, { preview: true });
         return;
       }
+      case 'export': {
+        if (!s) { notice('info', 'Create or open a prompt first.'); return; }
+        const sc = store.read(s.slug);
+        const text = await s.copyText();
+        const items = [
+          { label: '$(markdown) Markdown file', detail: 'The finished prompt, as you would paste it', act: 'md' },
+          { label: '$(terminal) Claude Code slash command', detail: `.claude/commands/${s.slug}.md in this workspace — then /${s.slug}`, act: 'cmd' },
+          { label: '$(json) Whole prompt as JSON', detail: 'Document, every idea, versions and conflicts — the portable form', act: 'json' },
+        ];
+        const pick = m.act ? { act: String(m.act) } : await vscode.window.showQuickPick(items, { placeHolder: 'Export this prompt as\u2026' });
+        if (!pick) return;
+        if (pick.act === 'cmd') {
+          const ws = workspaceDir();
+          if (!ws) { notice('error', 'No folder is open, so there is nowhere to put a slash command.'); return; }
+          const dest = path.join(ws, '.claude', 'commands', `${s.slug}.md`);
+          fs.mkdirSync(path.dirname(dest), { recursive: true });
+          fs.writeFileSync(dest, text);
+          notice('info', `Written to .claude/commands/${s.slug}.md. Use it with /${s.slug}.`);
+          await vscode.window.showTextDocument(await vscode.workspace.openTextDocument(dest), { preview: true });
+          return;
+        }
+        // The sidecar minus the snapshot bodies: the history of what was decided travels, the fifty
+        // copies of the document do not.
+        const body = pick.act === 'json'
+          ? JSON.stringify({
+            version: 1, title: sc.title, target: sc.target, doc: text,
+            entries: (sc.entries || []).map(({ id, ts, text: t, status, images }) => ({ id, ts, text: t, status, images: (images || []).map((i) => i.name) })),
+            conflicts: sc.conflicts || [], projects: (sc.projects || []).map(({ label, path: p }) => ({ label, path: p })),
+            versions: (sc.snapshots || []).map(({ id, ts, kind, changes }) => ({ id, ts, kind, changes })),
+          }, null, 2)
+          : text;
+        const doc = await vscode.workspace.openTextDocument({ language: pick.act === 'json' ? 'json' : 'markdown', content: body });
+        await vscode.window.showTextDocument(doc, { preview: false });
+        notice('info', 'Save it wherever you like — nothing was written to disk.');
+        return;
+      }
       case 'copyNew': {
         if (!s) return;
         const add = await s.copyNewText();
@@ -633,7 +670,7 @@ function create(host) {
         await vscode.commands.executeCommand('workbench.action.openSettings', m.query ? String(m.query) : '@ext:trifactorscaling.prompt-forge-trifactor');
         return;
       case 'setProjectContext':
-        if (m.value === 'off' || m.value === 'brief') { await updateSetting('projectContext', m.value); post(); }
+        if (['off', 'brief', 'brief+lookup'].includes(m.value)) { await updateSetting('projectContext', m.value); post(); }
         return;
       case 'setDocEditor':
         if (m.value === 'forge' || m.value === 'office' || m.value === 'text') {

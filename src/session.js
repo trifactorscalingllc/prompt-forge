@@ -6,13 +6,18 @@ const docm = require('./doc');
 const targets = require('./targets');
 const { buildMergePrompt, buildPolishPrompt } = require('./engine/prompt');
 const { buildAddendum, diffSections } = require('./addendum');
+const nodeFs = require('node:fs');
+const projectMod = require('./project');
+
+// Injected so a session test never touches a real filesystem.
+const defaultLookup = (dir, idea) => projectMod.lookup(dir, idea, { fs: nodeFs });
 const { parseEngineOutput } = require('./engine/output');
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const tick = () => new Promise((r) => setImmediate(r));
 const publicConflict = (c) => ({ id: c.id, section: c.section, existing: c.existing, incoming: c.incoming });
 
-function createSession({ slug, store, docio, engine, cfg, log, publish = () => {}, settleMs = 450 }) {
+function createSession({ slug, store, docio, engine, cfg, log, publish = () => {}, settleMs = 450, lookupFor = defaultLookup }) {
   const docPath = store.docPath(slug);
   let sc = null;
   let disposed = false;
@@ -75,13 +80,22 @@ function createSession({ slug, store, docio, engine, cfg, log, publish = () => {
         const revisions = revised.map((r) => { const e = sc.entries.find((x) => x.id === r.entryId); return e ? { id: e.id, before: r.before, after: e.text } : null; }).filter(Boolean);
         const touched = [...entryIds, ...revised.map((r) => r.entryId)];
         const projects = sc.projects || [];
+        // Opt-in and per idea. It costs a filesystem scan on every Enter, which is exactly why it
+        // is off by default and why an empty result is a normal, silent outcome.
+        let excerpts = [];
+        if (role === 'merge' && ((cfg() || {}).project || {}).context === 'brief+lookup') {
+          const dir = projects.find((p) => p.path && !p.error);
+          if (dir) {
+            try { excerpts = lookupFor(dir.path, ideas.map((i) => i.text).join(' ')); } catch { excerpts = []; }
+          }
+        }
         const needsTitle = role === 'merge' && /^Untitled( \d+)?$/.test(sc.title) && !sc.entries.some((e) => e.status === 'merged');
         const mergedTotal = sc.entries.filter((e) => e.status === 'merged').length;
         const sectionNames = targets.sectionsFor(target.family);
         const suggest = role === 'merge' && (cfg() || {}).suggestions !== false;
         const prompt = role === 'polish'
           ? buildPolishPrompt({ doc: body, conflicts, target, styleGuide: targets.styleGuide(target.family), projects })
-          : buildMergePrompt({ doc: body, ideas, resolutions, revisions, conflicts, recent, target, projects, needsTitle, suggest, sectionNames, mergedTotal });
+          : buildMergePrompt({ doc: body, ideas, resolutions, revisions, conflicts, recent, target, projects, excerpts, needsTitle, suggest, sectionNames, mergedTotal });
         const timeoutMs = (engineCfg().timeoutSeconds || 240) * 1000;
 
         const res = await engine.call({ role, prompt, timeoutMs });

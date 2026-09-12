@@ -2,7 +2,7 @@
 // The two engine prompts, as pure string builders. Nothing here touches the network or the disk;
 // the style guide arrives as text so this file is testable and the guides stay editable.
 const { SECTIONS } = require('../doc');
-const { contextBlock } = require('../project');
+const { contextBlock, excerptBlock } = require('../project');
 
 const OUTPUT_CONTRACT = [
   'Output: one JSON object and nothing else. No code fence, no commentary before or after it.',
@@ -14,7 +14,7 @@ const iso = (ts) => { try { return new Date(ts).toISOString(); } catch { return 
 const block = (s) => (String(s == null ? "" : s).endsWith("\n") ? String(s) : `${s}\n`);
 const q = (s) => `"${String(s == null ? '' : s).replace(/\s+/g, ' ').trim()}"`;
 
-function buildMergePrompt({ doc, ideas = [], resolutions = [], revisions = [], conflicts = [], recent = [], target, projects = [], needsTitle = false, suggest = false, sections = SECTIONS, sectionNames = [], mergedTotal = null }) {
+function buildMergePrompt({ doc, ideas = [], resolutions = [], revisions = [], conflicts = [], recent = [], target, projects = [], excerpts = [], needsTitle = false, suggest = false, sections = SECTIONS, sectionNames = [], mergedTotal = null }) {
   const label = (target && target.label) || 'the target model';
   const merged = recent.length
     ? recent.map((e) => `- [${iso(e.ts)}] ${String(e.text || '').replace(/\s+/g, ' ').trim()}`).join('\n')
@@ -43,7 +43,7 @@ function buildMergePrompt({ doc, ideas = [], resolutions = [], revisions = [], c
 
   return `You are the merge engine inside Prompt Forge, a workbench where a person builds one complicated prompt for ${label} by adding ideas one at a time. You edit the working document; you never answer the prompt yourself.
 
-${contextBlock(projects)}<document>
+${contextBlock(projects)}${excerptBlock(excerpts)}<document>
 ${block(doc)}</document>
 
 The document is the source of truth. The person may have edited it by hand since the last merge, and every word of it is deliberate: keep hand edits, keep the section order and headings as they are (whatever style they are in), and keep the wording of anything you are not changing.

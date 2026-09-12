@@ -296,8 +296,17 @@
     const proj = s.project || { context: 'brief', roots: [], maxFiles: 400, maxBytes: 2000000 };
     const attached = (s.active && s.active.projects) || [];
     row('Send project context', 'When a folder is attached, its brief goes to the engine with every merge and polish. Nothing is read until you attach one.',
-      select([['brief', 'Send the attached project\u2019s brief'], ['off', 'Never send project context']], proj.context,
+      select([
+        ['brief', 'Send the attached project\u2019s brief'],
+        ['brief+lookup', 'Brief, and search the project for each idea'],
+        ['off', 'Never send project context'],
+      ], proj.context,
         (sel) => vscode.postMessage({ type: 'setProjectContext', value: sel.value })));
+    if (proj.context === 'brief+lookup') {
+      row('Per-idea search', 'Before each merge the attached project is searched for the words in your idea, and at most three excerpts are attached with their paths. A search, not an embedding: a bad match is visibly a bad match, and finding nothing is a normal, silent outcome. Costs a filesystem scan on every Enter.');
+    }
+    row('Token budget', budgetDesc(s),
+      small('Set a budget', 'Opens promptForge.tokenBudget', () => vscode.postMessage({ type: 'openSettings', query: 'promptForge.tokenBudget' })));
     row('Folders to list projects from',
       proj.roots.length
         ? `${proj.roots.join(', ')} \u2014 names and paths only. Nothing in these folders is read unless you attach one of them.`
@@ -475,6 +484,13 @@
     card.append(body, x);
     return card;
   }
+
+  const budgetDesc = (s) => {
+    const b = (s.project && s.project.tokenBudget) || 0;
+    const used = s.active ? s.active.usage.input + s.active.usage.output : 0;
+    if (!b) return 'Off. The footer counts tokens for this prompt but nothing warns you. Tokens rather than money: a CLI login draws on a plan, so a dollar figure would be wrong for it.';
+    return `${k(used)} of ${k(b)} tokens used on this prompt. The footer turns amber past the budget.`;
+  };
 
   // ------------------------------------------------------------------------------------------
   // Conflicts, history, usage
@@ -673,9 +689,16 @@
   function renderUsage(s) {
     const root = $('usage');
     const a = s.active;
-    if (!a) { root.textContent = ''; return; }
+    if (!a) { root.textContent = ''; root.classList.remove('over'); return; }
     const u = a.usage;
-    root.textContent = u.calls ? `${u.calls} call${u.calls === 1 ? '' : 's'} · ${k(u.input)} in / ${k(u.output)} out` : '';
+    root.textContent = u.calls ? `${u.calls} call${u.calls === 1 ? '' : 's'} \u00b7 ${k(u.input)} in / ${k(u.output)} out` : '';
+    // Tokens, not money. A CLI login draws on a plan, so a dollar figure would be wrong for the way
+    // most people run this, and a wrong number is worse than none.
+    const budget = (s.project && s.project.tokenBudget) || 0;
+    const total = u.input + u.output;
+    const over = budget > 0 && total > budget;
+    root.classList.toggle('over', over);
+    if (over) root.title = `${k(total)} tokens on this prompt, past the ${k(budget)} you set in promptForge.tokenBudget.`;
   }
 
   function renderEmpty(s) {

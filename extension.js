@@ -46,6 +46,7 @@ function readConfig() {
     project: {
       roots: c.get('projectRoots', []),
       context: c.get('projectContext', 'brief'),
+      tokenBudget: c.get('tokenBudget', 0),
       attachDefault: c.get('projectDefault', 'none'),
       maxFiles: c.get('projectMaxFiles', 400),
       maxBytes: c.get('projectMaxBytes', 2000000),
@@ -182,6 +183,7 @@ function activate(context) {
     vscode.commands.registerCommand('promptForge.toggleRail', () => send({ type: 'setLayout', toggleRail: true })),
     vscode.commands.registerCommand('promptForge.attachProject', () => send({ type: 'project.pick' })),
     vscode.commands.registerCommand('promptForge.newFromTemplate', () => send({ type: 'newFromTemplate' })),
+    vscode.commands.registerCommand('promptForge.export', () => send({ type: 'export' })),
   );
   // NOTE: the kit registers `promptForge.reload` and its own configuration watcher for
   // sourcePath / autoReload. Anything else that must react to a settings change belongs in the

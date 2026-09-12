@@ -2,7 +2,7 @@
   "name": "prompt-forge-trifactor",
   "displayName": "Prompt Forge for VS Code",
   "description": "Build complicated prompts one idea at a time. Every Enter merges an idea into a structured prompt, contradictions surface instead of being guessed away, and Polish rewrites it for the model you are sending it to. Works with your own Claude, Gemini, or OpenAI login, or any API key.",
-  "version": "0.10.0",
+  "version": "0.11.0",
   "publisher": "trifactorscaling",
   "license": "MIT",
   "repository": {
@@ -99,6 +99,12 @@
         "title": "Forget an API Key",
         "category": "Prompt Forge",
         "icon": "$(trash)"
+      },
+      {
+        "command": "promptForge.export",
+        "title": "Export This Prompt",
+        "category": "Prompt Forge",
+        "icon": "$(export)"
       },
       {
         "command": "promptForge.newFromTemplate",
@@ -263,11 +269,13 @@
           "type": "string",
           "enum": [
             "off",
-            "brief"
+            "brief",
+            "brief+lookup"
           ],
           "enumDescriptions": [
             "Never send project context.",
-            "Send the attached project's brief with every merge and polish."
+            "Send the attached project's brief with every merge and polish.",
+            "Also search the project for each idea and attach up to three excerpts. Costs a scan on every Enter."
           ],
           "default": "brief",
           "scope": "window",
@@ -365,6 +373,14 @@
           "scope": "machine",
           "order": 91,
           "markdownDescription": "Developer setting. Reload automatically when a file under `promptForge.sourcePath` changes."
+        },
+        "promptForge.tokenBudget": {
+          "type": "number",
+          "default": 0,
+          "minimum": 0,
+          "scope": "window",
+          "order": 9.5,
+          "markdownDescription": "Warn once a single prompt has used this many tokens in total. `0` turns it off. Tokens, not money: a CLI login draws on your plan rather than billing per token, so a dollar figure would be wrong for the way most people run this."
         }
       }
     }

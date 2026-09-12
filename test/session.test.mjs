@@ -406,7 +406,11 @@ test('the add-on copy appears only after a copy, carries just the change, and re
 
   const add = await session.copyNewText();
   assert.ok(add.text.includes('- Requirement 2.'), 'the new line is in it');
-  assert.ok(!add.text.includes('- Requirement 1.'), 'and the already-sent one is not');
+  // The changed section is carried whole so the addition reads in place; what is actually new is
+  // named in the summary, which is where the precision lives.
+  assert.ok(add.text.includes('- Requirement 1.'), 'with the context around it');
+  assert.ok(/- New in Requirements: Requirement 2\./.test(add.text));
+  assert.ok(!/- New in Requirements: Requirement 1\./.test(add.text), 'the already-sent one is not called new');
 
   // Using it advances the mark, so the button goes until there is something new again...
   assert.equal(session.snapshot().newSinceCopy, null);
@@ -416,8 +420,8 @@ test('the add-on copy appears only after a copy, carries just the change, and re
   session.submitIdea('three');
   await session.idle();
   const third = await session.copyNewText();
-  assert.ok(third.text.includes('- Requirement 3.'));
-  assert.ok(!third.text.includes('- Requirement 2.'));
+  assert.ok(/- New in Requirements: Requirement 3\./.test(third.text));
+  assert.ok(!/- New in Requirements: Requirement 2\./.test(third.text), 'each round reports only its own round');
 });
 
 test('a merge records what it changed, so the log can show it without re-diffing history', async () => {
