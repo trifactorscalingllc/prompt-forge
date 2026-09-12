@@ -144,9 +144,9 @@ function open(libraryPath, { home } = {}) {
 
   const stats = () => ({ parsed, cached: rows.size });
 
-  function appendEntry(slug, text) {
+  function appendEntry(slug, text, images = []) {
     return withSidecar(slug, (sc) => {
-      const entry = { id: nextId(sc.entries, 'e'), ts: now(), text: String(text), status: 'pending', snapshotId: null, error: null };
+      const entry = { id: nextId(sc.entries, 'e'), ts: now(), text: String(text), status: 'pending', snapshotId: null, error: null, images: Array.isArray(images) ? images : [] };
       sc.entries.push(entry);
       return entry;
     });
@@ -185,6 +185,20 @@ function open(libraryPath, { home } = {}) {
     sc.runs = sc.runs.slice(-5);
     return sc.runs;
   });
+  // Images live beside the prompt rather than in the sidecar: a screenshot is hundreds of KB and
+  // the sidecar is rewritten on every keystroke's worth of state. Only the path goes in the JSON.
+  const imageDir = (slug) => path.join(dir, `${slug}.images`);
+  function saveImage(slug, { data, ext = 'png', name = '' }) {
+    const buf = Buffer.from(String(data || ''), 'base64');
+    if (!buf.length) return null;
+    fs.mkdirSync(imageDir(slug), { recursive: true });
+    const safe = String(ext).replace(/[^a-z0-9]/gi, '').slice(0, 5).toLowerCase() || 'png';
+    const id = `img${now().toString(36)}`;
+    const file = path.join(imageDir(slug), `${id}.${safe}`);
+    fs.writeFileSync(file, buf);
+    return { id, path: file, bytes: buf.length, name: String(name || '').slice(0, 80) || `${id}.${safe}` };
+  }
+
   const setCopyMark = (slug, doc) => withSidecar(slug, (sc) => { sc.copied = { doc: String(doc == null ? '' : doc), ts: now() }; return sc.copied; });
   const setSuggestions = (slug, list) => withSidecar(slug, (sc) => {
     const gone = new Set(sc.dismissed || []);
@@ -231,6 +245,12 @@ function open(libraryPath, { home } = {}) {
     fs.mkdirSync(trash, { recursive: true });
     const stamp = now();
     const moved = [];
+    const imgs = imageDir(slug);
+    if (fs.existsSync(imgs)) {
+      const dest = path.join(trash, `${slug}-${stamp}.images`);
+      fs.renameSync(imgs, dest);
+      moved.push(dest);
+    }
     for (const [src, ext] of [[docPath(slug), '.md'], [sidecarPath(slug), '.forge.json']]) {
       if (!fs.existsSync(src)) continue;
       const dest = path.join(trash, `${slug}-${stamp}${ext}`);
@@ -245,7 +265,7 @@ function open(libraryPath, { home } = {}) {
 
   return {
     dir, docPath, sidecarPath, exists, read, write, create, list, stats,
-    appendEntry, updateEntry, addSnapshot, setTarget, setTitle, setProjects, setCopyMark, addRun, setSuggestions, dismissSuggestion, setConflicts, resolveConflict, remove,
+    appendEntry, updateEntry, addSnapshot, setTarget, setTitle, setProjects, setCopyMark, addRun, saveImage, imageDir, setSuggestions, dismissSuggestion, setConflicts, resolveConflict, remove,
     readDoc, writeDoc,
   };
 }

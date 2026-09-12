@@ -147,10 +147,10 @@ function createSession({ slug, store, docio, engine, cfg, log, publish = () => {
     return sc;
   }
 
-  function submitIdea(text) {
+  function submitIdea(text, images = []) {
     const t = String(text == null ? '' : text).trim();
     if (!t) return null;
-    const entry = store.appendEntry(slug, t);
+    const entry = store.appendEntry(slug, t, images);
     reread();
     queue.push({ kind: 'idea', entryId: entry.id });
     publish('idea');

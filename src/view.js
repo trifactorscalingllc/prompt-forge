@@ -71,7 +71,8 @@ function html({ vscode, webview, mediaRoots, stamp }) {
             <div class="compose-head">
               <span id="usage" class="usage" title="Tokens the engine read and wrote for this prompt, summed over every call. Counts toward your plan's rate limits."></span>
             </div>
-            <textarea id="idea" rows="3" placeholder="Type an idea and press Enter to merge it into the prompt. Shift+Enter for a new line. Hover a sent idea to edit it." spellcheck="true"></textarea>
+            <div id="attached" class="attached" hidden></div>
+            <textarea id="idea" rows="3" placeholder="Type an idea and press Enter to merge it into the prompt. Shift+Enter for a new line. Paste a screenshot to attach it. Hover a sent idea to edit it." spellcheck="true"></textarea>
           </section>
         </section>
         <div id="split" class="split" role="separator" tabindex="0" aria-label="Resize the panels" title="Drag to resize. Double-click to even them up."></div>

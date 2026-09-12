@@ -151,3 +151,32 @@ test('list parses a sidecar only when its file changed on disk', () => {
   assert.equal(s.stats().parsed, before + 1, 'a changed sidecar is re-read');
   assert.equal(s.list()[0].entries, 1);
 });
+
+test('an image is written beside the prompt, and only its path goes in the sidecar', () => {
+  const fsn = require('node:fs');
+  const osn = require('node:os');
+  const pathn = require('node:path');
+  const dir = fsn.mkdtempSync(pathn.join(osn.tmpdir(), 'forge-img-'));
+  const s = store.open(dir);
+  const { slug } = s.create('Shot');
+
+  const png = Buffer.from('89504e470d0a1a0a0000000d49484452', 'hex').toString('base64');
+  const img = s.saveImage(slug, { data: png, ext: 'png', name: 'screen.png' });
+  assert.ok(img && img.id && img.bytes === 16);
+  assert.ok(fsn.existsSync(img.path), 'the bytes are on disk');
+  assert.ok(img.path.includes(`${slug}.images`), 'beside the prompt, in its own folder');
+
+  s.appendEntry(slug, 'like this', [img]);
+  const raw = fsn.readFileSync(s.sidecarPath(slug), 'utf8');
+  assert.ok(raw.includes(img.path), 'the path is recorded');
+  assert.ok(!raw.includes(png), 'the bytes are not: the sidecar is rewritten constantly');
+  assert.deepEqual(s.read(slug).entries[0].images, [img]);
+
+  // Deleting the prompt takes its screenshots, or the library keeps files nothing points at.
+  s.remove(slug);
+  assert.ok(!fsn.existsSync(pathn.join(dir, `${slug}.images`)));
+  assert.ok(fsn.readdirSync(pathn.join(dir, '.trash')).some((f) => f.endsWith('.images')));
+
+  assert.equal(s.saveImage(slug, { data: '' }), null, 'empty data is not a file');
+  fsn.rmSync(dir, { recursive: true, force: true });
+});

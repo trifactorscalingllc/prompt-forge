@@ -501,7 +501,9 @@
   }
 
   let editing = null;  // entry id being edited inline
-  let openDiff = null; // entry id whose diff is expanded
+  let openDiff = null;    // entry id whose diff is expanded
+  let openVersion = null; // snapshot id whose diff is expanded in the versions list
+  let compared = null;    // { id, diff } from a "vs now" comparison, computed in the extension
 
   /** The snapshot immediately before `id`, which is what "undo this merge" restores to. */
   function priorSnapshot(snaps, id) {
@@ -537,14 +539,37 @@
       for (const v of a.snapshots.slice().reverse()) {
         const row = el('div', 'vrow');
         row.append(el('span', `vkind ${v.kind}`, v.kind), el('span', 'vwhen', ago(v.ts)));
-        if (v.call) row.append(el('span', 'vmeta', `${v.call.provider}/${v.call.model}${v.call.usage ? ` · ${k(v.call.usage.input)}/${k(v.call.usage.output)}` : ''}`));
-        if (v.changes && v.changes.length) row.append(el('span', 'vchanges', v.changes.slice(0, 3).join(' · ')));
+        if (v.call) row.append(el('span', 'vmeta', `${v.call.provider}/${v.call.model}${v.call.usage ? ` \u00b7 ${k(v.call.usage.input)}/${k(v.call.usage.output)}` : ''}`));
+        const n = v.diff ? v.diff.reduce((t, b) => t + b.added.length + b.removed.length, 0) : 0;
+        if (n) {
+          const db = el('button', 'link', openVersion === v.id ? 'hide' : `\u00b1${n}`);
+          db.title = 'What this step changed';
+          db.addEventListener('click', () => { openVersion = openVersion === v.id ? null : v.id; compared = null; if (latest) render(latest); });
+          row.append(db);
+        } else if (v.changes && v.changes.length) {
+          row.append(el('span', 'vchanges', v.changes.slice(0, 3).join(' \u00b7 ')));
+        }
         if (v.id !== last.id) {
+          const cb = el('button', 'link', 'vs now');
+          cb.title = 'Everything that has changed between this version and the document as it stands';
+          cb.addEventListener('click', () => { openVersion = v.id; compared = null; vscode.postMessage({ type: 'version.compare', id: v.id }); });
+          row.append(cb);
           const rb = el('button', 'link', 'restore');
           rb.addEventListener('click', () => vscode.postMessage({ type: 'restore', snapshotId: v.id }));
           row.append(rb);
         }
         vl.append(row);
+        if (openVersion === v.id) {
+          const blocks = compared && compared.id === v.id ? compared.diff : v.diff;
+          if (blocks && blocks.length) {
+            const wrap = el('div', 'vdiff');
+            if (compared && compared.id === v.id) wrap.append(el('div', 'dsec', 'compared with the document as it stands'));
+            wrap.append(diffBlock(blocks));
+            vl.append(wrap);
+          } else {
+            vl.append(el('div', 'vdiff muted', 'No difference.'));
+          }
+        }
       }
       root.append(vl);
     }
@@ -588,6 +613,18 @@
         setTimeout(() => ta.focus(), 0);
       } else {
         bubble.append(el('div', 'mtext', e.text));
+        if (e.images && e.images.length) {
+          const row = el('div', 'mimgs');
+          for (const im of e.images) {
+            const chip = el('span', 'imgchip');
+            const open = el('button', 'imgname', im.name);
+            open.title = im.path;
+            open.addEventListener('click', () => vscode.postMessage({ type: 'image.open', path: im.path }));
+            chip.append(open);
+            row.append(chip);
+          }
+          bubble.append(row);
+        }
       }
       const meta = el('div', 'mmeta');
       const stateText = e.status === 'pending' ? 'merging…' : e.status === 'failed' ? `failed: ${e.error || ''}` : (e.edits && e.edits.length ? `merged · edited ${e.edits.length}×` : 'merged');
@@ -783,13 +820,64 @@
   // ------------------------------------------------------------------------------------------
   // Wiring
   // ------------------------------------------------------------------------------------------
+  // ------------------------------------------------------------------------------------------
+  // Images
+  //
+  // Paste a screenshot into the idea box and it is written to disk immediately, then referred to by
+  // path. Nothing base64 stays in the page, in the panel state, or in the sidecar: a screenshot is
+  // hundreds of KB and the sidecar is rewritten constantly.
+  // ------------------------------------------------------------------------------------------
+  let pending = [];   // images attached to the idea being typed
+
+  function renderPending() {
+    const root = $('attached');
+    root.textContent = '';
+    root.hidden = !pending.length;
+    for (const im of pending) {
+      const chip = el('span', 'imgchip');
+      const open = el('button', 'imgname', im.name);
+      open.title = `${im.path}\nClick to open it.`;
+      open.addEventListener('click', () => vscode.postMessage({ type: 'image.open', path: im.path }));
+      const x = el('button', 'imgx', '\u00d7');
+      x.title = 'Remove from this idea. The file stays in the library.';
+      x.addEventListener('click', () => { pending = pending.filter((p) => p.id !== im.id); renderPending(); });
+      chip.append(open, el('span', 'imgsize', `${Math.max(1, Math.round(im.bytes / 1024))} KB`), x);
+      root.append(chip);
+    }
+  }
+
+  idea.addEventListener('paste', (e) => {
+    const items = [...((e.clipboardData && e.clipboardData.items) || [])].filter((i) => i.type.startsWith('image/'));
+    if (!items.length) return;
+    e.preventDefault();
+    for (const it of items) {
+      const file = it.getAsFile();
+      if (!file) continue;
+      const reader = new FileReader();
+      reader.onload = () => {
+        const url = String(reader.result || '');
+        const comma = url.indexOf(',');
+        if (comma < 0) return;
+        vscode.postMessage({
+          type: 'image.paste',
+          data: url.slice(comma + 1),
+          ext: (it.type.split('/')[1] || 'png').replace('jpeg', 'jpg'),
+          name: file.name || '',
+        });
+      };
+      reader.readAsDataURL(file);
+    }
+  });
+
   idea.addEventListener('keydown', (e) => {
     if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) {
       e.preventDefault();
       const text = idea.value.trim();
       if (!text) return;
-      vscode.postMessage({ type: 'idea', text });
+      vscode.postMessage({ type: 'idea', text, images: pending });
       idea.value = '';
+      pending = [];
+      renderPending();
       save();
     }
   });
@@ -965,6 +1053,8 @@
     else if (m.type === 'notice') showNotice(m.level || 'info', m.text || '');
     else if (m.type === 'copied') flashCopied();
     else if (m.type === 'copiedNew') flashCopiedNew();
+    else if (m.type === 'compare') { compared = { id: m.id, diff: m.diff }; openVersion = m.id; if (latest) render(latest); }
+    else if (m.type === 'imageSaved' && m.image) { pending.push(m.image); renderPending(); }
     else if (m.type === 'focus') idea.focus();
   });
   vscode.postMessage({ type: 'ready' });

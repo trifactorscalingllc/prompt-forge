@@ -202,6 +202,20 @@ test('the target reads as "for <model>" on the Prompt head, and is a floating li
   assert.ok(/#idea::placeholder \{[^}]*opacity: 0\.5/.test(css), 'the in-box brief is the quietest thing on the panel');
 });
 
+test('settings adapt to the width they are given, in both directions', () => {
+  const css = fs.readFileSync(path.join(ROOT, 'media/panel.css'), 'utf8');
+  // Narrow: the rail wraps to a strip. Mid: it narrows first rather than holding its width while
+  // the reading column is squeezed. Wide: the body is capped and centred, not pinned beside the
+  // rail with a screen of nothing next to it.
+  assert.ok(/@container \(max-width: 700px\)[\s\S]*?\.settings \{ grid-template-columns: 1fr/.test(css), 'stacks when narrow');
+  assert.ok(/@container \(max-width: 900px\)[\s\S]*?minmax\(110px, 130px\)/.test(css), 'the rail narrows before it wraps');
+  assert.ok(/\.sbody \{[^}]*margin-inline: auto/.test(css), 'centred when there is room to spare');
+  assert.ok(/\.sbody \{[^}]*max-width: 760px/.test(css), 'and still capped for reading');
+  // A fixed min-width on a select is what makes a settings page scroll sideways.
+  assert.ok(/\.sctl select \{ min-width: min\(220px, 100%\)/.test(css));
+  assert.ok(/\.settings \{[^}]*minmax\(0, 1fr\)/.test(css), 'the body column may shrink below its content');
+});
+
 test('the compose hint lives in the box, and a collapsed rail still starts a prompt', () => {
   const view = fs.readFileSync(path.join(ROOT, 'src/view.js'), 'utf8');
   assert.ok(!/class="hint"/.test(view), 'the line above the box is gone');

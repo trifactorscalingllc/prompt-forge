@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.10.0
+
+- **Paste a screenshot into an idea.** It is written beside the prompt in `<slug>.images/` and given to the merge engine by absolute path, with permission to open it — so “make it look like this” works. Deleting a prompt takes its screenshots to `.trash` with it.
+- Only the path is ever recorded. A screenshot is hundreds of kilobytes and the sidecar is rewritten constantly, so the bytes go to disk once and nothing base64 rides along in the page, the panel state or the JSON. A test asserts the sidecar does not contain them.
+- Attached images show as named chips you can click to open, on the idea being typed and on ideas already sent. They are named rather than previewed: a thumbnail would mean serving your library folder to the webview, and the name, size and a click that opens the real file answer the same question.
+- **The versions list shows real diffs.** Each version has a ± count that expands what that step changed, and *vs now* compares any version against the document as it stands. The comparison is computed in the extension — fifty snapshot bodies must not be posted to the panel on every repaint.
+- **Settings adapt at every width**: the section rail narrows before it wraps, wraps to a strip when narrow, and the body is capped for reading and centred rather than pinned beside the rail with a screen of nothing next to it.
+
+### Not yet
+
+Images reach the engine as a path. A CLI engine can open them; an API-key engine cannot, and will say so rather than pretending to have seen the picture. Sending images as content blocks per provider is not built.
+
 ## 0.9.2
 
 - The Prompt panel's buttons are pinned right as a **group**, not by an auto margin landing on whichever sibling happens to be first. `:first-of-type` counted every `<button>`, so the model picker claimed it and the icons sat bunched against the model name; a hidden Run pill or add-on button could shift them again. A wrapper survives another button being added.

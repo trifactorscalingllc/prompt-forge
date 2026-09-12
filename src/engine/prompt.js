@@ -24,7 +24,13 @@ function buildMergePrompt({ doc, ideas = [], resolutions = [], revisions = [], c
   const aliases = sectionNames.length
     ? sectionNames.map((x) => `- ${x.canonical} → ${x.name}`).join('\n')
     : '';
-  const ideaLines = ideas.length ? ideas.map((it, i) => `${i + 1}. ${String(it.text || '').trim()}`).join('\n') : '(none)';
+  const ideaLines = ideas.length
+    ? ideas.map((it, i) => {
+      const imgs = (it.images || []).map((im) => im.path).filter(Boolean);
+      const attached = imgs.length ? `\n   Attached image${imgs.length === 1 ? '' : 's'}, which you may open and read: ${imgs.join(', ')}` : '';
+      return `${i + 1}. ${String(it.text || '').trim()}${attached}`;
+    }).join('\n')
+    : '(none)';
   const revLines = revisions.length
     ? revisions.map((r) => `- ${r.id}: was ${q(r.before)} -> now ${q(r.after)}`).join('\n')
     : '(none)';

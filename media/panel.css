@@ -70,6 +70,16 @@ h2 { font-size: 1.1em; margin: 0 0 6px; }
 .chip:hover { border-color: var(--accent); }
 
 #compose { display: flex; flex-direction: column; gap: 4px; }
+/* Attached images are named, not previewed. A thumbnail would mean serving the library folder to
+   the webview; the name, the size and a click that opens the real file answer the same question. */
+.attached { display: flex; flex-wrap: wrap; gap: 4px; padding-bottom: 2px; }
+.imgchip { display: inline-flex; align-items: center; gap: 5px; padding: 1px 5px; border-radius: 3px;
+  background: var(--vscode-badge-background); color: var(--vscode-badge-foreground); font-size: 0.85em; }
+.imgname { color: inherit; text-decoration: underline; text-underline-offset: 2px; max-width: 22ch; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.imgsize { opacity: 0.7; }
+.imgx { color: inherit; opacity: 0.6; padding: 0 1px; }
+.imgx:hover { opacity: 1; }
+.mimgs { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 3px; }
 #idea { width: 100%; resize: vertical; min-height: 3.2em; padding: 6px 8px; }
 .compose-head { display: flex; justify-content: space-between; gap: var(--gap); font-size: 0.85em; color: var(--vscode-descriptionForeground); flex-wrap: wrap; padding-bottom: 4px; }
 
@@ -172,13 +182,15 @@ h2 { font-size: 1.1em; margin: 0 0 6px; }
 .doc .task.done { color: var(--vscode-testing-iconPassed, #6a9955); }
 
 /* settings, VS Code style */
-.settings { flex: 1; min-height: 0; display: grid; grid-template-columns: 150px 1fr; gap: 0 16px; }
+.settings { flex: 1; min-height: 0; display: grid; grid-template-columns: minmax(120px, 170px) minmax(0, 1fr); gap: 0 16px; }
 .snav { display: flex; flex-direction: column; gap: 2px; padding-top: 8px; border-right: 1px solid var(--vscode-panel-border); }
 .snav-item { text-align: left; padding: 4px 10px; border-radius: 3px; color: var(--vscode-foreground); }
 .snav-item:hover { background: var(--vscode-list-hoverBackground); }
 .snav-spacer { flex: 1; }
 .snav .btn { margin: 8px 10px; }
-.sbody { overflow: auto; min-height: 0; padding: 4px 8px 24px 0; max-width: 720px; }
+/* Capped for reading and centred in whatever room is left. Pinned left, a wide window put the
+   settings against the nav with a screen of nothing beside them. */
+.sbody { overflow: auto; min-height: 0; padding: 4px 8px 24px; max-width: 760px; width: 100%; margin-inline: auto; }
 .shead { font-size: 1.15em; font-weight: 600; margin: 14px 0 6px; display: flex; align-items: baseline; gap: 10px; }
 .shead .link { font-weight: normal; }
 .srow { padding: 8px 8px; border-left: 2px solid transparent; }
@@ -187,7 +199,7 @@ h2 { font-size: 1.1em; margin: 0 0 6px; }
 .stitle { font-weight: 600; }
 .sdesc { color: var(--vscode-descriptionForeground); font-size: 0.9em; margin: 2px 0 4px; }
 .sctl { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
-.sctl select { min-width: 220px; padding: 2px 4px; }
+.sctl select { min-width: min(220px, 100%); max-width: 100%; padding: 2px 4px; }
 
 /* rename in place */
 h1.editable { cursor: text; border-bottom: 1px dashed transparent; }
@@ -205,6 +217,13 @@ html, body { height: 100%; overflow: hidden; max-width: 100%; }
   .snav { flex-direction: row; flex-wrap: wrap; border-right: none; border-bottom: 1px solid var(--vscode-panel-border); padding: 4px 0; }
   .snav-spacer { display: none; }
   .snav .btn { margin: 0 0 0 auto; }
+  .sbody { padding-left: 0; }
+}
+/* Between stacked and roomy: narrow the rail before wrapping it, rather than holding 150px while
+   the reading column is squeezed. */
+@container (max-width: 900px) {
+  .settings { grid-template-columns: minmax(110px, 130px) minmax(0, 1fr); gap: 0 10px; }
+  .snav-item { padding: 4px 6px; }
 }
 @container (max-width: 420px) {
   .head-actions { width: 100%; }
@@ -292,6 +311,8 @@ html, body { height: 100%; overflow: hidden; max-width: 100%; }
 .dline.add::before { content: '+ '; }
 .dline.del { color: var(--vscode-gitDecoration-deletedResourceForeground, #f85149); }
 .dline.del::before { content: '- '; }
+
+.vdiff { margin: 2px 0 6px 10px; }
 
 /* Suggestions: advice sitting beside the prompt, never in it. A soft yellow that reads on both
    themes without borrowing an error colour -- this is not a problem, it is a prompt. */

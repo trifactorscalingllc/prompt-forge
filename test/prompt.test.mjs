@@ -206,3 +206,22 @@ test('a dismissed suggestion does not come back when the next merge regenerates 
   assert.deepEqual(store.read(slug).suggestions.map((x) => x.text), ['Name the audience.']);
   fsn.rmSync(dir, { recursive: true, force: true });
 });
+
+test('an idea’s images are named to the engine by path, and only when there are any', () => {
+  const plain = buildMergePrompt({ ...solo, ideas: [{ id: 'e1', text: 'make it look like this' }] });
+  assert.ok(!/Attached image/.test(plain), 'no images, no mention');
+
+  const withImg = buildMergePrompt({
+    ...solo,
+    ideas: [{ id: 'e1', text: 'make it look like this', images: [{ id: 'i1', path: '/lib/p.images/i1.png', name: 'shot.png' }] }],
+  });
+  assert.ok(withImg.includes('/lib/p.images/i1.png'), 'the path is given, not the bytes');
+  assert.ok(/you may open and read/.test(withImg), 'and the engine is told it may open it');
+  assert.ok(!/base64|data:image/.test(withImg), 'a screenshot never rides along in the prompt text');
+
+  const two = buildMergePrompt({
+    ...solo,
+    ideas: [{ id: 'e1', text: 'x', images: [{ path: '/a.png' }, { path: '/b.png' }] }],
+  });
+  assert.ok(/Attached images,/.test(two), 'plural when there are two');
+});

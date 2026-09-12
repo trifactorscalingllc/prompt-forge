@@ -21,6 +21,7 @@ const docm = require('./doc');
 const { modelBlurb, ROLE_BLURBS } = require('./blurbs');
 const project = require('./project');
 const { lintPrompt } = require('./lint');
+const { diffSections } = require('./addendum');
 const templates = require('./templates');
 
 const LAST_OPEN = 'promptForge.lastOpen';
@@ -455,10 +456,23 @@ function create(host) {
         post();
         return;
       }
+      case 'image.paste': {
+        // Saved to disk immediately and referred to by path from here on: a screenshot is hundreds
+        // of KB and must never ride along in panel state or in the sidecar JSON.
+        if (!s || !m.data) return;
+        const saved = store.saveImage(s.slug, { data: String(m.data), ext: String(m.ext || 'png'), name: String(m.name || '') });
+        const pp = getPanel();
+        if (pp) pp.webview.postMessage({ type: 'imageSaved', image: saved });
+        if (!saved) notice('error', 'That image could not be read.');
+        return;
+      }
+      case 'image.open':
+        if (m.path) await vscode.commands.executeCommand('vscode.open', vscode.Uri.file(String(m.path)));
+        return;
       case 'idea':
         if (!s) { notice('info', 'Create or open a prompt first.'); return; }
         if (!engine.selection().ok) { notice('error', engine.selection().reason); return; }
-        s.submitIdea(m.text);
+        s.submitIdea(m.text, Array.isArray(m.images) ? m.images : []);
         return;
       case 'setTarget':
         if (s && m.target) s.setTarget(String(m.target));
@@ -536,6 +550,19 @@ function create(host) {
         const r = await s.run();
         if (r && r.error && r.error !== 'disposed') notice('error', `The run failed: ${r.error}`);
         post();
+        return;
+      }
+      case 'version.compare': {
+        // Snapshot bodies never ride along in the panel state -- a long prompt times fifty versions
+        // would be posted on every repaint -- so the comparison is done here and the result sent.
+        if (!s || !m.id) return;
+        const sc = store.read(s.slug);
+        const snap = (sc.snapshots || []).find((v) => v.id === String(m.id));
+        if (!snap) return;
+        const raw = await docio.readDoc(s.docPath);
+        const now = docm.stripConflictBlock(raw == null ? '' : raw);
+        const p3 = getPanel();
+        if (p3) p3.webview.postMessage({ type: 'compare', id: snap.id, diff: diffSections(snap.doc, now) });
         return;
       }
       case 'openRun': {
