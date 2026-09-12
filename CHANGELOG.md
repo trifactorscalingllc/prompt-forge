@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.5.1
+
+- Restores eight tests in `test/prompt.test.mjs` that 0.5.0 destroyed: the new cases were written into a file that already existed rather than appended to it. The suite is 181, and nothing about 0.5.0's three fixes changes — the older cases pass against them unaltered, which is the useful part of finding it.
+
 ## 0.5.0
 
 Three faults in the engine prompts, found by reading them against each other rather than by a bug report.
