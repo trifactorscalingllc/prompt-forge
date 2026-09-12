@@ -112,6 +112,41 @@ test('the layout settings are declared, bounded, and the panel clamps to the sam
   assert.ok(/#rail \{[^}]*height: 100%/.test(css), 'the rail is full height');
 });
 
+test('the header is a plug and a gear; Polish, Copy and Edit live on the Prompt panel', () => {
+  const whole = fs.readFileSync(path.join(ROOT, 'src/view.js'), 'utf8');
+  // Only the panel page. docHtml is a second, separate document with its own notice bar.
+  const view = whole.slice(0, whole.indexOf('The built-in document editor'));
+  const head = view.slice(view.indexOf('<div class="head-actions">'), view.indexOf('</div>', view.indexOf('<div class="head-actions">')));
+  assert.ok(/id="connect"/.test(head), 'the plug is in the header');
+  assert.ok(/id="settings"[^>]*class="iconbtn"|id="settings" class="iconbtn"/.test(head), 'settings is an icon button');
+  assert.ok(!/id="polish"/.test(head) && !/id="copy"/.test(head), 'Polish and Copy left the header');
+  assert.ok(!/id="project"/.test(whole), 'the old Project chip is gone');
+
+  const preview = view.slice(view.indexOf('<section id="preview"'), view.indexOf('</section>', view.indexOf('<div class="col-foot">')));
+  for (const id of ['polish', 'copy', 'open-doc']) assert.ok(new RegExp(`id="${id}"`).test(preview), `${id} is on the Prompt panel`);
+  assert.ok(preview.indexOf('id="polish"') < preview.indexOf('id="open-doc"'), 'Polish sits beside Edit');
+  assert.ok(preview.indexOf('id="copy"') < preview.indexOf('id="open-doc"'), 'Copy sits beside Edit');
+
+  // The count is always visible and the notice bar moved out of the header to sit under the prompt.
+  const foot = view.slice(view.indexOf('<div class="col-foot">'));
+  assert.ok(/id="notice"/.test(foot) && /id="doc-count"/.test(foot), 'both live in the Prompt foot');
+  assert.equal((view.match(/id="notice"/g) || []).length, 1, 'one notice bar, not two');
+
+  const panel = fs.readFileSync(path.join(ROOT, 'media/panel.js'), 'utf8');
+  assert.ok(/doc-count'\)\.textContent = `\$\{n\.toLocaleString\(\)\}/.test(panel), 'the count is rendered, not decorative');
+  // Nothing connected means connect straight to the open folder; the picker is not in the way.
+  assert.ok(/type: list\.length \? 'project\.menu' : 'project\.connect'/.test(panel));
+  const runtime = fs.readFileSync(path.join(ROOT, 'src/runtime.js'), 'utf8');
+  assert.ok(/case 'project\.connect'/.test(runtime) && /const ws = workspaceDir\(\);/.test(runtime));
+
+  // Copy confirms on the button. Both glyphs are in the DOM so nothing is rebuilt from a string.
+  assert.ok(/type: 'copied'/.test(runtime), 'the extension tells the panel, rather than raising a notice');
+  assert.ok(/function flashCopied/.test(panel) && /classList\.add\('ok'\)/.test(panel));
+  assert.ok(/class="iconbtn swap"/.test(view) && /i-off/.test(view) && /i-on/.test(view));
+  const css = fs.readFileSync(path.join(ROOT, 'media/panel.css'), 'utf8');
+  assert.ok(/\.iconbtn\.swap \.i-on \{ display: none/.test(css) && /\.iconbtn\.swap\.ok \.i-off \{ display: none/.test(css));
+});
+
 test('the prompts rail collapses from both the chevron and the command, and survives a reload', () => {
   const props = pkg.contributes.configuration.properties;
   assert.equal(props['promptForge.railCollapsed'].type, 'boolean');

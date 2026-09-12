@@ -57,36 +57,43 @@
   // Attached or not, and what it read. The chip is the whole surface in the header: the picker and
   // the brief live behind it, because this is a thing you set once per prompt and then forget.
   // ------------------------------------------------------------------------------------------
-  function renderProjectChip(s) {
-    const btn = $('project');
+  function renderConnect(s) {
+    const btn = $('connect');
     const a = s.active;
     const off = s.project && s.project.context === 'off';
     btn.disabled = !a;
     const list = (a && a.projects) || [];
-    btn.classList.toggle('attached', list.length > 0);
-    btn.classList.toggle('bad', list.some((p) => p.error));
+    const bad = list.some((p) => p.error);
+    btn.classList.toggle('on', list.length > 0 && !bad && !off);
+    btn.classList.toggle('bad', bad);
+    const name = $('connect-name');
     if (!list.length) {
-      btn.textContent = '+ Project';
+      // Unconnected is the plug alone: nothing to name, and the header has better uses for the room.
+      name.textContent = '';
       btn.title = a
-        ? 'Attach the codebase this prompt is for, so the engine uses its real names instead of "your framework". Only the folder you pick is read.'
+        ? 'Connect this prompt to the folder this window has open, so the engine uses its real names instead of "your framework". Only that folder is read.'
         : 'Open a prompt first.';
       return;
     }
+    // Connected shows which project, in the header, because a tooltip is not an answer to "what is
+    // this prompt wired to?" — that has to be readable without hovering.
     const names = list.map((p) => p.label).join(', ');
-    btn.textContent = off ? `${names} (off)` : names;
+    name.textContent = off ? `${names} (off)` : names;
     const lines = list.map((p) => {
       if (p.error) return `${p.label}: ${p.error}`;
       const when = p.builtAt ? new Date(p.builtAt).toLocaleString() : 'not built';
       return `${p.label} \u2014 ${p.path}\nread ${p.files.length} file(s), built ${when}${p.head ? ` at ${p.head}` : ''}`;
     });
     if (off) lines.push('promptForge.projectContext is off, so this is not being sent.');
-    lines.push('Click to change, view the brief, refresh or detach.');
+    lines.push('Click to view the brief, reconnect or disconnect.');
     btn.title = lines.join('\n');
   }
 
-  $('project').addEventListener('click', () => {
+  // Connected or not decides what a click means: nothing attached connects to the open folder with
+  // no picker in the way; something attached opens the menu, which is the only route to detach.
+  $('connect').addEventListener('click', () => {
     const list = (latest && latest.active && latest.active.projects) || [];
-    vscode.postMessage({ type: list.length ? 'project.menu' : 'project.pick' });
+    vscode.postMessage({ type: list.length ? 'project.menu' : 'project.connect' });
   });
 
   // ------------------------------------------------------------------------------------------
@@ -111,7 +118,7 @@
     sel.title = (s.blurbs && s.blurbs.targets && s.blurbs.targets[want]) ? `${s.blurbs.roles.target}\n${s.blurbs.targets[want]}` : (s.blurbs && s.blurbs.roles.target) || '';
     $('polish').disabled = !a;
     $('copy').disabled = !a;
-    renderProjectChip(s);
+    renderConnect(s);
 
     const e = s.engine;
     const summary = $('engine-summary');
@@ -296,10 +303,10 @@
         : 'Empty. The picker offers the folder this window has open, and Browse. Add roots so you never hunt for a path.',
       small('Edit roots', 'Opens promptForge.projectRoots', () => vscode.postMessage({ type: 'openSettings', query: 'promptForge.projectRoots' })));
     if (!s.active) {
-      row('Attached to this prompt', 'Open a prompt to attach a project to it.', small('Attach\u2026', null, () => vscode.postMessage({ type: 'project.pick' })));
+      row('Connected project', 'Open a prompt to connect it to a project.', small('Connect\u2026', null, () => vscode.postMessage({ type: 'project.pick' })));
     } else if (!attached.length) {
-      row('Attached to this prompt', 'Nothing. The engine writes \u201cyour framework\u201d and \u201cthe existing component\u201d because those are the only honest things it can say.',
-        small('Attach a project\u2026', null, () => vscode.postMessage({ type: 'project.pick' })));
+      row('Connected project', 'Nothing. The engine writes \u201cyour framework\u201d and \u201cthe existing component\u201d because those are the only honest things it can say. The plug in the header connects the folder this window has open.',
+        small('Connect a project\u2026', null, () => vscode.postMessage({ type: 'project.pick' })));
     } else {
       for (const p of attached) {
         const when = p.builtAt ? new Date(p.builtAt).toLocaleString() : 'never';
@@ -309,7 +316,7 @@
         row(p.label, desc, [
           small('View', 'Open the brief that is sent to the engine', () => vscode.postMessage({ type: 'project.view', id: p.id })),
           small('Refresh', 'Rebuild it from the folder as it is now. One engine call.', () => vscode.postMessage({ type: 'project.refresh', id: p.id })),
-          small('Detach', null, () => vscode.postMessage({ type: 'project.detach', id: p.id })),
+          small('Disconnect', null, () => vscode.postMessage({ type: 'project.detach', id: p.id })),
         ]);
       }
       row('Caps', `At most ${proj.maxFiles} files and ${Math.round(proj.maxBytes / 1000).toLocaleString()} KB are read when a brief is built. .env files, keys, anything .gitignore\u2019d, and every build directory are excluded before the search runs, not after.`);
@@ -358,9 +365,11 @@
     const a = s.active;
     const root = $('doc');
     const meta = $('preview-meta');
-    if (!a) { root.textContent = ''; meta.textContent = ''; return; }
+    if (!a) { root.textContent = ''; meta.textContent = ''; $('doc-count').textContent = ''; return; }
     const tLabel = (s.targets.find((t) => t.id === a.target) || {}).label || a.target;
     meta.textContent = `for ${tLabel}`;
+    const n = (a.doc || '').length;
+    $('doc-count').textContent = `${n.toLocaleString()} character${n === 1 ? '' : 's'}`;
     if (a.docBlank) {
       root.textContent = '';
       const ph = el('div', 'placeholder');
@@ -684,6 +693,14 @@
   $('target').addEventListener('change', (e) => vscode.postMessage({ type: 'setTarget', target: e.target.value }));
   $('engine-summary').addEventListener('click', () => { engineOpen = !engineOpen; save(); if (latest) render(latest); });
 
+  let copiedTimer = null;
+  function flashCopied() {
+    const btn = $('copy');
+    btn.classList.add('ok');
+    clearTimeout(copiedTimer);
+    copiedTimer = setTimeout(() => btn.classList.remove('ok'), 1400);
+  }
+
   let noticeTimer = null;
   function showNotice(level, text, sticky = false) {
     const n = $('notice');
@@ -699,6 +716,7 @@
     if (!m) return;
     if (m.type === 'state') render(m.data);
     else if (m.type === 'notice') showNotice(m.level || 'info', m.text || '');
+    else if (m.type === 'copied') flashCopied();
     else if (m.type === 'focus') idea.focus();
   });
   vscode.postMessage({ type: 'ready' });

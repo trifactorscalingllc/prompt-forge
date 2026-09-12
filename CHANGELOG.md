@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.4.1
+
+- **A plug replaces the Project button.** Click it and the prompt connects to the folder this window already has open — no picker, no path to find. Once connected the plug **shows the project's name**, because a tooltip is not an answer to “what is this prompt wired to?”. Clicking a connected plug opens view / rebuild / disconnect. The picker still exists behind *Prompt Forge: Attach a Project Folder*, for a prompt about a repo this window does not have open.
+- **Polish and Copy moved onto the Prompt panel**, next to Edit, as a hammer and a copy icon. They act on that document, so they belong on it rather than in the window header. Settings is now a gear.
+- **Copy confirms on itself.** The button turns into a tick for a moment instead of raising a bar. Both glyphs sit in the DOM and a class picks one, so nothing is rebuilt from a string.
+- **The character count is always at the foot of the Prompt panel**, and the notice bar moved there too — out of the header, under the thing it is about.
+- Icons are inline SVG inheriting `currentColor`, so they follow the theme without the webview shipping a font.
+
 ## 0.4.0
 
 - **Attach a project folder to a prompt.** The **+ Project** chip in the header opens a picker; the engine then gets a short description of that codebase with every merge and polish, and writes real names, paths and vocabulary instead of “your framework” and “the existing component”. The brief is built once, on attach, with the polish model, and reused after that.

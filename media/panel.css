@@ -134,6 +134,12 @@ h2 { font-size: 1.1em; margin: 0 0 6px; }
 .col-head .icon { width: 22px; height: 22px; }
 .col-title { font-weight: 600; }
 .col-head .link, .col-head .icon { margin-left: auto; }
+/* The trio in the Prompt head sits right, and stays ghosted until hover: three solid buttons in a
+   34px strip would outweigh the panel they label. */
+.col-head .iconbtn { background: none; color: var(--vscode-descriptionForeground); padding: 3px 5px; }
+.col-head .iconbtn:hover:not(:disabled) { background: var(--vscode-toolbar-hoverBackground, var(--vscode-list-hoverBackground)); color: var(--vscode-foreground); }
+.col-head .iconbtn:first-of-type { margin-left: auto; }
+.col-head .iconbtn.swap.ok { background: none; color: var(--vscode-testing-iconPassed, var(--vscode-charts-green, #3fb950)); }
 #ideas .conflicts { margin: 8px 10px 0; }
 #history { padding: 0 10px; }
 #compose { margin: 0 10px 8px; }
@@ -201,10 +207,30 @@ html, body { height: 100%; overflow: hidden; max-width: 100%; }
   .head-actions select { width: 100%; }
   .sctl select { min-width: 0; width: 100%; }
 }
-/* The project chip sits with the target selector: set once per prompt, then ignored. */
-.chip { max-width: 22ch; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.chip.attached { background: var(--vscode-button-background); color: var(--vscode-button-foreground); }
-.chip.bad { background: var(--vscode-inputValidation-errorBackground); color: var(--vscode-errorForeground); }
+/* Icon buttons: the glyph carries the meaning, the title carries the detail. Sized by the glyph
+   plus padding rather than by a fixed box, so a named one (the plug) can grow a label. */
+.iconbtn { display: inline-flex; align-items: center; gap: 5px; padding: 3px 6px; border: none; border-radius: 3px;
+  background: var(--vscode-button-secondaryBackground); color: var(--vscode-button-secondaryForeground); cursor: pointer; }
+.iconbtn:hover { background: var(--vscode-button-secondaryHoverBackground); }
+.iconbtn:disabled { opacity: 0.45; cursor: default; }
+.iconbtn svg { display: block; }
+.iconbtn.on { background: var(--vscode-button-background); color: var(--vscode-button-foreground); }
+.iconbtn.bad { background: var(--vscode-inputValidation-errorBackground); color: var(--vscode-errorForeground); }
+/* The connected project has to be readable without hovering; it still yields before the layout does. */
+#connect-name { max-width: 18ch; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 0.92em; }
+#connect-name:empty { display: none; }
+
+/* Copy confirms on itself: both glyphs are in the DOM and a class picks one. */
+.iconbtn.swap .i-on { display: none; }
+.iconbtn.swap.ok .i-off { display: none; }
+.iconbtn.swap.ok .i-on { display: block; }
+.iconbtn.swap.ok { background: var(--vscode-testing-iconPassed, var(--vscode-button-background)); color: var(--vscode-button-foreground); }
+
+/* The foot of the Prompt panel: the count always, a notice only when there is one. */
+.col-foot { flex: none; display: flex; align-items: center; justify-content: space-between; gap: 8px;
+  padding: 4px 10px; border-top: 1px solid var(--vscode-panel-border); min-height: 24px; }
+.col-foot .notice { margin: 0; flex: 1; min-width: 0; }
+#doc-count { flex: none; margin-left: auto; }
 
 .icon-btn { background: none; border: none; color: inherit; cursor: pointer; padding: 0 4px; font-size: 1.15em; line-height: 1; opacity: 0.75; }
 .icon-btn:hover { opacity: 1; }

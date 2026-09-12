@@ -430,6 +430,13 @@ function create(host) {
       case 'setTarget':
         if (s && m.target) s.setTarget(String(m.target));
         return;
+      case 'project.connect': {
+        if (!s) { notice('info', 'Create or open a prompt first.'); return; }
+        const ws = workspaceDir();
+        if (!ws) { notice('error', 'This window has no folder open, so there is nothing to connect to. Use Prompt Forge: Attach a Project Folder to pick one.'); return; }
+        await attachProject(s.slug, ws);
+        return;
+      }
       case 'project.pick': {
         if (!s) { notice('info', 'Create or open a prompt first.'); return; }
         const dir = await pickProjectDir();
@@ -445,9 +452,9 @@ function create(host) {
           const what = p.error ? `error: ${p.error}` : `${p.files.length} file(s)${p.head ? `, ${p.head}` : ''}`;
           items.push({ label: `$(eye) View the brief for ${p.label}`, description: what, act: 'view', id: p.id });
           items.push({ label: `$(refresh) Rebuild ${p.label}'s brief`, description: p.path, act: 'refresh', id: p.id });
-          items.push({ label: `$(close) Detach ${p.label}`, act: 'detach', id: p.id });
+          items.push({ label: `$(debug-disconnect) Disconnect ${p.label}`, act: 'detach', id: p.id });
         }
-        items.push({ label: '$(add) Attach another project\u2026', detail: 'For a prompt that genuinely spans repos', act: 'add' });
+        items.push({ label: '$(add) Connect another project\u2026', detail: 'For a prompt that genuinely spans repos', act: 'add' });
         const pick = await vscode.window.showQuickPick(items, { placeHolder: 'Project context for this prompt' });
         if (!pick) return;
         if (pick.act === 'add') { const dir = await pickProjectDir(); if (dir) await attachProject(s.slug, dir); return; }
@@ -486,7 +493,11 @@ function create(host) {
         if (!s) return;
         const text = await s.copyText();
         await vscode.env.clipboard.writeText(text);
-        notice('info', `Copied ${text.length.toLocaleString()} characters for ${targets.labelOf(s.snapshot().target)}.`);
+        // The button turns into a tick for a moment. A bar the eye has to travel to, to read a
+        // number it can already see at the foot of the prompt, is worse than no bar.
+        const p = getPanel();
+        if (p) p.webview.postMessage({ type: 'copied', chars: text.length });
+        log.info(`copied ${text.length} characters for ${targets.labelOf(s.snapshot().target)}`);
         return;
       }
       case 'restore': {

@@ -48,20 +48,17 @@ function html({ vscode, webview, mediaRoots, stamp }) {
           <h1 id="title" title="Click to rename">Prompt Forge</h1>
           <input id="title-edit" class="title-edit" type="text" spellcheck="false" autocomplete="off" hidden>
           <div class="head-actions">
-            <button id="project" class="btn chip" title="The project this prompt is for"></button>
+            <button id="connect" class="iconbtn named" title="Connect this prompt to the folder this window has open">${ICON.plug}<span id="connect-name"></span></button>
             <label class="lbl">Target
               <select id="target" title="The model this prompt is being written for"></select>
             </label>
-            <button id="polish" class="btn" title="Rewrite the whole document in the target model's preferred style">Polish</button>
-            <button id="copy" class="btn primary" title="Copy the final prompt to the clipboard">Copy</button>
-            <button id="settings" class="btn" title="Engine, models, target and document settings">Settings</button>
+            <button id="settings" class="iconbtn" title="Engine, models, target and document settings">${ICON.gear}</button>
           </div>
         </div>
         <div class="head-row sub">
           <button id="engine-summary" class="link engine" title="Which account runs the engine. Click to change."></button>
           <span id="status" class="status"></span>
         </div>
-        <div id="notice" class="notice" hidden></div>
       </header>
       <section id="engine" class="settings" hidden></section>
       <div id="columns" class="columns">
@@ -86,9 +83,15 @@ function html({ vscode, webview, mediaRoots, stamp }) {
           <div class="col-head">
             <span class="col-title">Prompt</span>
             <span id="preview-meta" class="muted small-text"></span>
-            <button id="open-doc" class="icon" title="Edit the document by hand in the editor">&#9998;</button>
+            <button id="polish" class="iconbtn" title="Rewrite the whole document in the target model&#39;s preferred style">${ICON.hammer}</button>
+            <button id="copy" class="iconbtn swap" title="Copy the final prompt to the clipboard"><span class="i-off">${ICON.copy}</span><span class="i-on">${ICON.check}</span></button>
+            <button id="open-doc" class="iconbtn" title="Edit the document by hand in the editor">${ICON.pencil}</button>
           </div>
           <div id="doc" class="doc"></div>
+          <div class="col-foot">
+            <div id="notice" class="notice" hidden></div>
+            <span id="doc-count" class="muted small-text"></span>
+          </div>
         </section>
       </div>
     </section>
@@ -99,6 +102,17 @@ function html({ vscode, webview, mediaRoots, stamp }) {
 </body>
 </html>`;
 }
+
+// Inline SVG rather than a codicon font: the webview would have to ship and load the font, and
+// these inherit currentColor, so they follow the VS Code theme on their own.
+const ICON = {
+  plug: '<svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M6 1.5v3.5M10 1.5v3.5"/><path d="M4 5h8v2.8a4 4 0 0 1-8 0z"/><path d="M8 11.8v2.7"/></svg>',
+  hammer: '<svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M10.8 1.7 14.3 5.2 12 7.5 8.5 4z"/><path d="M8.8 5.7 2.9 11.6a1.45 1.45 0 1 0 2 2l5.9-5.9"/></svg>',
+  copy: '<svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><rect x="5.6" y="5.6" width="8" height="8.8" rx="1.1"/><path d="M10.6 2.6H3.5a1 1 0 0 0-1 1v7.1"/></svg>',
+  check: '<svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 8.4 6.4 11.8 13 4.6"/></svg>',
+  gear: '<svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"><circle cx="8" cy="8" r="2.2"/><path d="M8 1.4v1.9M8 12.7v1.9M14.6 8h-1.9M3.3 8H1.4M12.66 3.34l-1.35 1.35M4.69 11.31l-1.35 1.35M12.66 12.66l-1.35-1.35M4.69 4.69 3.34 3.34"/></svg>',
+  pencil: '<svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M11.3 2.2 13.8 4.7 5.6 12.9 2.6 13.4l.5-3z"/></svg>',
+};
 
 /** The built-in document editor, shown by the `promptForge.markdown` custom editor. */
 function docHtml({ vscode, webview, mediaRoots, stamp, title = 'Prompt' }) {
