@@ -2,7 +2,7 @@
   "name": "prompt-forge-trifactor",
   "displayName": "Prompt Forge for VS Code",
   "description": "Build complicated prompts one idea at a time. Every Enter merges an idea into a structured prompt, contradictions surface instead of being guessed away, and Polish rewrites it for the model you are sending it to. Works with your own Claude, Gemini, or OpenAI login, or any API key.",
-  "version": "0.11.0",
+  "version": "0.12.0",
   "publisher": "trifactorscaling",
   "license": "MIT",
   "repository": {
@@ -381,6 +381,14 @@
           "scope": "window",
           "order": 9.5,
           "markdownDescription": "Warn once a single prompt has used this many tokens in total. `0` turns it off. Tokens, not money: a CLI login draws on your plan rather than billing per token, so a dollar figure would be wrong for the way most people run this."
+        },
+        "promptForge.keepVersionBodies": {
+          "type": "number",
+          "default": 20,
+          "minimum": 0,
+          "scope": "window",
+          "order": 9.6,
+          "markdownDescription": "How many recent versions keep a full copy of the document. Older ones keep their record — when, what changed, at whose hand — but not the text, and can no longer be restored. Full copies are most of a prompt’s stored size, which matters if the library is on a synced folder. `0` keeps every copy."
         }
       }
     }

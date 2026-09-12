@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.12.0
+
+Groundwork for a library that lives on more than one machine, plus a correction to an icon.
+
+- **No absolute path is stored any more.** An attached project is recorded relative to your home directory and an attached image by filename alone; both are resolved against wherever the library actually is at the moment it is read. A synced library carries the same JSON to a different home and a different library root, and an absolute path is simply wrong on arrival.
+- **Old version bodies are pruned** (`promptForge.keepVersionBodies`, default 20). A full copy of the document was kept for every merge, which is most of a prompt's stored size and the part that made a synced library heavy. Older versions keep their record — when, what kind, what changed, and the diff — but not the text. Restoring one is refused with a reason rather than writing an empty document, and `0` keeps everything.
+- Together these make the no-code route usable: point `promptForge.libraryPath` at an iCloud or Dropbox folder. Two machines editing the *same* prompt at once is still unsolved; the README says so.
+- The run button is a **send arrow**, not a play triangle. It hands the prompt to a model; it does not start a process.
+
 ## 0.11.0
 
 Tier 3, and one correction.

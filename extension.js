@@ -52,6 +52,7 @@ function readConfig() {
       maxBytes: c.get('projectMaxBytes', 2000000),
     },
     suggestions: c.get('suggestions', true),
+    keepVersionBodies: c.get('keepVersionBodies', 20),
     docEditor: c.get('docEditor', 'forge'),
     sourcePath: c.get('sourcePath', ''),
     autoReload: c.get('autoReload', true),

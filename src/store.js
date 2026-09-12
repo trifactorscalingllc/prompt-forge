@@ -67,6 +67,18 @@ function open(libraryPath, { home } = {}) {
     const sc = readJson(sidecarPath(slug));
     if (!sc || sc.version !== 1) return null;
     for (const k of ['entries', 'snapshots', 'conflicts', 'resolved', 'projects', 'suggestions', 'dismissed', 'runs']) if (!Array.isArray(sc[k])) sc[k] = [];
+    // Absolute paths are rebuilt here rather than trusted from the file. A library synced between
+    // machines carries the same JSON to a different home directory and a different library root.
+    for (const e of sc.entries) {
+      if (!Array.isArray(e.images)) { e.images = []; continue; }
+      for (const im of e.images) im.path = imagePath(slug, im);
+    }
+    for (const p of sc.projects) {
+      if (p.portable && !fs.existsSync(String(p.path || ''))) {
+        const here = resolvePortable(p.portable);
+        if (fs.existsSync(here)) p.path = here;
+      }
+    }
     return sc;
   }
 
@@ -146,7 +158,8 @@ function open(libraryPath, { home } = {}) {
 
   function appendEntry(slug, text, images = []) {
     return withSidecar(slug, (sc) => {
-      const entry = { id: nextId(sc.entries, 'e'), ts: now(), text: String(text), status: 'pending', snapshotId: null, error: null, images: Array.isArray(images) ? images : [] };
+      const keep = (Array.isArray(images) ? images : []).map(({ id, file, name, bytes }) => ({ id, file, name, bytes }));
+      const entry = { id: nextId(sc.entries, 'e'), ts: now(), text: String(text), status: 'pending', snapshotId: null, error: null, images: keep };
       sc.entries.push(entry);
       return entry;
     });
@@ -160,19 +173,40 @@ function open(libraryPath, { home } = {}) {
     });
   }
 
-  function addSnapshot(slug, { kind, entryIds = [], doc, conflicts = [], changes = [], target, call = null, from = null, diff = null }) {
+  function addSnapshot(slug, { kind, entryIds = [], doc, conflicts = [], changes = [], target, call = null, from = null, diff = null }, { keepBodies = 20 } = {}) {
     return withSidecar(slug, (sc) => {
       const snap = { id: nextId(sc.snapshots, 's'), ts: now(), kind, entryIds, doc, conflicts, changes, target: target || sc.target, call, from, diff };
       sc.snapshots.push(snap);
+      pruneBodies(sc, keepBodies);
       return snap;
     });
+  }
+
+  /**
+   * Drop the document body from all but the newest `keep` snapshots. What that step changed, when,
+   * and at whose hand all survive -- only the full copy goes, and `bodyDropped` says so, so restore
+   * can refuse rather than write an empty document.
+   */
+  function pruneBodies(sc, keep) {
+    if (!Number.isFinite(keep) || keep <= 0) return sc.snapshots;
+    const cut = sc.snapshots.length - keep;
+    for (let i = 0; i < cut; i += 1) {
+      const s = sc.snapshots[i];
+      if (s.doc === undefined || s.bodyDropped) continue;
+      delete s.doc;
+      s.bodyDropped = true;
+    }
+    return sc.snapshots;
   }
 
   const setTarget = (slug, target) => withSidecar(slug, (sc) => { sc.target = target; return sc.target; });
   const setTitle = (slug, title) => withSidecar(slug, (sc) => { sc.title = String(title); return sc.title; });
   // An allow-list the person wrote one path at a time. Replaced wholesale so a detach cannot leave
   // a half-removed entry behind.
-  const setProjects = (slug, projects) => withSidecar(slug, (sc) => { sc.projects = Array.isArray(projects) ? projects : []; return sc.projects; });
+  const setProjects = (slug, projects) => withSidecar(slug, (sc) => {
+    sc.projects = (Array.isArray(projects) ? projects : []).map((p) => ({ ...p, portable: portablePath(p.path) }));
+    return sc.projects;
+  });
   // Suggestions live here and never in the .md, so a copy cannot carry them and a hand edit cannot
   // accidentally save one into the prompt. `dismissed` holds the text of ones waved away, because
   // every merge regenerates the list and an unremembered dismissal would nag.
@@ -194,9 +228,22 @@ function open(libraryPath, { home } = {}) {
     fs.mkdirSync(imageDir(slug), { recursive: true });
     const safe = String(ext).replace(/[^a-z0-9]/gi, '').slice(0, 5).toLowerCase() || 'png';
     const id = `img${now().toString(36)}`;
-    const file = path.join(imageDir(slug), `${id}.${safe}`);
-    fs.writeFileSync(file, buf);
-    return { id, path: file, bytes: buf.length, name: String(name || '').slice(0, 80) || `${id}.${safe}` };
+    const file = `${id}.${safe}`;
+    fs.writeFileSync(path.join(imageDir(slug), file), buf);
+    return { id, file, path: path.join(imageDir(slug), file), bytes: buf.length, name: String(name || '').slice(0, 80) || file };
+  }
+
+  /** Rebuilt on read, never stored: the library may be on a different machine than it was written on. */
+  const imagePath = (slug, img) => (img && img.file ? path.join(imageDir(slug), img.file) : (img && img.path) || '');
+
+  /** `~/x` when it sits under this machine's home, so the same folder resolves on another one. */
+  function portablePath(p, home = os.homedir()) {
+    const s = String(p || '');
+    return home && s.startsWith(`${home}${path.sep}`) ? `~${path.sep}${s.slice(home.length + 1)}` : s;
+  }
+  function resolvePortable(p, home = os.homedir()) {
+    const s = String(p || '');
+    return s.startsWith(`~${path.sep}`) || s.startsWith('~/') ? path.join(home, s.slice(2)) : s;
   }
 
   const setCopyMark = (slug, doc) => withSidecar(slug, (sc) => { sc.copied = { doc: String(doc == null ? '' : doc), ts: now() }; return sc.copied; });
@@ -265,7 +312,7 @@ function open(libraryPath, { home } = {}) {
 
   return {
     dir, docPath, sidecarPath, exists, read, write, create, list, stats,
-    appendEntry, updateEntry, addSnapshot, setTarget, setTitle, setProjects, setCopyMark, addRun, saveImage, imageDir, setSuggestions, dismissSuggestion, setConflicts, resolveConflict, remove,
+    appendEntry, updateEntry, addSnapshot, pruneBodies, setTarget, setTitle, setProjects, setCopyMark, addRun, saveImage, imageDir, imagePath, portablePath, resolvePortable, setSuggestions, dismissSuggestion, setConflicts, resolveConflict, remove,
     readDoc, writeDoc,
   };
 }

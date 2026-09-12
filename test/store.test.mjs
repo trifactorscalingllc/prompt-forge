@@ -168,9 +168,14 @@ test('an image is written beside the prompt, and only its path goes in the sidec
 
   s.appendEntry(slug, 'like this', [img]);
   const raw = fsn.readFileSync(s.sidecarPath(slug), 'utf8');
-  assert.ok(raw.includes(img.path), 'the path is recorded');
-  assert.ok(!raw.includes(png), 'the bytes are not: the sidecar is rewritten constantly');
-  assert.deepEqual(s.read(slug).entries[0].images, [img]);
+  assert.ok(!raw.includes(png), 'the bytes are not in the sidecar: it is rewritten constantly');
+  // Nor is the absolute path. A library synced to another machine carries this same JSON to a
+  // different home and a different library root, and an absolute path would be wrong on arrival.
+  assert.ok(!raw.includes(dir), 'no absolute path is stored');
+  assert.ok(raw.includes(img.file), 'just the filename');
+  // read() rebuilds it against wherever the library actually is now.
+  assert.equal(s.read(slug).entries[0].images[0].path, img.path);
+  assert.equal(s.read(slug).entries[0].images[0].file, img.file);
 
   // Deleting the prompt takes its screenshots, or the library keeps files nothing points at.
   s.remove(slug);
@@ -178,5 +183,62 @@ test('an image is written beside the prompt, and only its path goes in the sidec
   assert.ok(fsn.readdirSync(pathn.join(dir, '.trash')).some((f) => f.endsWith('.images')));
 
   assert.equal(s.saveImage(slug, { data: '' }), null, 'empty data is not a file');
+  fsn.rmSync(dir, { recursive: true, force: true });
+});
+
+test('old version bodies are dropped but their record survives, and restore refuses rather than emptying the document', () => {
+  const fsn = require('node:fs');
+  const osn = require('node:os');
+  const pathn = require('node:path');
+  const dir = fsn.mkdtempSync(pathn.join(osn.tmpdir(), 'forge-prune-'));
+  const s = store.open(dir);
+  const { slug } = s.create('Long');
+
+  for (let i = 0; i < 8; i += 1) {
+    // The body text is deliberately distinct from anything in the diff or the changes, so the
+    // assertion below can tell "the body was dropped" from "the record mentions it".
+    s.addSnapshot(slug, { kind: 'merge', doc: `# Long\n\nBODY${i}\n`, changes: [`change ${i}`], diff: [{ heading: '## Goal', added: [`added line ${i}`], removed: [] }] }, { keepBodies: 3 });
+  }
+  const snaps = s.read(slug).snapshots;
+  const withBody = snaps.filter((x) => typeof x.doc === 'string');
+  assert.equal(withBody.length, 3, 'only the newest keep their text');
+  assert.equal(snaps.length, 9, 'nine records: the seed and eight merges, none of them lost');
+  assert.equal(snaps[snaps.length - 1].doc, '# Long\n\nBODY7\n', 'and the newest is never pruned');
+
+  // The history still reads: when, what kind, what changed, and the diff.
+  // snaps[0] is the seed the prompt was created with, so the oldest merge is snaps[1].
+  const old = snaps[1];
+  assert.equal(old.kind, 'merge');
+  assert.equal(old.bodyDropped, true);
+  assert.ok(old.ts && old.changes.length && old.diff.length, 'the record survives the body');
+
+  const raw = fsn.readFileSync(s.sidecarPath(slug), 'utf8');
+  assert.ok(!raw.includes('BODY0'), 'the dropped body really is gone from disk');
+  assert.ok(raw.includes('change 0') && raw.includes('added line 0'), 'its summary and diff are not');
+  assert.ok(raw.includes('BODY7'), 'and the recent bodies are still there');
+
+  // 0 means keep everything, for anyone who would rather have the disk than the guarantee.
+  const { slug: s2 } = s.create('Keep');
+  for (let i = 0; i < 5; i += 1) s.addSnapshot(s2, { kind: 'merge', doc: `d${i}`, changes: [] }, { keepBodies: 0 });
+  assert.ok(s.read(s2).snapshots.every((x) => typeof x.doc === 'string'));
+  fsn.rmSync(dir, { recursive: true, force: true });
+});
+
+test('a project path is stored portably, so the same library opens on another machine', () => {
+  const fsn = require('node:fs');
+  const osn = require('node:os');
+  const pathn = require('node:path');
+  const dir = fsn.mkdtempSync(pathn.join(osn.tmpdir(), 'forge-port-'));
+  const s = store.open(dir);
+  const { slug } = s.create('P');
+
+  const under = pathn.join(osn.homedir(), 'some-project');
+  s.setProjects(slug, [{ id: 'p1', label: 'some-project', path: under, brief: 'x', files: [] }]);
+  const raw = fsn.readFileSync(s.sidecarPath(slug), 'utf8');
+  assert.ok(raw.includes(`~${pathn.sep === '\\' ? '\\\\' : '/'}some-project`), 'recorded relative to home');
+
+  assert.equal(s.portablePath(pathn.join(osn.homedir(), 'a', 'b')), `~${pathn.sep}a${pathn.sep}b`);
+  assert.equal(s.portablePath('/opt/elsewhere'), '/opt/elsewhere', 'outside home it stays absolute, because it has to');
+  assert.equal(s.resolvePortable(`~${pathn.sep}a`), pathn.join(osn.homedir(), 'a'));
   fsn.rmSync(dir, { recursive: true, force: true });
 });

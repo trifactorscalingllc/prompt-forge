@@ -26,6 +26,10 @@ function createSession({ slug, store, docio, engine, cfg, log, publish = () => {
   const reread = () => { sc = store.read(slug); return sc; };
   const lastSnapshot = () => sc.snapshots[sc.snapshots.length - 1];
   const engineCfg = () => (cfg() && cfg().engine) || {};
+  const keepBodies = () => {
+    const n = (cfg() || {}).keepVersionBodies;
+    return Number.isFinite(n) ? n : 20;
+  };
 
   const queue = createQueue({
     run: runBatch,
@@ -68,7 +72,7 @@ function createSession({ slug, store, docio, engine, cfg, log, publish = () => {
         if (settleMs) await sleep(settleMs);
         const body = await currentBody();
         if (body !== lastSnapshot().doc) {
-          store.addSnapshot(slug, { kind: 'hand-edit', entryIds: [], doc: body, conflicts: sc.conflicts, changes: [], target: sc.target });
+          store.addSnapshot(slug, { kind: 'hand-edit', entryIds: [], doc: body, conflicts: sc.conflicts, changes: [], target: sc.target }, { keepBodies: keepBodies() });
           reread();
           publish('hand-edit');
         }
@@ -136,8 +140,8 @@ function createSession({ slug, store, docio, engine, cfg, log, publish = () => {
         if (role === 'merge') { store.setSuggestions(slug, suggest ? out.suggestions : []); reread(); }
         await docio.writeDoc(docPath, docm.withConflictBlock(out.doc, sc.conflicts));
         const kind = role === 'polish' ? 'polish' : entryIds.length ? 'merge' : revised.length ? 'revise' : 'resolve';
-        const diff = diffSections(lastSnapshot().doc, out.doc);
-        const snap = store.addSnapshot(slug, { kind, entryIds: touched, doc: out.doc, conflicts: sc.conflicts, changes: out.changes, target: sc.target, call: res.call, diff });
+        const diff = diffSections(lastSnapshot().doc || '', out.doc);
+        const snap = store.addSnapshot(slug, { kind, entryIds: touched, doc: out.doc, conflicts: sc.conflicts, changes: out.changes, target: sc.target, call: res.call, diff }, { keepBodies: keepBodies() });
         for (const id of touched) store.updateEntry(slug, id, { status: 'merged', snapshotId: snap.id, error: null });
         reread();
         engineState = { state: 'idle', op: null, model: null, startedAt: 0, error: null };
@@ -205,10 +209,13 @@ function createSession({ slug, store, docio, engine, cfg, log, publish = () => {
     reread();
     const snap = sc.snapshots.find((s) => s.id === snapshotId);
     if (!snap) return { ok: false, reason: 'no such snapshot' };
+    // Pruned versions keep their record but not their text. Refusing is the only honest answer;
+    // writing `undefined` would empty the document to save a sidecar some bytes.
+    if (snap.bodyDropped || typeof snap.doc !== 'string') return { ok: false, reason: 'that version is too old to restore: only its summary was kept' };
     store.setConflicts(slug, snap.conflicts || []);
     reread();
     await docio.writeDoc(docPath, docm.withConflictBlock(snap.doc, sc.conflicts));
-    store.addSnapshot(slug, { kind: 'restore', from: snap.id, entryIds: [], doc: snap.doc, conflicts: sc.conflicts, changes: [`restored ${snap.id}`], target: sc.target });
+    store.addSnapshot(slug, { kind: 'restore', from: snap.id, entryIds: [], doc: snap.doc, conflicts: sc.conflicts, changes: [`restored ${snap.id}`], target: sc.target }, { keepBodies: keepBodies() });
     reread();
     publish('restore');
     return { ok: true };
@@ -222,7 +229,7 @@ function createSession({ slug, store, docio, engine, cfg, log, publish = () => {
     reread();
     const body = docm.setTitle(await currentBody(), t);
     await docio.writeDoc(docPath, docm.withConflictBlock(body, sc.conflicts));
-    store.addSnapshot(slug, { kind: 'rename', entryIds: [], doc: body, conflicts: sc.conflicts, changes: [`renamed to ${t}`], target: sc.target });
+    store.addSnapshot(slug, { kind: 'rename', entryIds: [], doc: body, conflicts: sc.conflicts, changes: [`renamed to ${t}`], target: sc.target }, { keepBodies: keepBodies() });
     reread();
     publish('rename');
     return true;
@@ -307,6 +314,7 @@ function createSession({ slug, store, docio, engine, cfg, log, publish = () => {
       entries: sc.entries.map((e) => ({ ...e })),
       snapshots: sc.snapshots.map(({ doc, ...rest }) => rest),
       conflicts: sc.conflicts.map((c) => ({ ...c })),
+      keepVersions: keepBodies(),
       projects: (sc.projects || []).map((p) => ({ ...p })),
       suggestions: (sc.suggestions || []).map((x) => ({ ...x })),
       copied: sc.copied ? { ts: sc.copied.ts } : null,

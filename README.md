@@ -65,6 +65,18 @@ Umbrella *reading* is refused on purpose — it would re-create the ambiguity th
 
 Nothing is read until you attach a folder. `.env*`, keys, credentials, anything `.gitignore`d and every build directory are excluded *before* the search runs. The brief is capped at 40 lines, and **View** shows you the exact text being sent plus the list of files it came from. Set `promptForge.projectContext` to `off` to stop sending it without detaching.
 
+## The library on more than one machine
+
+The library is a folder of plain text files, so pointing `promptForge.libraryPath` at a synced folder (iCloud, Dropbox, Syncthing) works with no further setup:
+
+```json
+"promptForge.libraryPath": "~/Library/Mobile Documents/com~apple~CloudDocs/prompt-forge"
+```
+
+Two things that used to break this are fixed. **No absolute path is stored**: an attached project is recorded relative to your home directory and an attached image by filename alone, both resolved against wherever the library actually is when it is read. And **old version bodies are pruned** (`promptForge.keepVersionBodies`, default 20) — a full copy of the document was kept for every merge, which is most of a prompt's size and the part that made syncing heavy. Older versions keep their record and their diff but not their text, and say so rather than restoring an empty document.
+
+What is still not handled is **two machines editing one prompt at the same time**. The sidecar is rewritten on every change, so a sync service will produce a conflicted copy and neither file is obviously right. Git-backed sync would solve that properly and is not built.
+
 Prompts live in `~/.prompt-forge/prompts/` (setting `promptForge.libraryPath`): one `<name>.md` you can edit, and one `<name>.forge.json` holding the ideas, every version of the document, open conflicts and per-call usage. Deleted prompts move to `.trash/` inside that folder.
 
 ## Settings
