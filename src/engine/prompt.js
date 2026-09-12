@@ -14,7 +14,7 @@ const iso = (ts) => { try { return new Date(ts).toISOString(); } catch { return 
 const block = (s) => (String(s == null ? "" : s).endsWith("\n") ? String(s) : `${s}\n`);
 const q = (s) => `"${String(s == null ? '' : s).replace(/\s+/g, ' ').trim()}"`;
 
-function buildMergePrompt({ doc, ideas = [], resolutions = [], revisions = [], conflicts = [], recent = [], target, projects = [], sections = SECTIONS }) {
+function buildMergePrompt({ doc, ideas = [], resolutions = [], revisions = [], conflicts = [], recent = [], target, projects = [], needsTitle = false, sections = SECTIONS }) {
   const label = (target && target.label) || 'the target model';
   const merged = recent.length
     ? recent.map((e) => `- [${iso(e.ts)}] ${String(e.text || '').replace(/\s+/g, ' ').trim()}`).join('\n')
@@ -70,7 +70,8 @@ Rules:
 8. Return the COMPLETE document, not a diff, and not a summary of it.
 9. Write clearly enough that a model reading the finished prompt has nothing to assume: prefer a concrete statement over a vague one, and put anything the person left undecided under Open questions rather than guessing.
 
-${OUTPUT_CONTRACT}
+${OUTPUT_CONTRACT}${needsTitle ? `
+Also return "title": a name for this prompt of AT MOST FIVE WORDS, describing what the finished prompt is for. Name the subject, not the act of asking: "Collapsible prompt sidebar", not "Oh idea" or "User wants changes". No trailing punctuation, no quotes.` : ''}
 `;
 }
 

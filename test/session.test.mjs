@@ -305,11 +305,11 @@ test('an untitled prompt names itself from the first idea, once; rename changes 
   session.submitIdea('make the landing page sell the six week course');
   await session.idle();
   let sc = s.read(slug);
-  assert.equal(sc.title, 'Make the landing page sell the six week');
-  assert.ok((await docio.readDoc(docPath)).startsWith('# Make the landing page sell the six week\n'));
+  assert.equal(sc.title, 'Make the landing page sell');
+  assert.ok((await docio.readDoc(docPath)).startsWith('# Make the landing page sell\n'));
   session.submitIdea('another idea that must not rename it');
   await session.idle();
-  assert.equal(s.read(slug).title, 'Make the landing page sell the six week');
+  assert.equal(s.read(slug).title, 'Make the landing page sell');
   await session.rename('Landing brief');
   sc = s.read(slug);
   assert.equal(sc.title, 'Landing brief');

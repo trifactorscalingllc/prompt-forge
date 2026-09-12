@@ -71,6 +71,7 @@ function parseEngineOutput(text, { kind = 'merge', inputDoc = '' } = {}) {
     doc,
     conflicts: coerceConflicts(obj.conflicts),
     changes: Array.isArray(obj.changes) ? obj.changes.map((c) => str(c)).filter(Boolean) : [],
+    title: typeof obj.title === 'string' ? str(obj.title).trim() : '',
   };
 }
 

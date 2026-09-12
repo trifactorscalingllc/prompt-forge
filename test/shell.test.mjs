@@ -118,7 +118,12 @@ test('the header is a plug and a gear; Polish, Copy and Edit live on the Prompt 
   const view = whole.slice(0, whole.indexOf('The built-in document editor'));
   const head = view.slice(view.indexOf('<div class="head-actions">'), view.indexOf('</div>', view.indexOf('<div class="head-actions">')));
   assert.ok(/id="connect"/.test(head), 'the plug is in the header');
-  assert.ok(/id="settings"[^>]*class="iconbtn"|id="settings" class="iconbtn"/.test(head), 'settings is an icon button');
+  assert.ok(/id="settings"[^>]*class="iconbtn ghost"/.test(head), 'settings is a ghost icon button, no box until you reach for it');
+  // Target, then the plug, then settings.
+  assert.ok(head.indexOf('id="target"') < head.indexOf('id="connect"'), 'the plug sits right of Target');
+  assert.ok(head.indexOf('id="connect"') < head.indexOf('id="settings"'));
+  // A gear has teeth. Eight lines radiating from a circle is a sun.
+  assert.ok(/gear: '<svg[^']*fill="currentColor"[^']*fill-rule="evenodd"/.test(whole), 'the gear is a filled toothed shape');
   assert.ok(!/id="polish"/.test(head) && !/id="copy"/.test(head), 'Polish and Copy left the header');
   assert.ok(!/id="project"/.test(whole), 'the old Project chip is gone');
 
@@ -145,6 +150,32 @@ test('the header is a plug and a gear; Polish, Copy and Edit live on the Prompt 
   assert.ok(/class="iconbtn swap"/.test(view) && /i-off/.test(view) && /i-on/.test(view));
   const css = fs.readFileSync(path.join(ROOT, 'media/panel.css'), 'utf8');
   assert.ok(/\.iconbtn\.swap \.i-on \{ display: none/.test(css) && /\.iconbtn\.swap\.ok \.i-off \{ display: none/.test(css));
+});
+
+test('the compose hint lives in the box, and a collapsed rail still starts a prompt', () => {
+  const view = fs.readFileSync(path.join(ROOT, 'src/view.js'), 'utf8');
+  assert.ok(!/class="hint"/.test(view), 'the line above the box is gone');
+  const ta = /<textarea id="idea"[^>]*placeholder="([^"]+)"/.exec(view);
+  assert.ok(ta, 'the idea box has a placeholder');
+  for (const phrase of ['press Enter', 'Shift+Enter', 'Hover a sent idea']) {
+    assert.ok(ta[1].includes(phrase), `the placeholder carries "${phrase}"`);
+  }
+  // Collapsed hides the word, never the button: a strip with only a chevron is a dead strip.
+  const css = fs.readFileSync(path.join(ROOT, 'media/panel.css'), 'utf8');
+  assert.ok(/#app\.rail-collapsed \.new-label/.test(css), 'the label collapses');
+  assert.ok(!/#app\.rail-collapsed #new,|#app\.rail-collapsed #new \{ display: none/.test(css), '+ stays');
+  assert.ok(/class="plus"/.test(view) && /class="new-label"/.test(view));
+});
+
+test('a prompt is named by the engine in five words, not by slicing what was typed', () => {
+  const prompt = fs.readFileSync(path.join(ROOT, 'src/engine/prompt.js'), 'utf8');
+  assert.ok(/needsTitle/.test(prompt), 'the merge prompt asks only when there is no title yet');
+  assert.ok(/AT MOST FIVE WORDS/.test(prompt));
+  assert.ok(/Name the subject, not the act of asking/.test(prompt), 'the failure mode it must avoid is named');
+  const out = fs.readFileSync(path.join(ROOT, 'src/engine/output.js'), 'utf8');
+  assert.ok(/title: typeof obj\.title === 'string'/.test(out), 'the parser passes a title through');
+  const session = fs.readFileSync(path.join(ROOT, 'src/session.js'), 'utf8');
+  assert.ok(/docm\.capTitle\(out\.title\) \|\| docm\.titleFrom/.test(session), 'engine first, slice as the fallback');
 });
 
 test('the prompts rail collapses from both the chevron and the command, and survives a reload', () => {

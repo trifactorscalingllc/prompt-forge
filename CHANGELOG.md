@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.4.2
+
+- **A prompt is named by the engine, in at most five words.** It had been the first eight words of whatever you typed, which is how a prompt ended up called “Oh idea”. The merge that first fills an empty prompt now also returns a title, and is told to name the subject rather than the act of asking. Five words is enforced in code as well as asked for: an instruction about length is a request, a slice is a guarantee.
+- The hint above the idea box is gone; the box's own placeholder now carries all of it — Enter to merge, Shift+Enter for a line, hover a sent idea to edit.
+- The plug moved to the right of Target. The gear lost its box and is now an actual gear; the old one was eight lines radiating from a circle, which at 14px is a sun.
+- **A collapsed Prompts rail keeps its `+`.** Only the word collapses. A strip with nothing on it but a chevron gives you no way to start a prompt.
+
 ## 0.4.1
 
 - **A plug replaces the Project button.** Click it and the prompt connects to the folder this window already has open — no picker, no path to find. Once connected the plug **shows the project's name**, because a tooltip is not an answer to “what is this prompt wired to?”. Clicking a connected plug opens view / rebuild / disconnect. The picker still exists behind *Prompt Forge: Attach a Project Folder*, for a prompt about a repo this window does not have open.

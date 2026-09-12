@@ -35,7 +35,7 @@ function html({ vscode, webview, mediaRoots, stamp }) {
     <div class="rail-head">
       <button id="rail-toggle" class="icon-btn" title="Collapse the prompts list" aria-expanded="true" aria-controls="prompts">‹</button>
       <span class="rail-title">Prompts</span>
-      <button id="new" class="btn small" title="New prompt">+ New</button>
+      <button id="new" class="btn small" title="New prompt"><span class="plus">+</span><span class="new-label">New</span></button>
     </div>
     <div id="prompts"></div>
     <button id="open-library" class="link">Open library folder</button>
@@ -48,11 +48,11 @@ function html({ vscode, webview, mediaRoots, stamp }) {
           <h1 id="title" title="Click to rename">Prompt Forge</h1>
           <input id="title-edit" class="title-edit" type="text" spellcheck="false" autocomplete="off" hidden>
           <div class="head-actions">
-            <button id="connect" class="iconbtn named" title="Connect this prompt to the folder this window has open">${ICON.plug}<span id="connect-name"></span></button>
             <label class="lbl">Target
               <select id="target" title="The model this prompt is being written for"></select>
             </label>
-            <button id="settings" class="iconbtn" title="Engine, models, target and document settings">${ICON.gear}</button>
+            <button id="connect" class="iconbtn named" title="Connect this prompt to the folder this window has open">${ICON.plug}<span id="connect-name"></span></button>
+            <button id="settings" class="iconbtn ghost" title="Engine, models, target and document settings">${ICON.gear}</button>
           </div>
         </div>
         <div class="head-row sub">
@@ -72,10 +72,9 @@ function html({ vscode, webview, mediaRoots, stamp }) {
           <section id="history" class="chat"></section>
           <section id="compose">
             <div class="compose-head">
-              <span class="hint">Enter merges the idea into the prompt. Hover a sent idea to edit it.</span>
               <span id="usage" class="usage" title="Tokens the engine read and wrote for this prompt, summed over every call. Counts toward your plan's rate limits."></span>
             </div>
-            <textarea id="idea" rows="3" placeholder="Type an idea and press Enter. Shift+Enter for a new line." spellcheck="true"></textarea>
+            <textarea id="idea" rows="3" placeholder="Type an idea and press Enter to merge it into the prompt. Shift+Enter for a new line. Hover a sent idea to edit it." spellcheck="true"></textarea>
           </section>
         </section>
         <div id="split" class="split" role="separator" tabindex="0" aria-label="Resize the panels" title="Drag to resize. Double-click to even them up."></div>
@@ -110,7 +109,7 @@ const ICON = {
   hammer: '<svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M10.8 1.7 14.3 5.2 12 7.5 8.5 4z"/><path d="M8.8 5.7 2.9 11.6a1.45 1.45 0 1 0 2 2l5.9-5.9"/></svg>',
   copy: '<svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><rect x="5.6" y="5.6" width="8" height="8.8" rx="1.1"/><path d="M10.6 2.6H3.5a1 1 0 0 0-1 1v7.1"/></svg>',
   check: '<svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 8.4 6.4 11.8 13 4.6"/></svg>',
-  gear: '<svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"><circle cx="8" cy="8" r="2.2"/><path d="M8 1.4v1.9M8 12.7v1.9M14.6 8h-1.9M3.3 8H1.4M12.66 3.34l-1.35 1.35M4.69 11.31l-1.35 1.35M12.66 12.66l-1.35-1.35M4.69 4.69 3.34 3.34"/></svg>',
+  gear: '<svg viewBox="0 0 16 16" width="14" height="14" fill="currentColor" fill-rule="evenodd"><path d="M6.55 1h2.9l.26 1.72c.35.12.68.26.99.45l1.4-1.03 2.05 2.05-1.03 1.4c.19.31.33.64.45.99L15.29 6.9v2.9l-1.72.26c-.12.35-.26.68-.45.99l1.03 1.4-2.05 2.05-1.4-1.03c-.31.19-.64.33-.99.45L9.45 15.7h-2.9l-.26-1.72a4.9 4.9 0 0 1-.99-.45l-1.4 1.03-2.05-2.05 1.03-1.4a4.9 4.9 0 0 1-.45-.99L.71 9.86V6.96l1.72-.26c.12-.35.26-.68.45-.99L1.85 4.31 3.9 2.26l1.4 1.03c.31-.19.64-.33.99-.45zM8 5.6a2.4 2.4 0 1 0 0 4.8 2.4 2.4 0 0 0 0-4.8z"/></svg>',
   pencil: '<svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M11.3 2.2 13.8 4.7 5.6 12.9 2.6 13.4l.5-3z"/></svg>',
 };
 

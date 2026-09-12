@@ -16,12 +16,25 @@ function seed(title) {
   return `# ${title}\n`;
 }
 
-/** A short title from the first idea: first line, first eight words, capitalised. */
+/** At most five words, trimmed of punctuation and quoting, capitalised. */
+function capTitle(text, max = 5) {
+  const words = String(text == null ? '' : text)
+    .replace(/[`"'*_#]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .split(' ')
+    .filter(Boolean)
+    .slice(0, max)
+    .join(' ')
+    .replace(/[.,;:!?\-]+$/, '');
+  if (!words) return '';
+  return words.charAt(0).toUpperCase() + words.slice(1);
+}
+
+/** The fallback when the engine offers no title: first line, first five words, capitalised. */
 function titleFrom(text) {
   const line = String(text == null ? '' : text).split('\n').map((l) => l.replace(/^[\s#>*-]+/, '').trim()).find(Boolean) || '';
-  const words = line.replace(/\s+/g, ' ').split(' ').filter(Boolean).slice(0, 8).join(' ').replace(/[.,;:!?]+$/, '');
-  if (!words) return 'Untitled';
-  return words.charAt(0).toUpperCase() + words.slice(1);
+  return capTitle(line) || 'Untitled';
 }
 
 /** The document with its first H1 replaced (or an H1 added). */
@@ -114,5 +127,5 @@ function stripForCopy(doc) {
 
 module.exports = {
   SECTIONS, CONFLICT_OPEN, CONFLICT_CLOSE, CONFLICT_HEADING,
-  seed, isBlank, titleFrom, setTitle, renderConflictBlock, withConflictBlock, stripConflictBlock, stripForCopy,
+  seed, isBlank, titleFrom, capTitle, setTitle, renderConflictBlock, withConflictBlock, stripConflictBlock, stripForCopy,
 };

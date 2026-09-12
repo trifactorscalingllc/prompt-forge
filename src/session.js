@@ -74,9 +74,10 @@ function createSession({ slug, store, docio, engine, cfg, log, publish = () => {
         const revisions = revised.map((r) => { const e = sc.entries.find((x) => x.id === r.entryId); return e ? { id: e.id, before: r.before, after: e.text } : null; }).filter(Boolean);
         const touched = [...entryIds, ...revised.map((r) => r.entryId)];
         const projects = sc.projects || [];
+        const needsTitle = role === 'merge' && /^Untitled( \d+)?$/.test(sc.title) && !sc.entries.some((e) => e.status === 'merged');
         const prompt = role === 'polish'
           ? buildPolishPrompt({ doc: body, conflicts, target, styleGuide: targets.styleGuide(target.family), projects })
-          : buildMergePrompt({ doc: body, ideas, resolutions, revisions, conflicts, recent, target, projects });
+          : buildMergePrompt({ doc: body, ideas, resolutions, revisions, conflicts, recent, target, projects, needsTitle });
         const timeoutMs = (engineCfg().timeoutSeconds || 240) * 1000;
 
         const res = await engine.call({ role, prompt, timeoutMs });
@@ -105,7 +106,9 @@ function createSession({ slug, store, docio, engine, cfg, log, publish = () => {
         }
         // An untitled prompt takes its name from the first idea that lands.
         if (role === 'merge' && entryIds.length && /^Untitled( \d+)?$/.test(sc.title) && !sc.entries.some((e) => e.status === 'merged')) {
-          const title = docm.titleFrom(ideas[0] ? ideas[0].text : '');
+          // The engine names it, because it has just read the idea and knows what it is about. The
+          // first five words of raw typing gave us "Oh idea".
+          const title = docm.capTitle(out.title) || docm.titleFrom(ideas[0] ? ideas[0].text : '');
           store.setTitle(slug, title);
           out.doc = docm.setTitle(out.doc, title);
           reread();

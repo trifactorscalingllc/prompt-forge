@@ -73,10 +73,19 @@ test('stripForCopy on a plain document is a no-op apart from the trailing newlin
   assert.equal(doc.stripForCopy('# T\n\ntext'), '# T\n\ntext\n');
 });
 
-test('titleFrom turns the first idea into a short title; setTitle rewrites the H1', () => {
-  assert.equal(doc.titleFrom('make the landing page sell the 6-week course to freelance designers who want more'), 'Make the landing page sell the 6-week course');
+test('a title is at most five words, whoever proposed it; setTitle rewrites the H1', () => {
+  // The fallback when the engine offers no title. Five words, not eight: a name, not a sentence.
+  assert.equal(doc.titleFrom('make the landing page sell the 6-week course to freelance designers who want more'), 'Make the landing page sell');
   assert.equal(doc.titleFrom('- ship by friday, no excuses\nsecond line ignored'), 'Ship by friday, no excuses');
   assert.equal(doc.titleFrom('   '), 'Untitled');
+
+  // capTitle is the guarantee behind the instruction: a model told "at most five words" that
+  // returns nine still yields five, and the quoting and trailing punctuation come off.
+  assert.equal(doc.capTitle('"Collapsible prompt sidebar, with a plug and a hammer icon."'), 'Collapsible prompt sidebar, with a');
+  assert.equal(doc.capTitle('**Landing page rewrite**'), 'Landing page rewrite');
+  assert.equal(doc.capTitle('Ship it.'), 'Ship it');
+  assert.equal(doc.capTitle(''), '', 'nothing proposed is not a title');
+  assert.equal(doc.capTitle(null), '');
   assert.equal(doc.setTitle('# Untitled\n\n## Goal\n\nx\n', 'Brief'), '# Brief\n\n## Goal\n\nx\n');
   assert.equal(doc.setTitle('no heading\n', 'Brief'), '# Brief\n\nno heading\n');
 });
