@@ -279,7 +279,7 @@ function create(host) {
 
   async function attachProject(slug, dir) {
     if (!store || !slug) return;
-    if (attaching.has(slug)) { notice('info', 'Still reading that project. One moment.'); return; }
+    if (attaching.has(slug)) { notice('info', 'Still connecting to that project. One moment.'); return; }
     const label = path.basename(dir) || dir;
     if (!engine.selection().ok) {
       // Attaching without an engine is allowed: the folder is recorded and the brief builds later.
@@ -296,7 +296,7 @@ function create(host) {
     let built;
     try {
       built = await vscode.window.withProgress(
-        { location: vscode.ProgressLocation.Notification, title: `Reading ${label}\u2026`, cancellable: false },
+        { location: vscode.ProgressLocation.Notification, title: `Connecting to ${label}\u2026`, cancellable: false },
         () => buildBrief(dir, label),
       );
     } finally {

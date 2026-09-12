@@ -65,8 +65,8 @@
     btn.classList.toggle('busy', busy);
     btn.disabled = !a || busy;
     if (busy) {
-      $('connect-name').textContent = 'reading\u2026';
-      btn.title = 'Reading the project to build its brief. One engine call.';
+      $('connect-name').textContent = 'connecting\u2026';
+      btn.title = 'Connecting to the project and building its brief. One engine call.';
       return;
     }
     const list = (a && a.projects) || [];

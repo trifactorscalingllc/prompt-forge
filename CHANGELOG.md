@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.12.2
+
+- The plug says *connecting…* rather than *reading…* while it works. The button is labelled connect, so the progress should be too — what it is doing inside belongs in the tooltip, not on the control.
+
 ## 0.12.1
 
 - **The model marks in the target list are the vendors' own**, lifted verbatim from Simple Icons (CC0) and Bootstrap Icons (MIT), each keeping its source viewBox. The ones I drew from memory rendered as a thin asterisk and a plain hexagon at 13px, which is worse than showing no logo at all.
