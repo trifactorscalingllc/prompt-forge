@@ -139,10 +139,11 @@ h2 { font-size: 1.1em; margin: 0 0 6px; }
    34px strip would outweigh the panel they label. */
 .col-head .iconbtn { background: none; color: var(--vscode-descriptionForeground); padding: 3px 5px; }
 .col-head .iconbtn:hover:not(:disabled) { background: var(--vscode-toolbar-hoverBackground, var(--vscode-list-hoverBackground)); color: var(--vscode-foreground); }
-/* The target button is also a <button>, so :first-of-type never matched an .iconbtn and the trio
-   drifted left against the title. Push from the left-hand group instead of pulling the right. */
-.col-head .targetpick { margin-right: auto; }
-.col-head > .iconbtn:first-of-type:not(.targetpick) { margin-left: auto; }
+/* The actions are a group pinned right, not a set of siblings relying on an auto margin landing on
+   the correct one. :first-of-type counted every <button>, so the target picker took it and the trio
+   sat against the model name; a hidden Run pill or add-on button could shift it again. A wrapper
+   cannot be got wrong by adding another button. */
+.col-actions { margin-left: auto; display: flex; align-items: center; gap: 4px; flex: none; }
 .col-head .iconbtn.swap.ok { background: none; color: var(--vscode-testing-iconPassed, var(--vscode-charts-green, #3fb950)); }
 #ideas .conflicts { margin: 8px 10px 0; }
 #history { padding: 0 10px; }

@@ -185,10 +185,16 @@ test('the target reads as "for <model>" on the Prompt head, and is a floating li
 
   const css = fs.readFileSync(path.join(ROOT, 'media/panel.css'), 'utf8');
   assert.ok(/\.floating \{[^}]*position: fixed/.test(css), 'fixed, so the panel overflow cannot clip it');
-  // The target is a <button> too, so :first-of-type never matches an .iconbtn: the trio has to be
-  // pushed right from the left-hand group, not pulled right by itself.
-  assert.ok(/\.col-head \.targetpick \{ margin-right: auto/.test(css), 'the icon trio stays pinned right');
-  assert.ok(!/\.col-head \.iconbtn:first-of-type \{ margin-left: auto/.test(css), 'the selector that silently never matched is gone');
+  // Pinned as a group, not by an auto margin landing on whichever sibling happens to be first:
+  // :first-of-type counted every <button>, so the target picker claimed it and the trio sat against
+  // the model name. A wrapper survives another button being added, hidden or not.
+  assert.ok(/\.col-actions \{ margin-left: auto/.test(css), 'the actions are pinned right as a group');
+  const rules = css.replace(/\/\*[\s\S]*?\*\//g, '');   // the comment explaining it is not a rule
+  assert.ok(!/:first-of-type/.test(rules), 'no selector that silently never matches');
+  const actions = view.slice(view.indexOf('<div class="col-actions">'), view.indexOf('</div>', view.indexOf('<div class="col-actions">')));
+  for (const id of ['polish', 'run', 'copy-new', 'copy', 'open-doc']) {
+    assert.ok(new RegExp(`id="${id}"`).test(actions), `${id} is inside the pinned group`);
+  }
   assert.ok(/\.fitem-desc/.test(css), 'each option carries its blurb, which is why this is not a select');
   // A vendor mark per family, from one map, so an official asset replaces a drawn one in one line.
   assert.ok(/const MARK = \{/.test(panel) && /claude:/.test(panel) && /gemini:/.test(panel) && /gpt:/.test(panel));

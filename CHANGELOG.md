@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.9.2
+
+- The Prompt panel's buttons are pinned right as a **group**, not by an auto margin landing on whichever sibling happens to be first. `:first-of-type` counted every `<button>`, so the model picker claimed it and the icons sat bunched against the model name; a hidden Run pill or add-on button could shift them again. A wrapper survives another button being added.
+
 ## 0.9.1
 
 - **The connect plug now says it is working.** Building a project's brief is an engine call taking seconds, and the plug showed nothing for all of them — so it looked broken, got pressed again, and every press started another attach. It now pulses and reads *reading…* the instant you click it, before the round trip to the extension, and a second attach for the same prompt is refused while one is running.

@@ -80,11 +80,13 @@ function html({ vscode, webview, mediaRoots, stamp }) {
             <span class="col-title">Prompt</span>
             <button id="tab-run" class="tabpill" hidden>Run</button>
             <button id="target-btn" class="targetpick" aria-haspopup="listbox" aria-expanded="false" title="The model this prompt is being written for. Click to change it."><span id="target-label"></span>${ICON.caret}</button>
-            <button id="polish" class="iconbtn" title="Rewrite the whole document in the target model&#39;s preferred style">${ICON.hammer}</button>
-            <button id="run" class="iconbtn" title="Send this prompt to a model and show the answer. Costs one call.">${ICON.play}</button>
-            <button id="copy-new" class="iconbtn swap addon" hidden><span class="i-off">${ICON.copyPlus}</span><span class="i-on">${ICON.check}</span><span id="copy-new-count"></span></button>
-            <button id="copy" class="iconbtn swap" title="Copy the final prompt to the clipboard"><span class="i-off">${ICON.copy}</span><span class="i-on">${ICON.check}</span></button>
-            <button id="open-doc" class="iconbtn" title="Edit the document by hand in the editor">${ICON.pencil}</button>
+            <div class="col-actions">
+              <button id="polish" class="iconbtn" title="Rewrite the whole document in the target model&#39;s preferred style">${ICON.hammer}</button>
+              <button id="run" class="iconbtn" title="Send this prompt to a model and show the answer. Costs one call.">${ICON.play}</button>
+              <button id="copy-new" class="iconbtn swap addon" hidden><span class="i-off">${ICON.copyPlus}</span><span class="i-on">${ICON.check}</span><span id="copy-new-count"></span></button>
+              <button id="copy" class="iconbtn swap" title="Copy the final prompt to the clipboard"><span class="i-off">${ICON.copy}</span><span class="i-on">${ICON.check}</span></button>
+              <button id="open-doc" class="iconbtn" title="Edit the document by hand in the editor">${ICON.pencil}</button>
+            </div>
           </div>
           <div id="doc" class="doc"></div>
           <div id="target-menu" class="floating" role="listbox" hidden></div>
