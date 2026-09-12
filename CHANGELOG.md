@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.8.0
+
+Tier 1: see what the engine did, take it back, and get a last look before it leaves.
+
+- **Every merged idea can show what it actually changed.** The ± button under an idea opens the added and removed lines, in green and red, section by section. `changes` was always the engine's own account of itself; this is the text. The diff is computed once when the merge lands and stored on the snapshot, so showing it costs nothing.
+- **Undo a merge.** ↶ puts the document back to how it was *before* that idea, next to the existing ⟲ which puts it back to just *after*. Both were reachable only by opening the versions list before.
+- **A last look at copy time.** Copying reports open conflicts, sections that are present but empty, and placeholders (`TBD`, `TODO`, `???`, `[your audience here]`) still sitting in the text. It never blocks the copy — the text is on the clipboard first, and you usually know why a section is empty.
+- The lint only says things that are textually true. A “short prompt” check was written and then deleted: it fired on prompts that were simply finished, and a rule whose own message has to end “fine if it is meant to be” is not a finding.
+
 ## 0.7.0
 
 - **Add-on copy.** Copy a prompt, paste it somewhere, then keep adding ideas to the same prompt — a second copy button appears carrying **only what changed since your last copy**, ready to paste as the next message in the conversation you already started. Prompts on one topic stay one prompt instead of becoming five.

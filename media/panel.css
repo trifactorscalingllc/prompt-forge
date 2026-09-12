@@ -49,6 +49,7 @@ h2 { font-size: 1.1em; margin: 0 0 6px; }
 @keyframes pulse { 0%, 100% { opacity: 0.3; } 50% { opacity: 1; } }
 .notice { padding: 4px 8px; border-radius: 3px; background: var(--vscode-editorInfo-background, rgba(127,127,127,0.15)); }
 .notice.error { background: var(--vscode-inputValidation-errorBackground); border: 1px solid var(--vscode-inputValidation-errorBorder); }
+.notice.warn { background: rgba(224, 179, 65, 0.14); border-left: 3px solid #e0b341; }
 
 .esec-head { display: flex; align-items: center; gap: var(--gap); flex-wrap: wrap; }
 .esec-title, .csec-title, .hsec-title { font-weight: 600; }
@@ -260,6 +261,17 @@ html, body { height: 100%; overflow: hidden; max-width: 100%; }
 /* The brief inside the idea box is guidance, not content: it should read as the quietest thing on
    the panel and never compete with what you are typing. */
 #idea::placeholder { font-size: 0.88em; opacity: 0.5; line-height: 1.45; }
+
+/* What a merge actually did. Red and green are the only real colour available in a diff, so they
+   carry the meaning and the prefix carries it again for anyone who cannot separate them. */
+.mdiff { margin: 4px 0 2px; padding: 5px 7px; border-radius: 4px; background: var(--vscode-textCodeBlock-background, rgba(127,127,127,0.09));
+  font-family: var(--vscode-editor-font-family, monospace); font-size: 0.85em; line-height: 1.5; }
+.dsec { opacity: 0.6; margin: 3px 0 1px; }
+.dline { white-space: pre-wrap; word-break: break-word; padding-left: 1.1em; text-indent: -1.1em; }
+.dline.add { color: var(--vscode-gitDecoration-addedResourceForeground, #3fb950); }
+.dline.add::before { content: '+ '; }
+.dline.del { color: var(--vscode-gitDecoration-deletedResourceForeground, #f85149); }
+.dline.del::before { content: '- '; }
 
 /* Suggestions: advice sitting beside the prompt, never in it. A soft yellow that reads on both
    themes without borrowing an error colour -- this is not a problem, it is a prompt. */

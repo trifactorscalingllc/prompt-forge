@@ -69,6 +69,30 @@ function diffLines(before, after) {
 }
 
 /**
+ * [{ heading, added, removed }] — what moved between two documents, section by section.
+ * The same walk buildAddendum does, exposed on its own so a merge can record its diff once at the
+ * time it happens rather than every repaint recomputing it.
+ */
+function diffSections(before, after) {
+  const A = sections(before);
+  const B = sections(after);
+  const byKey = new Map(A.map((s) => [key(s.heading), s]));
+  const blocks = [];
+  for (const s of B) {
+    const was = byKey.get(key(s.heading));
+    if (was && sameLines(was.lines, s.lines)) continue;
+    const d = diffLines(was ? was.lines : [], s.lines);
+    if (d.added.length || d.removed.length) blocks.push({ heading: s.heading, ...d });
+  }
+  const nowKeys = new Set(B.map((s) => key(s.heading)));
+  for (const s of A) {
+    if (nowKeys.has(key(s.heading)) || !s.lines.length) continue;
+    blocks.push({ heading: s.heading, added: [], removed: s.lines });
+  }
+  return blocks;
+}
+
+/**
  * { text, added, removed, restyled } — `text` is '' when nothing of substance changed.
  * `restyled` means so much moved that an addendum would be noise: send the whole prompt instead.
  */
@@ -114,4 +138,4 @@ function buildAddendum(before, after, { restyleRatio = 0.6 } = {}) {
   return { text: `${parts.join('\n').replace(/\n{3,}/g, '\n\n').trim()}\n`, added, removed, restyled };
 }
 
-module.exports = { buildAddendum, sections, diffLines, sameLines, key };
+module.exports = { buildAddendum, diffSections, sections, diffLines, sameLines, key };

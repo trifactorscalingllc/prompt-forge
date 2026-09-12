@@ -20,6 +20,7 @@ const targets = require('./targets');
 const docm = require('./doc');
 const { modelBlurb, ROLE_BLURBS } = require('./blurbs');
 const project = require('./project');
+const { lintPrompt } = require('./lint');
 
 const LAST_OPEN = 'promptForge.lastOpen';
 
@@ -140,7 +141,7 @@ function create(host) {
   function notice(level, text) {
     const p = getPanel();
     if (p) p.webview.postMessage({ type: 'notice', level, text });
-    if (level === 'error') log.error(text); else log.info(text);
+    if (level === 'error') log.error(text); else if (level === 'warn') log.warn(text); else log.info(text);
   }
 
   // ------------------------------------------------------------------------------------------
@@ -518,6 +519,10 @@ function create(host) {
         const p = getPanel();
         if (p) p.webview.postMessage({ type: 'copied', chars: text.length });
         post();   // copying moves the mark, so the add-on button's state changes with it
+        // Reported after the copy, never instead of it. The text is already on the clipboard; this
+        // is the last cheap moment to notice a section nobody filled in.
+        const found = lintPrompt(text, { conflicts: s.snapshot().conflicts });
+        if (found.length) notice(found.some((f) => f.level === 'warn') ? 'warn' : 'info', `Copied. ${found.map((f) => f.text).join(' ')}`);
         log.info(`copied ${text.length} characters for ${targets.labelOf(s.snapshot().target)}`);
         return;
       }

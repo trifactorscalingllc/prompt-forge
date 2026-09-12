@@ -439,7 +439,26 @@
     }
   }
 
-  let editing = null; // entry id being edited inline
+  let editing = null;  // entry id being edited inline
+  let openDiff = null; // entry id whose diff is expanded
+
+  /** The snapshot immediately before `id`, which is what "undo this merge" restores to. */
+  function priorSnapshot(snaps, id) {
+    const i = snaps.findIndex((v) => v.id === id);
+    return i > 0 ? snaps[i - 1] : null;
+  }
+
+  // What the engine actually did, rather than what it said it did. `changes` is the engine's own
+  // summary; this is the text.
+  function diffBlock(blocks) {
+    const root = el('div', 'mdiff');
+    for (const b of blocks) {
+      if (b.heading) root.append(el('div', 'dsec', b.heading));
+      for (const line of b.added) root.append(el('div', 'dline add', line));
+      for (const line of b.removed) root.append(el('div', 'dline del', line));
+    }
+    return root;
+  }
 
   function renderHistory(s) {
     const root = $('history');
@@ -517,12 +536,28 @@
         rb.addEventListener('click', () => vscode.postMessage({ type: 'retry', entryId: e.id }));
         acts.append(rb);
       } else if (e.status === 'merged' && e.snapshotId) {
+        const snap = a.snapshots.find((v) => v.id === e.snapshotId);
+        const before = priorSnapshot(a.snapshots, e.snapshotId);
+        if (before) {
+          const ub = el('button', 'icon', '↶');
+          ub.title = `Undo this merge: put the document back to how it was before this idea (${before.id})`;
+          ub.addEventListener('click', () => vscode.postMessage({ type: 'restore', snapshotId: before.id }));
+          acts.append(ub);
+        }
         const rb = el('button', 'icon', '⟲');
         rb.title = `Put the document back to right after this idea (${e.snapshotId})`;
         rb.addEventListener('click', () => vscode.postMessage({ type: 'restore', snapshotId: e.snapshotId }));
         acts.append(rb);
+        if (snap && snap.diff && snap.diff.length) {
+          const d = el('button', 'icon', '±');
+          d.title = 'What this idea changed in the document';
+          d.addEventListener('click', () => { openDiff = openDiff === e.id ? null : e.id; if (latest) render(latest); });
+          acts.append(d);
+        }
       }
       msg.append(bubble, meta, acts);
+      const snapForDiff = e.snapshotId && a.snapshots.find((v) => v.id === e.snapshotId);
+      if (openDiff === e.id && snapForDiff && snapForDiff.diff) msg.append(diffBlock(snapForDiff.diff));
       log.append(msg);
     }
     root.append(log);

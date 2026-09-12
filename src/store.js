@@ -160,9 +160,9 @@ function open(libraryPath, { home } = {}) {
     });
   }
 
-  function addSnapshot(slug, { kind, entryIds = [], doc, conflicts = [], changes = [], target, call = null, from = null }) {
+  function addSnapshot(slug, { kind, entryIds = [], doc, conflicts = [], changes = [], target, call = null, from = null, diff = null }) {
     return withSidecar(slug, (sc) => {
-      const snap = { id: nextId(sc.snapshots, 's'), ts: now(), kind, entryIds, doc, conflicts, changes, target: target || sc.target, call, from };
+      const snap = { id: nextId(sc.snapshots, 's'), ts: now(), kind, entryIds, doc, conflicts, changes, target: target || sc.target, call, from, diff };
       sc.snapshots.push(snap);
       return snap;
     });

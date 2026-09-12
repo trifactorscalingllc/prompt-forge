@@ -5,7 +5,7 @@ const { createQueue } = require('./queue');
 const docm = require('./doc');
 const targets = require('./targets');
 const { buildMergePrompt, buildPolishPrompt } = require('./engine/prompt');
-const { buildAddendum } = require('./addendum');
+const { buildAddendum, diffSections } = require('./addendum');
 const { parseEngineOutput } = require('./engine/output');
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -122,7 +122,8 @@ function createSession({ slug, store, docio, engine, cfg, log, publish = () => {
         if (role === 'merge') { store.setSuggestions(slug, suggest ? out.suggestions : []); reread(); }
         await docio.writeDoc(docPath, docm.withConflictBlock(out.doc, sc.conflicts));
         const kind = role === 'polish' ? 'polish' : entryIds.length ? 'merge' : revised.length ? 'revise' : 'resolve';
-        const snap = store.addSnapshot(slug, { kind, entryIds: touched, doc: out.doc, conflicts: sc.conflicts, changes: out.changes, target: sc.target, call: res.call });
+        const diff = diffSections(lastSnapshot().doc, out.doc);
+        const snap = store.addSnapshot(slug, { kind, entryIds: touched, doc: out.doc, conflicts: sc.conflicts, changes: out.changes, target: sc.target, call: res.call, diff });
         for (const id of touched) store.updateEntry(slug, id, { status: 'merged', snapshotId: snap.id, error: null });
         reread();
         engineState = { state: 'idle', op: null, model: null, startedAt: 0, error: null };

@@ -419,3 +419,33 @@ test('the add-on copy appears only after a copy, carries just the change, and re
   assert.ok(third.text.includes('- Requirement 3.'));
   assert.ok(!third.text.includes('- Requirement 2.'));
 });
+
+test('a merge records what it changed, so the log can show it without re-diffing history', async () => {
+  const { s, slug, session } = setup((req) => {
+    const doc = docOf(req.prompt);
+    return {
+      text: JSON.stringify({
+        doc: doc.includes('## Goal\n') ? doc.replace('## Goal\n', '## Goal\n\nShip it.\n') : `${doc}\n## Goal\n\nShip it.\n`,
+        conflicts: [], changes: ['engine said something vague'],
+      }),
+      usage: { input: 1, output: 1 }, error: null,
+      call: { provider: 'fake', mode: 'cli', model: 'fast', role: req.role, ms: 1, usage: { input: 1, output: 1 } },
+    };
+  });
+  await session.load();
+  session.submitIdea('ship it');
+  await session.idle();
+
+  const snaps = s.read(slug).snapshots;
+  const last = snaps[snaps.length - 1];
+  // `changes` is the engine's own account of itself; `diff` is what actually moved in the text.
+  assert.ok(Array.isArray(last.diff) && last.diff.length, 'the diff is stored on the snapshot');
+  assert.ok(last.diff.some((b) => b.added.includes('Ship it.')), 'and it is the real added line');
+  assert.ok(session.snapshot().snapshots.some((v) => v.diff && v.diff.length), 'the panel can see it');
+
+  // An entry points at the snapshot it produced, and the one before it is what "undo" restores to.
+  const e = s.read(slug).entries[0];
+  const i = snaps.findIndex((v) => v.id === e.snapshotId);
+  assert.ok(i > 0, 'there is always a prior snapshot to undo to, because a prompt is seeded with one');
+  assert.ok(!snaps[i - 1].doc.includes('Ship it.'), 'and it is the document before this idea landed');
+});
