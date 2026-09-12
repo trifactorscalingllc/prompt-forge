@@ -73,7 +73,7 @@ function create(host) {
 
   // The defaults are repeated rather than read from the manifest for the same reason: an extension
   // host running an older manifest hands back nothing at all for a setting it does not know.
-  const LAYOUT = { mode: 'auto', stackWidth: 620, split: 52 };
+  const LAYOUT = { mode: 'auto', stackWidth: 620, split: 52, railCollapsed: false };
   const num = (v, fallback) => (Number.isFinite(v) ? v : fallback);
   const layoutState = () => {
     const l = config().layout || {};
@@ -81,6 +81,7 @@ function create(host) {
       mode: setting('layout', l.mode) || LAYOUT.mode,
       stackWidth: num(setting('layoutStackWidth', l.stackWidth), LAYOUT.stackWidth),
       split: num(setting('layoutSplit', l.split), LAYOUT.split),
+      railCollapsed: Boolean(setting('railCollapsed', l.railCollapsed) ?? LAYOUT.railCollapsed),
     };
   };
 
@@ -357,6 +358,10 @@ function create(host) {
         if (Number.isFinite(m.stackWidth)) await updateSetting('layoutStackWidth', Math.max(0, Math.min(2000, Math.round(m.stackWidth))));
         // The divider sends this on every drop; clamp here so a webview cannot write nonsense.
         if (Number.isFinite(m.split)) await updateSetting('layoutSplit', Math.max(20, Math.min(80, Math.round(m.split))));
+        // The command sends `toggleRail` because it has no idea what the current state is; the
+        // panel's own chevron sends the value it wants, so a stale webview cannot flip the wrong way.
+        if (m.toggleRail) await updateSetting('railCollapsed', !layoutState().railCollapsed);
+        else if (typeof m.railCollapsed === 'boolean') await updateSetting('railCollapsed', m.railCollapsed);
         post();
         return;
       }
@@ -421,7 +426,7 @@ function create(host) {
       // The kit watches sourcePath/autoReload; the settings that change behaviour are watched here.
       disposables.push(vscode.workspace.onDidChangeConfiguration((e) => {
         if (e.affectsConfiguration('promptForge.libraryPath')) { openStore(); post(); }
-        if (e.affectsConfiguration('promptForge.layout') || e.affectsConfiguration('promptForge.layoutStackWidth') || e.affectsConfiguration('promptForge.layoutSplit')) post();
+        if (e.affectsConfiguration('promptForge.layout') || e.affectsConfiguration('promptForge.layoutStackWidth') || e.affectsConfiguration('promptForge.layoutSplit') || e.affectsConfiguration('promptForge.railCollapsed')) post();
         if (['promptForge.engine', 'promptForge.cli', 'promptForge.compatible'].some((k) => e.affectsConfiguration(k))) {
           engine.detectAll().then(() => { if (!disposed) post(); });
         }

@@ -33,6 +33,7 @@ function html({ vscode, webview, mediaRoots, stamp }) {
 <div id="app">
   <aside id="rail">
     <div class="rail-head">
+      <button id="rail-toggle" class="icon-btn" title="Collapse the prompts list" aria-expanded="true" aria-controls="prompts">‹</button>
       <span class="rail-title">Prompts</span>
       <button id="new" class="btn small" title="New prompt">+ New</button>
     </div>

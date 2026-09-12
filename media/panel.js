@@ -255,6 +255,11 @@
     }
     row('Split', `Ideas gets ${lay.split}% of the space. Drag the divider between the panels, or double-click it to even them up.`,
       small('Even split', null, () => vscode.postMessage({ type: 'setLayout', split: 50 })));
+    row('Prompts list', lay.railCollapsed
+      ? 'Collapsed to a strip. The chevron on the strip brings it back, as does Prompt Forge: Toggle the Prompts List.'
+      : 'Shown down the left. Collapse it with the chevron next to the heading to give the work the space.',
+      small(lay.railCollapsed ? 'Show' : 'Collapse', null,
+        () => vscode.postMessage({ type: 'setLayout', railCollapsed: !lay.railCollapsed })));
 
     // --- Document ---
     section('document', 'Document');
@@ -447,7 +452,7 @@
   // here rather than by a CSS container query so the breakpoint can be a setting, and so the
   // divider can write a share back.
   // ------------------------------------------------------------------------------------------
-  const LAYOUT_DEFAULTS = { mode: 'auto', stackWidth: 620, split: 52 };
+  const LAYOUT_DEFAULTS = { mode: 'auto', stackWidth: 620, split: 52, railCollapsed: false };
   // Spreading a state object straight over the defaults is wrong: an older extension host sends
   // `{ mode: undefined }` for a setting its manifest does not carry, and undefined would win.
   const withDefaults = (v) => {
@@ -464,7 +469,22 @@
     cols.classList.toggle('stacked', stacked);
     cols.style.setProperty('--split', `${layout.split}%`);
     $('split').setAttribute('aria-orientation', stacked ? 'horizontal' : 'vertical');
+    const shut = Boolean(layout.railCollapsed);
+    $('app').classList.toggle('rail-collapsed', shut);
+    const t = $('rail-toggle');
+    t.textContent = shut ? '›' : '‹';
+    t.title = shut ? 'Show the prompts list' : 'Collapse the prompts list';
+    t.setAttribute('aria-expanded', String(!shut));
   }
+
+  // Applied here first and posted after, like the divider: the click has to feel instant, and the
+  // extension echoes the same value back on the next state anyway.
+  function toggleRail() {
+    layout.railCollapsed = !layout.railCollapsed;
+    applyLayout();
+    vscode.postMessage({ type: 'setLayout', railCollapsed: layout.railCollapsed });
+  }
+  $('rail-toggle').addEventListener('click', toggleRail);
 
   function renderLayout(s) {
     const next = withDefaults(s.layout);

@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.3.6
+
+- **The Prompts list collapses.** The chevron next to the heading shuts it to a 30px strip and gives the space to the work; the chevron brings it back. Also *Prompt Forge: Toggle the Prompts List* in the command palette, and a row in Settings → Layout. The choice is remembered (`promptForge.railCollapsed`).
+- Collapsed takes width when the panels are side by side and height when they are stacked, so a narrow window gets a thin bar rather than a tall sliver.
+- The list is hidden, not unmounted, so reopening it costs no rebuild. The command sends a *flip* rather than a value, so it cannot disagree with a panel that has been open a while.
+
 ## 0.3.5
 
 - **Published to the VS Code Marketplace** as `trifactorscaling.prompt-forge-trifactor`, shown as *Prompt Forge for VS Code*.

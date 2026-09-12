@@ -41,6 +41,7 @@ function readConfig() {
       mode: c.get('layout', 'auto'),
       stackWidth: c.get('layoutStackWidth', 620),
       split: c.get('layoutSplit', 52),
+      railCollapsed: c.get('railCollapsed', false),
     },
     docEditor: c.get('docEditor', 'forge'),
     sourcePath: c.get('sourcePath', ''),
@@ -170,6 +171,7 @@ function activate(context) {
     vscode.commands.registerCommand('promptForge.signIn', () => send({ type: 'engine.signIn' })),
     vscode.commands.registerCommand('promptForge.setApiKey', () => send({ type: 'engine.setKey' })),
     vscode.commands.registerCommand('promptForge.forgetApiKey', () => send({ type: 'engine.forgetKey' })),
+    vscode.commands.registerCommand('promptForge.toggleRail', () => send({ type: 'setLayout', toggleRail: true })),
   );
   // NOTE: the kit registers `promptForge.reload` and its own configuration watcher for
   // sourcePath / autoReload. Anything else that must react to a settings change belongs in the

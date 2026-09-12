@@ -2,7 +2,7 @@
   "name": "prompt-forge-trifactor",
   "displayName": "Prompt Forge for VS Code",
   "description": "Build complicated prompts one idea at a time. Every Enter merges an idea into a structured prompt, contradictions surface instead of being guessed away, and Polish rewrites it for the model you are sending it to. Works with your own Claude, Gemini, or OpenAI login, or any API key.",
-  "version": "0.3.5",
+  "version": "0.3.6",
   "publisher": "trifactorscaling",
   "license": "MIT",
   "repository": {
@@ -99,6 +99,12 @@
         "title": "Forget an API Key",
         "category": "Prompt Forge",
         "icon": "$(trash)"
+      },
+      {
+        "command": "promptForge.toggleRail",
+        "title": "Toggle the Prompts List",
+        "category": "Prompt Forge",
+        "icon": "$(layout-sidebar-left)"
       },
       {
         "command": "promptForge.reload",
@@ -216,6 +222,13 @@
           "scope": "window",
           "order": 9,
           "description": "Share of the working area given to Ideas, as a percentage. Drag the divider between the panels to change it."
+        },
+        "promptForge.railCollapsed": {
+          "type": "boolean",
+          "default": false,
+          "scope": "window",
+          "order": 10,
+          "description": "Collapse the Prompts list to a strip. Click the chevron on the list, or run Prompt Forge: Toggle the Prompts List."
         },
         "promptForge.cli.claudePath": {
           "type": "string",

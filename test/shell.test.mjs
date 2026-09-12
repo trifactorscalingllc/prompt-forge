@@ -112,6 +112,35 @@ test('the layout settings are declared, bounded, and the panel clamps to the sam
   assert.ok(/#rail \{[^}]*height: 100%/.test(css), 'the rail is full height');
 });
 
+test('the prompts rail collapses from both the chevron and the command, and survives a reload', () => {
+  const props = pkg.contributes.configuration.properties;
+  assert.equal(props['promptForge.railCollapsed'].type, 'boolean');
+  assert.equal(props['promptForge.railCollapsed'].default, false);
+  assert.equal(props['promptForge.railCollapsed'].scope, 'window', 'a workspace must not collapse the rail for every window');
+
+  const shell = fs.readFileSync(path.join(ROOT, 'extension.js'), 'utf8');
+  assert.ok(/c\.get\('railCollapsed', false\)/.test(shell), 'the cold shell reads it');
+
+  // The command cannot know the current value, so it asks for a flip rather than sending one.
+  assert.ok(/toggleRail: true/.test(shell), 'the command sends a flip, not a value');
+  const runtime = fs.readFileSync(path.join(ROOT, 'src/runtime.js'), 'utf8');
+  assert.ok(/if \(m\.toggleRail\)/.test(runtime), 'the runtime resolves the flip against its own state');
+  assert.ok(!/\.update\('railCollapsed'/.test(runtime), 'railCollapsed is written through updateSetting');
+  assert.ok(/railCollapsed: false/.test(runtime), 'the default does not come from the running manifest');
+
+  const view = fs.readFileSync(path.join(ROOT, 'src/view.js'), 'utf8');
+  assert.ok(/id="rail-toggle"/.test(view), 'the chevron is in the markup');
+  const panel = fs.readFileSync(path.join(ROOT, 'media/panel.js'), 'utf8');
+  assert.ok(/rail-collapsed/.test(panel) && /railCollapsed: layout\.railCollapsed/.test(panel), 'the panel toggles the class and reports the value');
+
+  // Collapsed must take width when side by side and height when stacked, or a narrow window ends up
+  // with a 30px-wide strip above the work instead of a thin bar.
+  const css = fs.readFileSync(path.join(ROOT, 'media/panel.css'), 'utf8');
+  assert.ok(/#app\.rail-collapsed #rail \{[^}]*width: 30px/.test(css), 'side by side, it narrows');
+  const narrow = css.slice(css.indexOf('@media (max-width: 620px)'));
+  assert.ok(/#app\.rail-collapsed #rail \{[^}]*width: auto/.test(narrow), 'stacked, it does not');
+});
+
 test('a setting the running host cannot register is kept for the session instead of thrown at the user', () => {
   const runtime = fs.readFileSync(path.join(ROOT, 'src/runtime.js'), 'utf8');
   assert.ok(/async function updateSetting/.test(runtime));

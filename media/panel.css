@@ -201,6 +201,18 @@ html, body { height: 100%; overflow: hidden; max-width: 100%; }
   .head-actions select { width: 100%; }
   .sctl select { min-width: 0; width: 100%; }
 }
+.icon-btn { background: none; border: none; color: inherit; cursor: pointer; padding: 0 4px; font-size: 1.15em; line-height: 1; opacity: 0.75; }
+.icon-btn:hover { opacity: 1; }
+
+/* Collapsed: the rail keeps its chevron and gives every other pixel to the work. Nothing is
+   unmounted, so the list does not have to be rebuilt when it comes back. */
+#app.rail-collapsed #rail { width: 30px; padding: var(--gap) 0; }
+#app.rail-collapsed .rail-head { justify-content: center; }
+#app.rail-collapsed .rail-title,
+#app.rail-collapsed #new,
+#app.rail-collapsed #prompts,
+#app.rail-collapsed #open-library { display: none; }
+
 /* Very narrow: the prompt list becomes a fixed strip across the top. It still does not scroll with
    the work below it — only the strip itself scrolls, sideways. */
 @media (max-width: 620px) {
@@ -209,4 +221,7 @@ html, body { height: 100%; overflow: hidden; max-width: 100%; }
   #prompts { display: flex; gap: 6px; overflow-x: auto; overflow-y: hidden; flex: none; }
   .prow { flex: 0 0 auto; max-width: 220px; }
   #main { height: auto; flex: 1; min-height: 0; }
+  /* Stacked, the rail is already a horizontal strip, so collapsing takes its height, not its width. */
+  #app.rail-collapsed #rail { width: auto; padding: 2px var(--gap); }
+  #app.rail-collapsed .rail-head { justify-content: flex-start; }
 }
