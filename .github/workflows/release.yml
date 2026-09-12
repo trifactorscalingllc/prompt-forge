@@ -7,6 +7,12 @@ permissions:
 jobs:
   release:
     runs-on: ubuntu-latest
+    # Job level, not step level, and this is the whole point: a step's `if` is evaluated before that
+    # step's own `env:` block exists, so `if: env.VSCE_PAT != ''` on a step that defines VSCE_PAT
+    # itself is always false. Set here, both the gate and the publish see it.
+    env:
+      VSCE_PAT: ${{ secrets.VSCE_PAT }}
+      OVSX_PAT: ${{ secrets.OVSX_PAT }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -22,11 +28,7 @@ jobs:
           generate_release_notes: true
       - name: Publish to the VS Code Marketplace
         if: ${{ env.VSCE_PAT != '' }}
-        env:
-          VSCE_PAT: ${{ secrets.VSCE_PAT }}
         run: npx --yes @vscode/vsce@3 publish --packagePath prompt-forge-*.vsix
       - name: Publish to Open VSX
         if: ${{ env.OVSX_PAT != '' }}
-        env:
-          OVSX_PAT: ${{ secrets.OVSX_PAT }}
         run: npx --yes ovsx publish prompt-forge-*.vsix -p "$OVSX_PAT"

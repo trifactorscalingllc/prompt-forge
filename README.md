@@ -94,6 +94,14 @@ npx @vscode/vsce package --no-dependencies  # -> prompt-forge-<version>.vsix
 code --install-extension prompt-forge-*.vsix
 ```
 
+### Releasing
+
+Bump `version` in `package.json`, commit, then push a matching tag. [`.github/workflows/release.yml`](.github/workflows/release.yml) runs the tests, packages the vsix, attaches it to a GitHub release, and publishes to the VS Code Marketplace and Open VSX — each of those two only when its token is present as a repository secret (`VSCE_PAT`, `OVSX_PAT`). Without them the tag still produces an installable GitHub release.
+
+```bash
+git tag v0.3.3 && git push origin v0.3.3
+```
+
 The extension is built on a cold/hot split: `extension.js` registers commands and the panel (cold); everything under `src/` and `media/` reloads without restarting the extension host. Set `promptForge.sourcePath` to your working copy and edits are picked up on save (`Prompt Forge: Reload Prompt Forge Code` forces one). Only `package.json` changes need a restart.
 
 ## License
