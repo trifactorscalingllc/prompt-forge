@@ -244,7 +244,7 @@
 
     // --- Layout ---
     section('layout', 'Layout');
-    const lay = { ...LAYOUT_DEFAULTS, ...(s.layout || {}) };
+    const lay = withDefaults(s.layout);
     row('Panels', 'How Ideas and Prompt sit next to each other.',
       select([['auto', 'Side by side, stacking when narrow'], ['columns', 'Always side by side'], ['rows', 'Always stacked']], lay.mode,
         (sel) => vscode.postMessage({ type: 'setLayout', mode: sel.value })));
@@ -448,6 +448,13 @@
   // divider can write a share back.
   // ------------------------------------------------------------------------------------------
   const LAYOUT_DEFAULTS = { mode: 'auto', stackWidth: 620, split: 52 };
+  // Spreading a state object straight over the defaults is wrong: an older extension host sends
+  // `{ mode: undefined }` for a setting its manifest does not carry, and undefined would win.
+  const withDefaults = (v) => {
+    const out = { ...LAYOUT_DEFAULTS };
+    for (const [k, val] of Object.entries(v || {})) if (val !== undefined && val !== null) out[k] = val;
+    return out;
+  };
   let layout = { ...LAYOUT_DEFAULTS };
 
   function applyLayout() {
@@ -460,7 +467,7 @@
   }
 
   function renderLayout(s) {
-    const next = { ...LAYOUT_DEFAULTS, ...(s.layout || {}) };
+    const next = withDefaults(s.layout);
     if (dragging) { layout = { ...next, split: layout.split }; return; }   // never fight a live drag
     layout = next;
     applyLayout();

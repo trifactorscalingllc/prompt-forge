@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.3.2
+
+- Dragging the divider before reloading the window failed with *"promptForge.layoutSplit is not a registered configuration"*. A setting only exists once the extension host has read the manifest, and the manifest is read at host start — while `src/` and `media/` hot-reload immediately, so the new divider was running against the old manifest. Settings that cannot be written yet are now kept for the session, with one line saying a reload will make them permanent.
+- Layout defaults no longer depend on the running manifest: an older host returning nothing for a new setting used to overwrite the default with `undefined`.
 ## 0.3.1
 
 - The window no longer scrolls as a whole. The prompt list on the left is fixed and full height; the Ideas log, the prompt document and the settings body each scroll inside their own panel. Scrolling a long prompt no longer carries the prompt list away with it.

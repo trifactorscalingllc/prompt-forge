@@ -112,6 +112,18 @@ test('the layout settings are declared, bounded, and the panel clamps to the sam
   assert.ok(/#rail \{[^}]*height: 100%/.test(css), 'the rail is full height');
 });
 
+test('a setting the running host cannot register is kept for the session instead of thrown at the user', () => {
+  const runtime = fs.readFileSync(path.join(ROOT, 'src/runtime.js'), 'utf8');
+  assert.ok(/async function updateSetting/.test(runtime));
+  // Settings added by a vsix do not exist until the window reloads; those writes must not be raw.
+  for (const key of ['layout', 'layoutStackWidth', 'layoutSplit', 'docEditor']) {
+    assert.ok(!new RegExp(`\\.update\\('${key}'`).test(runtime), `${key} is written through updateSetting`);
+  }
+  assert.ok(/const LAYOUT = \{ mode: 'auto'/.test(runtime), 'the defaults do not come from the running manifest');
+  const panel = fs.readFileSync(path.join(ROOT, 'media/panel.js'), 'utf8');
+  assert.ok(/val !== undefined/.test(panel), 'an undefined from an older host never beats a default');
+});
+
 test('the cold shell and the hot entry parse', () => {
   for (const f of ['extension.js', 'src/runtime.js']) {
     const r = spawnSync(process.execPath, ['--check', path.join(ROOT, f)], { encoding: 'utf8' });

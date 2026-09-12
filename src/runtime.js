@@ -42,13 +42,52 @@ function create(host) {
   const engine = createEngine({ providers, config, secrets, log });
 
   // ------------------------------------------------------------------------------------------
-  // Talking to the webview
+  // Settings
+  //
+  // A setting can only be written if the running extension host has it in its manifest, and the
+  // manifest is read once at host start. So between installing a vsix that adds a setting and
+  // reloading the window, `update` throws "not a registered configuration" — while the new code is
+  // already running, because src/ and media/ hot-reload and package.json does not. Rather than
+  // failing the click, the value is kept for this session and the reload is asked for once.
   // ------------------------------------------------------------------------------------------
+  const overrides = new Map();
+  let askedForReload = false;
+
+  async function updateSetting(key, value) {
+    try {
+      await vscode.workspace.getConfiguration('promptForge').update(key, value, vscode.ConfigurationTarget.Global);
+      overrides.delete(key);
+      return true;
+    } catch (e) {
+      overrides.set(key, value);
+      log.warn(`could not persist promptForge.${key}: ${e.message}`);
+      if (!askedForReload) {
+        askedForReload = true;
+        notice('info', 'Prompt Forge was updated in place. Reload the VS Code window to save settings permanently — until then these apply to this session only.');
+      }
+      return false;
+    }
+  }
+
+  const setting = (key, fallback) => (overrides.has(key) ? overrides.get(key) : fallback);
+
+  // The defaults are repeated rather than read from the manifest for the same reason: an extension
+  // host running an older manifest hands back nothing at all for a setting it does not know.
+  const LAYOUT = { mode: 'auto', stackWidth: 620, split: 52 };
+  const num = (v, fallback) => (Number.isFinite(v) ? v : fallback);
+  const layoutState = () => {
+    const l = config().layout || {};
+    return {
+      mode: setting('layout', l.mode) || LAYOUT.mode,
+      stackWidth: num(setting('layoutStackWidth', l.stackWidth), LAYOUT.stackWidth),
+      split: num(setting('layoutSplit', l.split), LAYOUT.split),
+    };
+  };
 
   function buildState() {
     if (!store) {
       if (!bootError) return null;
-      return { bootError, library: config().libraryPath, prompts: [], active: null, engine: engine.state(), targets: targets.TARGETS, docEditor: config().docEditor, layout: config().layout, engineCfg: config().engine || {} };
+      return { bootError, library: config().libraryPath, prompts: [], active: null, engine: engine.state(), targets: targets.TARGETS, docEditor: setting('docEditor', config().docEditor), layout: layoutState(), engineCfg: config().engine || {} };
     }
     const session = activeSlug ? sessions.get(activeSlug) : null;
     return {
@@ -57,8 +96,8 @@ function create(host) {
       active: session ? session.snapshot() : null,
       engine: engine.state(),
       targets: targets.TARGETS,
-      docEditor: config().docEditor,
-      layout: config().layout,
+      docEditor: setting('docEditor', config().docEditor),
+      layout: layoutState(),
       engineCfg: config().engine || {},
       blurbs: blurbs(engine.state()),
     };
@@ -309,17 +348,15 @@ function create(host) {
         return;
       case 'setDocEditor':
         if (m.value === 'forge' || m.value === 'office' || m.value === 'text') {
-          await vscode.workspace.getConfiguration('promptForge').update('docEditor', m.value, vscode.ConfigurationTarget.Global);
+          await updateSetting('docEditor', m.value);
           post();
         }
         return;
       case 'setLayout': {
-        const c = vscode.workspace.getConfiguration('promptForge');
-        const target = vscode.ConfigurationTarget.Global;
-        if (m.mode === 'auto' || m.mode === 'columns' || m.mode === 'rows') await c.update('layout', m.mode, target);
-        if (Number.isFinite(m.stackWidth)) await c.update('layoutStackWidth', Math.max(0, Math.min(2000, Math.round(m.stackWidth))), target);
+        if (m.mode === 'auto' || m.mode === 'columns' || m.mode === 'rows') await updateSetting('layout', m.mode);
+        if (Number.isFinite(m.stackWidth)) await updateSetting('layoutStackWidth', Math.max(0, Math.min(2000, Math.round(m.stackWidth))));
         // The divider sends this on every drop; clamp here so a webview cannot write nonsense.
-        if (Number.isFinite(m.split)) await c.update('layoutSplit', Math.max(20, Math.min(80, Math.round(m.split))), target);
+        if (Number.isFinite(m.split)) await updateSetting('layoutSplit', Math.max(20, Math.min(80, Math.round(m.split))));
         post();
         return;
       }
