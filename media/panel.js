@@ -61,7 +61,14 @@
     const btn = $('connect');
     const a = s.active;
     const off = s.project && s.project.context === 'off';
-    btn.disabled = !a;
+    const busy = Boolean(s.projectBusy) || connecting;
+    btn.classList.toggle('busy', busy);
+    btn.disabled = !a || busy;
+    if (busy) {
+      $('connect-name').textContent = 'reading\u2026';
+      btn.title = 'Reading the project to build its brief. One engine call.';
+      return;
+    }
     const list = (a && a.projects) || [];
     const bad = list.some((p) => p.error);
     btn.classList.toggle('on', list.length > 0 && !bad && !off);
@@ -91,9 +98,15 @@
 
   // Connected or not decides what a click means: nothing attached connects to the open folder with
   // no picker in the way; something attached opens the menu, which is the only route to detach.
+  // Set here and cleared by the next state from the extension. The round trip is short but not
+  // free, and a button that does nothing for even a moment gets pressed again.
+  let connecting = false;
   $('connect').addEventListener('click', () => {
     const list = (latest && latest.active && latest.active.projects) || [];
-    vscode.postMessage({ type: list.length ? 'project.menu' : 'project.connect' });
+    if (list.length) { vscode.postMessage({ type: 'project.menu' }); return; }
+    connecting = true;
+    if (latest) renderConnect(latest);
+    vscode.postMessage({ type: 'project.connect' });
   });
 
   // ------------------------------------------------------------------------------------------
@@ -948,7 +961,7 @@
   window.addEventListener('message', (e) => {
     const m = e.data;
     if (!m) return;
-    if (m.type === 'state') render(m.data);
+    if (m.type === 'state') { connecting = false; render(m.data); }
     else if (m.type === 'notice') showNotice(m.level || 'info', m.text || '');
     else if (m.type === 'copied') flashCopied();
     else if (m.type === 'copiedNew') flashCopiedNew();

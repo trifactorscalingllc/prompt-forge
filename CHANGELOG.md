@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.9.1
+
+- **The connect plug now says it is working.** Building a project's brief is an engine call taking seconds, and the plug showed nothing for all of them — so it looked broken, got pressed again, and every press started another attach. It now pulses and reads *reading…* the instant you click it, before the round trip to the extension, and a second attach for the same prompt is refused while one is running.
+- The plug lost its grey box, matching the gear beside it.
+
 ## 0.9.0
 
 - **Run the prompt.** The ▶ button on the Prompt panel sends the finished prompt to a model and shows the answer in place of the document; the **Run** pill switches back. The forge built prompts and had never once shown you one working.

@@ -48,7 +48,7 @@ function html({ vscode, webview, mediaRoots, stamp }) {
           <h1 id="title" title="Click to rename">Prompt Forge</h1>
           <input id="title-edit" class="title-edit" type="text" spellcheck="false" autocomplete="off" hidden>
           <div class="head-actions">
-            <button id="connect" class="iconbtn named" title="Connect this prompt to the folder this window has open">${ICON.plug}<span id="connect-name"></span></button>
+            <button id="connect" class="iconbtn ghost named" title="Connect this prompt to the folder this window has open">${ICON.plug}<span id="connect-name"></span></button>
             <button id="settings" class="iconbtn ghost" title="Engine, models, target and document settings">${ICON.gear}</button>
           </div>
         </div>

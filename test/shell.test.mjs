@@ -140,9 +140,20 @@ test('the header is a plug and a gear; Polish, Copy and Edit live on the Prompt 
   const panel = fs.readFileSync(path.join(ROOT, 'media/panel.js'), 'utf8');
   assert.ok(/doc-count'\)\.textContent = `\$\{n\.toLocaleString\(\)\}/.test(panel), 'the count is rendered, not decorative');
   // Nothing connected means connect straight to the open folder; the picker is not in the way.
-  assert.ok(/type: list\.length \? 'project\.menu' : 'project\.connect'/.test(panel));
+  assert.ok(/'project\.menu'/.test(panel) && /'project\.connect'/.test(panel));
+  assert.ok(/if \(list\.length\) \{ vscode\.postMessage\(\{ type: 'project\.menu' \}\); return; \}/.test(panel),
+    'connected opens the menu, which is the only route to disconnect');
   const runtime = fs.readFileSync(path.join(ROOT, 'src/runtime.js'), 'utf8');
   assert.ok(/case 'project\.connect'/.test(runtime) && /const ws = workspaceDir\(\);/.test(runtime));
+  // Building a brief is an engine call. Without a busy state the plug looks dead for seconds, and
+  // a dead-looking button gets clicked again -- each click starting another attach.
+  assert.ok(/const attaching = new Set\(\)/.test(runtime), 'concurrent attaches are refused');
+  assert.ok(/attaching\.add\(slug\);\n\s*post\(\)/.test(runtime), 'the panel is told before the call, not after');
+  assert.ok(/} finally \{\n\s*attaching\.delete\(slug\);/.test(runtime), 'and it is released even when the call throws');
+  assert.ok(/projectBusy:/.test(runtime));
+  assert.ok(/let connecting = false/.test(panel) && /connecting = true/.test(panel), 'the click paints immediately, before the round trip');
+  assert.ok(/\{ connecting = false; render\(m\.data\); \}/.test(panel), 'and the next state clears it');
+  assert.ok(/id="connect" class="iconbtn ghost named"/.test(whole), 'the plug has no box of its own');
 
   // Copy confirms on the button. Both glyphs are in the DOM so nothing is rebuilt from a string.
   assert.ok(/type: 'copied'/.test(runtime), 'the extension tells the panel, rather than raising a notice');

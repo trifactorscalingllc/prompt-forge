@@ -105,6 +105,7 @@ function create(host) {
       layout: layoutState(),
       engineCfg: config().engine || {},
       project: projectCfg(),
+      projectBusy: activeSlug ? attaching.has(activeSlug) : false,
       suggestions: setting('suggestions', config().suggestions) !== false,
       blurbs: blurbs(engine.state()),
     };
@@ -270,8 +271,13 @@ function create(host) {
     return { brief, files: collected.files, truncated: collected.truncated, call: res.call };
   }
 
+  // Building a brief is one engine call, which is seconds. Without this the plug looked dead for
+  // all of them, so it got clicked again, and every click started another attach.
+  const attaching = new Set();
+
   async function attachProject(slug, dir) {
     if (!store || !slug) return;
+    if (attaching.has(slug)) { notice('info', 'Still reading that project. One moment.'); return; }
     const label = path.basename(dir) || dir;
     if (!engine.selection().ok) {
       // Attaching without an engine is allowed: the folder is recorded and the brief builds later.
@@ -283,10 +289,17 @@ function create(host) {
       post();
       return;
     }
-    const built = await vscode.window.withProgress(
-      { location: vscode.ProgressLocation.Notification, title: `Reading ${label}\u2026`, cancellable: false },
-      () => buildBrief(dir, label),
-    );
+    attaching.add(slug);
+    post();   // the panel has to show it started before the call, not after it finishes
+    let built;
+    try {
+      built = await vscode.window.withProgress(
+        { location: vscode.ProgressLocation.Notification, title: `Reading ${label}\u2026`, cancellable: false },
+        () => buildBrief(dir, label),
+      );
+    } finally {
+      attaching.delete(slug);
+    }
     const list = (store.read(slug).projects || []).filter((p) => p.path !== dir);
     const id = `p${Date.now().toString(36)}`;
     if (built.error) {
