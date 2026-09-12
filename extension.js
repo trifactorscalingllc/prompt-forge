@@ -181,6 +181,7 @@ function activate(context) {
     vscode.commands.registerCommand('promptForge.forgetApiKey', () => send({ type: 'engine.forgetKey' })),
     vscode.commands.registerCommand('promptForge.toggleRail', () => send({ type: 'setLayout', toggleRail: true })),
     vscode.commands.registerCommand('promptForge.attachProject', () => send({ type: 'project.pick' })),
+    vscode.commands.registerCommand('promptForge.newFromTemplate', () => send({ type: 'newFromTemplate' })),
   );
   // NOTE: the kit registers `promptForge.reload` and its own configuration watcher for
   // sourcePath / autoReload. Anything else that must react to a settings change belongs in the

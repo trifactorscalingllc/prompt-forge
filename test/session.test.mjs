@@ -449,3 +449,66 @@ test('a merge records what it changed, so the log can show it without re-diffing
   assert.ok(i > 0, 'there is always a prior snapshot to undo to, because a prompt is seeded with one');
   assert.ok(!snaps[i - 1].doc.includes('Ship it.'), 'and it is the document before this idea landed');
 });
+
+test('a test run answers the prompt, records what actually answered it, and keeps the last five', async () => {
+  let n = 0;
+  const { s, slug, session } = setup((req) => {
+    if (req.role === 'run') {
+      n += 1;
+      return {
+        text: `answer ${n}`, usage: { input: 300, output: 80 }, error: null,
+        call: { provider: 'anthropic', mode: 'cli', model: 'best', role: 'run', ms: 1200, usage: { input: 300, output: 80 } },
+      };
+    }
+    return mergeReply(req, 'Ship it.');
+  });
+  await session.load();
+  session.submitIdea('ship it');
+  await session.idle();
+
+  assert.deepEqual(await session.run(), { ok: true });
+  const r = s.read(slug).runs[0];
+  assert.equal(r.text, 'answer 1');
+  // Which engine answered is recorded, not implied: the signed-in engine is often not the family
+  // the prompt is styled for, and "it worked" means nothing without knowing who it worked on.
+  assert.equal(r.provider, 'anthropic');
+  assert.equal(r.model, 'best');
+  assert.equal(r.target, s.read(slug).target);
+  assert.deepEqual(r.usage, { input: 300, output: 80 });
+  assert.ok(r.promptChars > 0);
+  assert.ok(session.snapshot().runs.length === 1, 'the panel can see it');
+
+  for (let i = 0; i < 6; i += 1) await session.run();
+  const runs = s.read(slug).runs;
+  assert.equal(runs.length, 5, 'a scratch record, not history');
+  assert.equal(runs[runs.length - 1].text, 'answer 7', 'newest kept');
+});
+
+test('a run that fails reports it and writes nothing', async () => {
+  const { s, slug, session } = setup((req) => {
+    if (req.role === 'run') return { text: '', usage: null, error: 'rate limited', call: { provider: 'x', mode: 'cli', model: 'm', role: 'run', ms: 9, usage: null } };
+    return mergeReply(req, 'Ship it.');
+  });
+  await session.load();
+  session.submitIdea('ship it');
+  await session.idle();
+  assert.deepEqual(await session.run(), { error: 'rate limited' });
+  assert.deepEqual(s.read(slug).runs, [], 'a failure is not an answer');
+  assert.equal(session.snapshot().engine.error, 'rate limited');
+});
+
+test('a run uses the polish model, because it is the prompt being answered for real', async () => {
+  const seen = [];
+  const { session } = setup((req) => {
+    seen.push(req.role);
+    if (req.role === 'run') return { text: 'a', usage: null, error: null, call: { provider: 'p', mode: 'cli', model: 'm', role: 'run', ms: 1, usage: null } };
+    return mergeReply(req, 'Ship it.');
+  });
+  await session.load();
+  session.submitIdea('one');
+  await session.idle();
+  await session.run();
+  assert.deepEqual(seen, ['merge', 'run'], 'the run is its own role, not a merge or a polish');
+  const engine = require('node:fs').readFileSync(new URL('../src/engine/engine.js', import.meta.url).pathname, 'utf8');
+  assert.ok(/role === 'polish' \|\| role === 'run' \? selection\.polishModel/.test(engine), 'and it gets the good model');
+});

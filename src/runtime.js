@@ -21,6 +21,7 @@ const docm = require('./doc');
 const { modelBlurb, ROLE_BLURBS } = require('./blurbs');
 const project = require('./project');
 const { lintPrompt } = require('./lint');
+const templates = require('./templates');
 
 const LAST_OPEN = 'promptForge.lastOpen';
 
@@ -403,6 +404,23 @@ function create(host) {
       case 'openPrompt':
         if (m.slug && store.exists(m.slug)) await openSession(m.slug);
         return;
+      case 'newFromTemplate': {
+        // Deliberately NOT on the + button: creating a prompt stayed one click, and a picker in
+        // front of it would tax every new prompt to serve the first one.
+        const items = templates.TEMPLATES.map((t) => ({ label: t.label, detail: t.blurb, id: t.id }));
+        const pick = m.id
+          ? { id: String(m.id) }
+          : await vscode.window.showQuickPick(items, { placeHolder: 'Start from which shape? Each one is real text with the unknowns in [brackets].' });
+        if (!pick) return;
+        const t = templates.byId(pick.id);
+        if (!t) return;
+        const { slug: ts } = store.create(t.label, { body: templates.seedFrom(t.id, t.label) });
+        await openSession(ts);
+        const tp = getPanel();
+        if (tp) tp.webview.postMessage({ type: 'focus', target: 'idea' });
+        notice('info', `Started from ${t.label}. Replace the [bracketed] parts — anything you leave is flagged when you copy.`);
+        return;
+      }
       case 'newPrompt': {
         // No naming step: the prompt names itself from the first idea, and the title is editable.
         const title = String(m.title || 'Untitled').trim() || 'Untitled';
@@ -498,6 +516,25 @@ function create(host) {
         if (!engine.selection().ok) { notice('error', engine.selection().reason); return; }
         s.polish();
         return;
+      case 'run': {
+        if (!s) { notice('info', 'Create or open a prompt first.'); return; }
+        if (!engine.selection().ok) { notice('error', engine.selection().reason); return; }
+        post();
+        const r = await s.run();
+        if (r && r.error && r.error !== 'disposed') notice('error', `The run failed: ${r.error}`);
+        post();
+        return;
+      }
+      case 'openRun': {
+        if (!s) return;
+        const runs = store.read(s.slug).runs || [];
+        const r = runs.find((x) => x.id === String(m.id)) || runs[runs.length - 1];
+        if (!r) return;
+        const head = `<!-- ${targets.labelOf(r.target)} prompt, answered by ${r.provider || '?'}/${r.model || '?'} -->\n\n`;
+        const doc = await vscode.workspace.openTextDocument({ language: 'markdown', content: head + r.text });
+        await vscode.window.showTextDocument(doc, { preview: true });
+        return;
+      }
       case 'copyNew': {
         if (!s) return;
         const add = await s.copyNewText();

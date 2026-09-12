@@ -224,6 +224,40 @@ function createSession({ slug, store, docio, engine, cfg, log, publish = () => {
     return text;
   }
 
+  /**
+   * Send the finished prompt to a model and keep the answer. The one thing the forge could never
+   * do was show you a prompt working; everything else is a guess about whether it does.
+   *
+   * It runs on whichever engine is signed in, which is often NOT the family the prompt is written
+   * for -- a Claude subscription can polish a prompt for GPT-5. What ran is recorded with the
+   * answer rather than implied, because "it worked" means nothing without it.
+   */
+  async function run() {
+    const raw = await docio.readDoc(docPath);
+    const prompt = docm.stripForCopy(raw == null ? lastSnapshot().doc : raw);
+    if (!prompt.trim()) return { error: 'There is no prompt to run yet.' };
+    engineState = { state: 'busy', op: 'run', model: null, startedAt: Date.now(), error: null };
+    publish('engine');
+    const res = await engine.call({ role: 'run', prompt, timeoutMs: (engineCfg().timeoutSeconds || 240) * 1000 });
+    if (disposed) return { error: 'disposed' };
+    engineState = res.error
+      ? { state: 'error', op: null, model: res.call ? res.call.model : null, startedAt: 0, error: res.error }
+      : { state: 'idle', op: null, model: res.call ? res.call.model : null, startedAt: 0, error: null };
+    if (res.error) { publish('run'); return { error: res.error }; }
+    store.addRun(slug, {
+      text: String(res.text || ''),
+      target: sc.target,
+      provider: res.call ? res.call.provider : null,
+      model: res.call ? res.call.model : null,
+      ms: res.call ? res.call.ms : 0,
+      usage: res.usage || null,
+      promptChars: prompt.length,
+    });
+    reread();
+    publish('run');
+    return { ok: true };
+  }
+
   /** The addendum since the last copy, or null when there is nothing new. Advances the mark. */
   async function copyNewText() {
     const mark = sc && sc.copied;
@@ -262,6 +296,7 @@ function createSession({ slug, store, docio, engine, cfg, log, publish = () => {
       projects: (sc.projects || []).map((p) => ({ ...p })),
       suggestions: (sc.suggestions || []).map((x) => ({ ...x })),
       copied: sc.copied ? { ts: sc.copied.ts } : null,
+      runs: (sc.runs || []).map((r) => ({ ...r })),
       newSinceCopy: newSinceCopy(),
       engine: { ...engineState, queued: queue.size() },
       usage,
@@ -280,7 +315,7 @@ function createSession({ slug, store, docio, engine, cfg, log, publish = () => {
     resolve: (conflictId, keep) => queue.push({ kind: 'resolve', conflictId, keep }),
     polish: () => queue.push({ kind: 'polish' }),
     setTarget(target) { store.setTarget(slug, target); reread(); queue.push({ kind: 'polish' }); },
-    restore, rename, copyText, copyNewText, idle,
+    restore, rename, copyText, copyNewText, run, idle,
     dismissSuggestion(text) { store.dismissSuggestion(slug, text); reread(); publish('suggestions'); },
     busy: () => queue.busy() || queue.size() > 0,
     dispose() { disposed = true; queue.clear(); },

@@ -77,7 +77,8 @@ function createEngine({ providers, config, secrets, log }) {
     if (!selection.ok) return { text: '', usage: null, error: selection.reason, call: null };
     const p = providers.find((x) => x.id === selection.provider);
     if (!p) return { text: '', usage: null, error: `provider ${selection.provider} vanished`, call: null };
-    const model = role === 'polish' ? selection.polishModel : selection.mergeModel;
+    // A test run is the prompt itself being answered, so it gets the good model like polish does.
+    const model = role === 'polish' || role === 'run' ? selection.polishModel : selection.mergeModel;
     const t0 = Date.now();
     let res;
     try {

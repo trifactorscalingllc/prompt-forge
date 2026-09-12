@@ -12,7 +12,10 @@ const { sections } = require('./addendum');
 // \b has to sit inside the word alternatives, not in front of the group: a space followed by "?"
 // is not a word boundary, so a leading \b silently made "???" unmatchable. And the trailing \b is
 // what keeps "todos" and "fixtures" from reading as TODO and FIXME.
-const PLACEHOLDER = /(\b(?:TBD|TODO|FIXME|XXX)\b|\?{3,}|<insert[^>]*>|\[[^\]]*\b(?:fill|placeholder|your [a-z]+ here)\b[^\]]*\])/i;
+// Bracketed text that is not a markdown link: "[Language and framework]" is a slot somebody was
+// meant to fill, and the templates mark their unknowns exactly this way. The (?!\() keeps real
+// links out, and {2,} keeps footnote markers like [1] out.
+const PLACEHOLDER = /(\b(?:TBD|TODO|FIXME|XXX)\b|\?{3,}|<insert[^>]*>|\[[^\]\n]{2,}\](?!\())/i;
 
 /** Headings whose emptiness is worth mentioning, and why each one matters to a model. */
 const WHY = {

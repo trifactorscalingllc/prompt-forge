@@ -359,6 +359,7 @@
     const a = s.active;
     const root = $('doc');
     renderTarget(s);
+    renderRunTab(s);
     if (!a) { root.textContent = ''; $('doc-count').textContent = ''; return; }
     const n = (a.doc || '').length;
     $('doc-count').textContent = `${n.toLocaleString()} character${n === 1 ? '' : 's'}`;
@@ -369,9 +370,56 @@
       root.append(ph);
       return;
     }
+    if (showRun && lastRun(a)) { renderRun(root, a); return; }
     root.innerHTML = renderMarkdown(a.doc || '');
     placeSuggestions(root, s);
   }
+
+  // ------------------------------------------------------------------------------------------
+  // Test run
+  //
+  // The forge built prompts and never once showed you one working. The answer takes over the
+  // Prompt panel rather than opening a fourth surface, and which model actually answered is stated
+  // on it -- the engine that is signed in is often not the family the prompt is written for.
+  // ------------------------------------------------------------------------------------------
+  let showRun = false;
+  const lastRun = (a) => (a && a.runs && a.runs.length ? a.runs[a.runs.length - 1] : null);
+
+  function renderRun(root, a) {
+    const r = lastRun(a);
+    root.textContent = '';
+    const bar = el('div', 'runbar');
+    const tLabel = (latest.targets.find((t) => t.id === r.target) || {}).label || r.target;
+    bar.append(el('span', 'runwho', `${r.provider || '?'} \u00b7 ${r.model || '?'}`));
+    const written = el('span', 'runfor', `prompt written for ${tLabel}`);
+    if (r.model && tLabel && !String(r.model).toLowerCase().includes(String(tLabel).split(' ')[0].toLowerCase())) {
+      written.classList.add('mismatch');
+      written.title = 'The engine that answered is not the family this prompt is styled for. Still a useful smoke test, but the styling was not what this model reads best.';
+    }
+    bar.append(written);
+    if (r.usage) bar.append(el('span', 'runmeta', `${k(r.usage.input)} in / ${k(r.usage.output)} out \u00b7 ${(r.ms / 1000).toFixed(1)}s`));
+    const open = el('button', 'link', 'open as a document');
+    open.addEventListener('click', () => vscode.postMessage({ type: 'openRun', id: r.id }));
+    bar.append(open);
+    root.append(bar);
+    const body = el('div', 'runbody');
+    body.innerHTML = renderMarkdown(r.text || '');
+    root.append(body);
+  }
+
+  function renderRunTab(s) {
+    const a = s.active;
+    const has = Boolean(lastRun(a));
+    $('tab-run').hidden = !has;
+    $('run').disabled = !a;
+    if (!has) { showRun = false; return; }
+    $('tab-run').classList.toggle('on', showRun);
+    $('tab-run').textContent = showRun ? 'Prompt' : 'Run';
+    $('tab-run').title = showRun ? 'Back to the prompt' : 'Show the last answer';
+  }
+
+  $('run').addEventListener('click', () => { showRun = true; vscode.postMessage({ type: 'run' }); });
+  $('tab-run').addEventListener('click', () => { showRun = !showRun; if (latest) render(latest); });
 
   // ------------------------------------------------------------------------------------------
   // Suggestions
@@ -491,6 +539,14 @@
     if (!a.entries.length && !versionsOpen) {
       const ph = el('div', 'placeholder');
       ph.append(el('h3', null, 'Your ideas go here.'), el('p', null, 'Type one below and press Enter. Rough is fine: each idea is merged into the prompt on the right, never pasted in as a bullet.'));
+      // Offered here rather than on the + button: this is where someone is when a starting shape
+      // would help, and adding a picker in front of every new prompt would tax all of them.
+      const tp = el('p', 'muted');
+      tp.append(document.createTextNode('Or start from a shape: '));
+      const tb = el('button', 'link', 'Code review, landing copy, research brief\u2026');
+      tb.addEventListener('click', () => vscode.postMessage({ type: 'newFromTemplate' }));
+      tp.append(tb);
+      ph.append(tp);
       root.append(ph);
       return;
     }

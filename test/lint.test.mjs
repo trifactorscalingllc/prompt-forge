@@ -44,12 +44,15 @@ test('open conflicts are the first thing said, because the prompt is self-contra
 });
 
 test('a placeholder left in the text is caught and quoted back', () => {
-  for (const ph of ['TBD', 'TODO', 'FIXME', '???', '<insert name>', '[your audience here]']) {
+  for (const ph of ['TBD', 'TODO', 'FIXME', '???', '<insert name>', '[your audience here]', '[Language and framework]']) {
     const got = lintPrompt(FULL.replace('Ship the thing.', `Ship the thing. ${ph}`));
     assert.ok(got.some((f) => f.level === 'warn' && f.text.includes(ph.slice(0, 4))), `${ph} is caught`);
   }
   // Real words that merely contain a flagged substring must not trip it.
   assert.deepEqual(lintPrompt(FULL.replace('Ship the thing.', 'Ship the todos list and the fixtures.')), []);
+  // Nor a markdown link, nor a footnote marker: both are bracketed and neither is a slot.
+  assert.deepEqual(lintPrompt(FULL.replace('Ship the thing.', 'Ship it, see [the spec](https://x.test/s).')), []);
+  assert.deepEqual(lintPrompt(FULL.replace('Ship the thing.', 'Ship it, per the RFC [1].')), []);
 });
 
 test('a missing output format is a note, and a short but finished prompt is silent', () => {

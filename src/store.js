@@ -66,7 +66,7 @@ function open(libraryPath, { home } = {}) {
   function read(slug) {
     const sc = readJson(sidecarPath(slug));
     if (!sc || sc.version !== 1) return null;
-    for (const k of ['entries', 'snapshots', 'conflicts', 'resolved', 'projects', 'suggestions', 'dismissed']) if (!Array.isArray(sc[k])) sc[k] = [];
+    for (const k of ['entries', 'snapshots', 'conflicts', 'resolved', 'projects', 'suggestions', 'dismissed', 'runs']) if (!Array.isArray(sc[k])) sc[k] = [];
     return sc;
   }
 
@@ -84,12 +84,12 @@ function open(libraryPath, { home } = {}) {
     return out;
   }
 
-  function create(title, { target } = {}) {
+  function create(title, { target, body: seedBody } = {}) {
     const base = slugify(title);
     let slug = base;
     for (let n = 2; exists(slug); n++) slug = `${base}-${n}`;
     const t = now();
-    const body = seed(title);
+    const body = seedBody || seed(title);
     fs.writeFileSync(docPath(slug), body);
     const sc = {
       version: 1,
@@ -178,6 +178,13 @@ function open(libraryPath, { home } = {}) {
   // every merge regenerates the list and an unremembered dismissal would nag.
   // The document as it stood when it was last copied out. Everything the add-on copy reports is
   // measured from here, so a copy is the only thing that moves it.
+  // Test runs, newest last, capped: this is a scratch record of "did the prompt work", not history.
+  const addRun = (slug, run) => withSidecar(slug, (sc) => {
+    if (!Array.isArray(sc.runs)) sc.runs = [];
+    sc.runs.push({ id: nextId(sc.runs, 'r'), ts: now(), ...run });
+    sc.runs = sc.runs.slice(-5);
+    return sc.runs;
+  });
   const setCopyMark = (slug, doc) => withSidecar(slug, (sc) => { sc.copied = { doc: String(doc == null ? '' : doc), ts: now() }; return sc.copied; });
   const setSuggestions = (slug, list) => withSidecar(slug, (sc) => {
     const gone = new Set(sc.dismissed || []);
@@ -238,7 +245,7 @@ function open(libraryPath, { home } = {}) {
 
   return {
     dir, docPath, sidecarPath, exists, read, write, create, list, stats,
-    appendEntry, updateEntry, addSnapshot, setTarget, setTitle, setProjects, setCopyMark, setSuggestions, dismissSuggestion, setConflicts, resolveConflict, remove,
+    appendEntry, updateEntry, addSnapshot, setTarget, setTitle, setProjects, setCopyMark, addRun, setSuggestions, dismissSuggestion, setConflicts, resolveConflict, remove,
     readDoc, writeDoc,
   };
 }

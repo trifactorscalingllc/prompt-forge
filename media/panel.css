@@ -262,6 +262,20 @@ html, body { height: 100%; overflow: hidden; max-width: 100%; }
    the panel and never compete with what you are typing. */
 #idea::placeholder { font-size: 0.88em; opacity: 0.5; line-height: 1.45; }
 
+/* A run takes over the Prompt panel; the pill switches back. */
+.tabpill { padding: 1px 8px; border: 1px solid var(--vscode-panel-border); border-radius: 10px;
+  background: none; color: var(--vscode-descriptionForeground); cursor: pointer; font-size: 0.85em; }
+.tabpill:hover { color: var(--vscode-foreground); }
+.tabpill.on { background: var(--vscode-button-background); color: var(--vscode-button-foreground); border-color: transparent; }
+.runbar { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; margin-bottom: 8px; padding-bottom: 6px;
+  border-bottom: 1px solid var(--vscode-panel-border); font-size: 0.85em; }
+.runwho { padding: 1px 6px; border-radius: 3px; background: var(--vscode-badge-background); color: var(--vscode-badge-foreground); }
+.runfor, .runmeta { opacity: 0.7; }
+/* Said plainly rather than hidden: a prompt styled for one family answered by another is a smoke
+   test, not a fair test of the styling. */
+.runfor.mismatch { opacity: 1; color: var(--vscode-editorWarning-foreground, #e0b341); cursor: help; }
+.runbody { white-space: normal; }
+
 /* What a merge actually did. Red and green are the only real colour available in a diff, so they
    carry the meaning and the prefix carries it again for anyone who cannot separate them. */
 .mdiff { margin: 4px 0 2px; padding: 5px 7px; border-radius: 4px; background: var(--vscode-textCodeBlock-background, rgba(127,127,127,0.09));

@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.9.0
+
+- **Run the prompt.** The ▶ button on the Prompt panel sends the finished prompt to a model and shows the answer in place of the document; the **Run** pill switches back. The forge built prompts and had never once shown you one working.
+- What answered is stated on the result, not implied — provider, model, tokens, seconds. If the engine that answered is not the family the prompt is styled for (a Claude login answering a prompt written for GPT-5), that is called out in amber: still a useful smoke test, but not a test of the styling. The last five runs are kept; **open as a document** puts one in an editor tab.
+- **Templates.** *Prompt Forge: New Prompt from a Template*, or the link in the empty Ideas panel: code review, landing page copy, research brief, bug to fix, extract structured data.
+- A template is **real content with its unknowns in `[brackets]`**, never a stack of empty headings — empty headings fight the way this document is built and would ship a lint warning with every new prompt. The brackets close a loop instead: the copy-time check now catches any bracketed text that is not a markdown link, so whatever you did not fill in is flagged as the prompt leaves. A test asserts every template raises that warning and nothing else.
+- `+ New` is still one click. Putting a picker in front of every new prompt would tax all of them to serve the first.
+
 ## 0.8.0
 
 Tier 1: see what the engine did, take it back, and get a last look before it leaves.
