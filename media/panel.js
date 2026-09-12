@@ -103,19 +103,6 @@
     const a = s.active;
     $('title').textContent = a ? a.title : 'Prompt Forge';
     $('title').classList.toggle('editable', Boolean(a));
-    const sel = $('target');
-    const want = a ? a.target : '';
-    sel.textContent = '';
-    let known = false;
-    for (const t of s.targets) {
-      const o = el('option', null, t.label);
-      o.value = t.id;
-      if (t.id === want) { o.selected = true; known = true; }
-      sel.append(o);
-    }
-    if (want && !known) { const o = el('option', null, want); o.value = want; o.selected = true; sel.append(o); }
-    sel.disabled = !a;
-    sel.title = (s.blurbs && s.blurbs.targets && s.blurbs.targets[want]) ? `${s.blurbs.roles.target}\n${s.blurbs.targets[want]}` : (s.blurbs && s.blurbs.roles.target) || '';
     $('polish').disabled = !a;
     $('copy').disabled = !a;
     renderConnect(s);
@@ -364,10 +351,8 @@
   function renderPreview(s) {
     const a = s.active;
     const root = $('doc');
-    const meta = $('preview-meta');
-    if (!a) { root.textContent = ''; meta.textContent = ''; $('doc-count').textContent = ''; return; }
-    const tLabel = (s.targets.find((t) => t.id === a.target) || {}).label || a.target;
-    meta.textContent = `for ${tLabel}`;
+    renderTarget(s);
+    if (!a) { root.textContent = ''; $('doc-count').textContent = ''; return; }
     const n = (a.doc || '').length;
     $('doc-count').textContent = `${n.toLocaleString()} character${n === 1 ? '' : 's'}`;
     if (a.docBlank) {
@@ -690,7 +675,65 @@
   });
   $('polish').addEventListener('click', () => vscode.postMessage({ type: 'polish' }));
   $('copy').addEventListener('click', () => vscode.postMessage({ type: 'copy' }));
-  $('target').addEventListener('change', (e) => vscode.postMessage({ type: 'setTarget', target: e.target.value }));
+  // ------------------------------------------------------------------------------------------
+  // Target: "for <model>" on the Prompt head, where "for" is the divider and the model is the
+  // control. A floating list rather than a <select> so each option can carry its one-line blurb;
+  // a native select shows the label alone.
+  // ------------------------------------------------------------------------------------------
+  function renderTarget(s) {
+    const a = s.active;
+    const btn = $('target-btn');
+    btn.disabled = !a;
+    $('for-word').hidden = !a;
+    if (!a) { $('target-label').textContent = ''; closeTargetMenu(); return; }
+    const t = s.targets.find((x) => x.id === a.target);
+    $('target-label').textContent = (t && t.label) || a.target;
+    const blurbs = s.blurbs || { roles: {}, targets: {} };
+    btn.title = blurbs.targets && blurbs.targets[a.target]
+      ? `${blurbs.roles.target || ''}\n${blurbs.targets[a.target]}`
+      : (blurbs.roles.target || 'The model this prompt is being written for.');
+  }
+
+  function closeTargetMenu() {
+    const menu = $('target-menu');
+    menu.hidden = true;
+    $('target-btn').setAttribute('aria-expanded', 'false');
+  }
+
+  function openTargetMenu() {
+    const s = latest;
+    if (!s || !s.active) return;
+    const menu = $('target-menu');
+    const blurbs = (s.blurbs && s.blurbs.targets) || {};
+    menu.textContent = '';
+    for (const t of s.targets) {
+      const item = el('button', `fitem${t.id === s.active.target ? ' on' : ''}`);
+      item.setAttribute('role', 'option');
+      item.append(el('span', 'fitem-label', t.label));
+      if (blurbs[t.id]) item.append(el('span', 'fitem-desc', blurbs[t.id]));
+      item.addEventListener('click', () => { closeTargetMenu(); vscode.postMessage({ type: 'setTarget', target: t.id }); });
+      menu.append(item);
+    }
+    menu.hidden = false;
+    $('target-btn').setAttribute('aria-expanded', 'true');
+    // Anchored under the trigger and clamped to the panel, so it never hangs off a narrow window.
+    const r = $('target-btn').getBoundingClientRect();
+    menu.style.top = `${r.bottom + 4}px`;
+    const w = menu.offsetWidth;
+    menu.style.left = `${Math.max(8, Math.min(r.left, window.innerWidth - w - 8))}px`;
+    const first = menu.querySelector('.fitem.on') || menu.querySelector('.fitem');
+    if (first) first.focus();
+  }
+
+  $('target-btn').addEventListener('click', (e) => {
+    e.stopPropagation();
+    if ($('target-menu').hidden) openTargetMenu(); else closeTargetMenu();
+  });
+  document.addEventListener('click', (e) => {
+    if (!$('target-menu').hidden && !$('target-menu').contains(e.target)) closeTargetMenu();
+  });
+  document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && !$('target-menu').hidden) { closeTargetMenu(); $('target-btn').focus(); } });
+  window.addEventListener('resize', closeTargetMenu);
   $('engine-summary').addEventListener('click', () => { engineOpen = !engineOpen; save(); if (latest) render(latest); });
 
   let copiedTimer = null;

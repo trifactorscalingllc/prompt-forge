@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.4.3
+
+- **The target moved out of the window header and onto the Prompt panel**, where it reads as a sentence: *Prompt — for **Claude Fable 5.1***. The word “for” is a divider, not part of the control; the model name is the button.
+- It opens a **floating list rather than a `<select>`**, so every option can carry its one-line description of what that model wants from a prompt. A native select shows the label and nothing else, which is the one thing worth knowing when you are choosing between nine of them.
+- The list closes on Escape, on a click outside, and on a resize — a fixed-position popup that survives a resize ends up detached from the button it belongs to. It is `position: fixed` so the panel's own scrolling cannot clip it.
+
 ## 0.4.2
 
 - **A prompt is named by the engine, in at most five words.** It had been the first eight words of whatever you typed, which is how a prompt ended up called “Oh idea”. The merge that first fills an empty prompt now also returns a title, and is told to name the subject rather than the act of asking. Five words is enforced in code as well as asked for: an instruction about length is a request, a slice is a guarantee.

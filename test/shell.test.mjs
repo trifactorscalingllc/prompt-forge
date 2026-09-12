@@ -152,6 +152,31 @@ test('the header is a plug and a gear; Polish, Copy and Edit live on the Prompt 
   assert.ok(/\.iconbtn\.swap \.i-on \{ display: none/.test(css) && /\.iconbtn\.swap\.ok \.i-off \{ display: none/.test(css));
 });
 
+test('the target reads as "for <model>" on the Prompt head, and is a floating list', () => {
+  const whole = fs.readFileSync(path.join(ROOT, 'src/view.js'), 'utf8');
+  const view = whole.slice(0, whole.indexOf('The built-in document editor'));
+  const head = view.slice(view.indexOf('<div class="head-actions">'), view.indexOf('</div>', view.indexOf('<div class="head-actions">')));
+  assert.ok(!/id="target"/.test(head) && !/>Target</.test(head), 'the Target label and select left the window header');
+  assert.ok(!/<select id="target"/.test(view), 'no native select survives');
+
+  const nav = view.slice(view.indexOf('<section id="preview"'), view.indexOf('<div id="doc"'));
+  assert.ok(/id="for-word"[^>]*>for</.test(nav), '"for" is the divider, and it is not part of the control');
+  assert.ok(/id="target-btn"/.test(nav) && nav.indexOf('id="for-word"') < nav.indexOf('id="target-btn"'));
+  assert.ok(/aria-haspopup="listbox"/.test(nav));
+
+  const panel = fs.readFileSync(path.join(ROOT, 'media/panel.js'), 'utf8');
+  assert.ok(!/\$\('preview-meta'\)/.test(panel), 'nothing still writes the old meta span');
+  assert.ok(/function openTargetMenu/.test(panel) && /function closeTargetMenu/.test(panel));
+  // A dropdown that cannot be dismissed is a modal nobody asked for.
+  assert.ok(/e\.key === 'Escape'/.test(panel), 'Escape closes it');
+  assert.ok(/!\$\('target-menu'\)\.contains\(e\.target\)/.test(panel), 'a click outside closes it');
+  assert.ok(/window\.addEventListener\('resize', closeTargetMenu\)/.test(panel), 'a resize closes it rather than leaving it detached');
+
+  const css = fs.readFileSync(path.join(ROOT, 'media/panel.css'), 'utf8');
+  assert.ok(/\.floating \{[^}]*position: fixed/.test(css), 'fixed, so the panel overflow cannot clip it');
+  assert.ok(/\.fitem-desc/.test(css), 'each option carries its blurb, which is why this is not a select');
+});
+
 test('the compose hint lives in the box, and a collapsed rail still starts a prompt', () => {
   const view = fs.readFileSync(path.join(ROOT, 'src/view.js'), 'utf8');
   assert.ok(!/class="hint"/.test(view), 'the line above the box is gone');
