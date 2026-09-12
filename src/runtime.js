@@ -7,6 +7,7 @@
 // any access); every VS Code side effect lives in start() or a message handler.
 const fs = require('node:fs');
 const os = require('node:os');
+const path = require('node:path');
 const view = require('./view');
 const storeMod = require('./store');
 const { createDocio } = require('./docio');
@@ -18,6 +19,7 @@ const { runCli, resolveBin } = require('./providers/spawn');
 const targets = require('./targets');
 const docm = require('./doc');
 const { modelBlurb, ROLE_BLURBS } = require('./blurbs');
+const project = require('./project');
 
 const LAST_OPEN = 'promptForge.lastOpen';
 
@@ -100,6 +102,7 @@ function create(host) {
       docEditor: setting('docEditor', config().docEditor),
       layout: layoutState(),
       engineCfg: config().engine || {},
+      project: projectCfg(),
       blurbs: blurbs(engine.state()),
     };
   }
@@ -181,6 +184,130 @@ function create(host) {
     const items = providers.filter(filter).map((p) => ({ label: p.label, id: p.id }));
     const pick = await vscode.window.showQuickPick(items, { placeHolder });
     return pick ? pick.id : null;
+  }
+
+  // ------------------------------------------------------------------------------------------
+  // Project context
+  //
+  // Two scopes, deliberately different sizes. The picker LISTS several roots — names and paths
+  // only, never a file. The brief READS exactly one folder, the one the person chose. Umbrella
+  // reading is refused; docs/project-context.md records why, because it will be proposed again.
+  // ------------------------------------------------------------------------------------------
+  const projectCfg = () => {
+    const p = config().project || {};
+    return {
+      roots: Array.isArray(p.roots) ? p.roots : [],
+      context: p.context === 'off' ? 'off' : 'brief',
+      attachDefault: p.attachDefault === 'workspace' ? 'workspace' : 'none',
+      maxFiles: Number.isFinite(p.maxFiles) ? p.maxFiles : 400,
+      maxBytes: Number.isFinite(p.maxBytes) ? p.maxBytes : 2000000,
+    };
+  };
+
+  const workspaceDir = () => {
+    const f = vscode.workspace.workspaceFolders;
+    return f && f.length ? f[0].uri.fsPath : null;
+  };
+
+  /** HEAD without spawning git. Detached HEAD is the sha itself; otherwise follow the ref, then
+   *  packed-refs, which is where a freshly cloned repo keeps its branches. */
+  function gitHead(dir) {
+    try {
+      const head = fs.readFileSync(path.join(dir, '.git', 'HEAD'), 'utf8').trim();
+      const m = /^ref:\s*(.+)$/.exec(head);
+      if (!m) return /^[0-9a-f]{7,40}$/i.test(head) ? head.slice(0, 7) : null;
+      try { return fs.readFileSync(path.join(dir, '.git', m[1]), 'utf8').trim().slice(0, 7); } catch { /* packed below */ }
+      const packed = fs.readFileSync(path.join(dir, '.git', 'packed-refs'), 'utf8');
+      const line = packed.split('\n').find((l) => l.trim().endsWith(` ${m[1]}`));
+      return line ? line.trim().slice(0, 7) : null;
+    } catch { return null; }
+  }
+
+  async function pickProjectDir() {
+    const cfg = projectCfg();
+    const ws = workspaceDir();
+    const items = [];
+    if (ws) items.push({ label: `$(root-folder) ${path.basename(ws)}`, description: ws, detail: 'The folder this window has open', dir: ws });
+    for (const p of project.discover(cfg.roots, { fs, home: os.homedir() })) {
+      if (ws && p.path === ws) continue;
+      items.push({ label: `$(folder) ${p.label}`, description: p.path, dir: p.path });
+    }
+    items.push({ label: '$(folder-opened) Browse\u2026', detail: 'Pick any folder', dir: '\u0000browse' });
+    if (!cfg.roots.length) items.push({ label: '$(gear) Add folders to list projects from\u2026', detail: 'Sets promptForge.projectRoots, so you never hunt for a path again', dir: '\u0000roots' });
+    const pick = await vscode.window.showQuickPick(items, {
+      placeHolder: 'Which project is this prompt for? Only the folder you choose is read.',
+      matchOnDescription: true,
+    });
+    if (!pick) return null;
+    if (pick.dir === '\u0000roots') {
+      await vscode.commands.executeCommand('workbench.action.openSettings', 'promptForge.projectRoots');
+      return null;
+    }
+    if (pick.dir === '\u0000browse') {
+      const sel = await vscode.window.showOpenDialog({ canSelectFolders: true, canSelectFiles: false, canSelectMany: false, openLabel: 'Attach this project' });
+      return sel && sel.length ? sel[0].fsPath : null;
+    }
+    return pick.dir;
+  }
+
+  /** One call, on attach, with the polish model. Its output is reused on every merge after. */
+  async function buildBrief(dir, label) {
+    const cfg = projectCfg();
+    let collected;
+    try { collected = project.collect(dir, { fs, maxFiles: cfg.maxFiles, maxBytes: cfg.maxBytes }); } catch (e) { return { error: e.message }; }
+    if (!collected.files.length) return { error: `Nothing readable in ${dir}. A project needs a README or a manifest to describe itself.` };
+    const res = await engine.call({
+      role: 'polish',
+      prompt: project.buildBriefPrompt({ label, dir, collected }),
+      timeoutMs: ((config().engine || {}).timeoutSeconds || 240) * 1000,
+    });
+    if (res.error) return { error: res.error };
+    const brief = project.capBrief(res.text);
+    if (!brief) return { error: 'The engine returned an empty brief.' };
+    return { brief, files: collected.files, truncated: collected.truncated, call: res.call };
+  }
+
+  async function attachProject(slug, dir) {
+    if (!store || !slug) return;
+    const label = path.basename(dir) || dir;
+    if (!engine.selection().ok) {
+      // Attaching without an engine is allowed: the folder is recorded and the brief builds later.
+      const list = (store.read(slug).projects || []).filter((p) => p.path !== dir);
+      list.push({ id: `p${list.length + 1}`, label, path: dir, brief: '', builtAt: 0, head: gitHead(dir), files: [], error: engine.selection().reason });
+      store.setProjects(slug, list);
+      const sess = sessions.get(slug); if (sess) sess.reread();
+      notice('info', `${label} attached. Its brief will build once an engine is signed in.`);
+      post();
+      return;
+    }
+    const built = await vscode.window.withProgress(
+      { location: vscode.ProgressLocation.Notification, title: `Reading ${label}\u2026`, cancellable: false },
+      () => buildBrief(dir, label),
+    );
+    const list = (store.read(slug).projects || []).filter((p) => p.path !== dir);
+    const id = `p${Date.now().toString(36)}`;
+    if (built.error) {
+      list.push({ id, label, path: dir, brief: '', builtAt: 0, head: gitHead(dir), files: [], error: built.error });
+      notice('error', `Could not describe ${label}: ${built.error}`);
+    } else {
+      list.push({
+        id, label, path: dir, brief: built.brief, builtAt: Date.now(), head: gitHead(dir),
+        files: built.files, truncated: built.truncated,
+        call: built.call ? { model: built.call.model, in: (built.call.usage || {}).input || 0, out: (built.call.usage || {}).output || 0 } : null,
+        error: null,
+      });
+      notice('info', `${label} attached \u2014 read ${built.files.length} file${built.files.length === 1 ? '' : 's'}.`);
+    }
+    store.setProjects(slug, list);
+    const sess = sessions.get(slug); if (sess) sess.reread();
+    post();
+  }
+
+  function detachProject(slug, id) {
+    if (!store || !slug) return;
+    store.setProjects(slug, (store.read(slug).projects || []).filter((p) => p.id !== id));
+    const sess = sessions.get(slug); if (sess) sess.reread();
+    post();
   }
 
   async function signIn(id, mode) {
@@ -303,6 +430,50 @@ function create(host) {
       case 'setTarget':
         if (s && m.target) s.setTarget(String(m.target));
         return;
+      case 'project.pick': {
+        if (!s) { notice('info', 'Create or open a prompt first.'); return; }
+        const dir = await pickProjectDir();
+        if (dir) await attachProject(s.slug, dir);
+        return;
+      }
+      case 'project.menu': {
+        if (!s) return;
+        const list = store.read(s.slug).projects || [];
+        if (!list.length) { const dir = await pickProjectDir(); if (dir) await attachProject(s.slug, dir); return; }
+        const items = [];
+        for (const p of list) {
+          const what = p.error ? `error: ${p.error}` : `${p.files.length} file(s)${p.head ? `, ${p.head}` : ''}`;
+          items.push({ label: `$(eye) View the brief for ${p.label}`, description: what, act: 'view', id: p.id });
+          items.push({ label: `$(refresh) Rebuild ${p.label}'s brief`, description: p.path, act: 'refresh', id: p.id });
+          items.push({ label: `$(close) Detach ${p.label}`, act: 'detach', id: p.id });
+        }
+        items.push({ label: '$(add) Attach another project\u2026', detail: 'For a prompt that genuinely spans repos', act: 'add' });
+        const pick = await vscode.window.showQuickPick(items, { placeHolder: 'Project context for this prompt' });
+        if (!pick) return;
+        if (pick.act === 'add') { const dir = await pickProjectDir(); if (dir) await attachProject(s.slug, dir); return; }
+        if (pick.act === 'detach') { detachProject(s.slug, pick.id); return; }
+        await handleMessage({ type: `project.${pick.act}`, id: pick.id });
+        return;
+      }
+      case 'project.detach':
+        if (s && m.id) detachProject(s.slug, String(m.id));
+        return;
+      case 'project.refresh': {
+        if (!s || !m.id) return;
+        const p = (store.read(s.slug).projects || []).find((x) => x.id === String(m.id));
+        if (p) await attachProject(s.slug, p.path);
+        return;
+      }
+      case 'project.view': {
+        if (!s || !m.id) return;
+        const p = (store.read(s.slug).projects || []).find((x) => x.id === String(m.id));
+        if (!p) return;
+        // Opened untitled rather than written to the library: the brief is a cache, not a document,
+        // and a file on disk would be a second copy to keep in step with the sidecar.
+        const doc = await vscode.workspace.openTextDocument({ language: 'markdown', content: p.error ? `# ${p.label}\n\nNo brief. ${p.error}\n` : `${p.brief}\n\n---\nRead ${p.files.length} file(s):\n${p.files.map((f) => `- ${f}`).join('\n')}\n` });
+        await vscode.window.showTextDocument(doc, { preview: true });
+        return;
+      }
       case 'rename':
         if (s) await s.rename(m.title);
         return;
@@ -345,7 +516,10 @@ function create(host) {
         if (m.url && /^(https?|mailto):/i.test(m.url)) await vscode.env.openExternal(vscode.Uri.parse(m.url));
         return;
       case 'openSettings':
-        await vscode.commands.executeCommand('workbench.action.openSettings', '@ext:trifactorscaling.prompt-forge-trifactor');
+        await vscode.commands.executeCommand('workbench.action.openSettings', m.query ? String(m.query) : '@ext:trifactorscaling.prompt-forge-trifactor');
+        return;
+      case 'setProjectContext':
+        if (m.value === 'off' || m.value === 'brief') { await updateSetting('projectContext', m.value); post(); }
         return;
       case 'setDocEditor':
         if (m.value === 'forge' || m.value === 'office' || m.value === 'text') {

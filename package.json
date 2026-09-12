@@ -2,7 +2,7 @@
   "name": "prompt-forge-trifactor",
   "displayName": "Prompt Forge for VS Code",
   "description": "Build complicated prompts one idea at a time. Every Enter merges an idea into a structured prompt, contradictions surface instead of being guessed away, and Polish rewrites it for the model you are sending it to. Works with your own Claude, Gemini, or OpenAI login, or any API key.",
-  "version": "0.3.6",
+  "version": "0.4.0",
   "publisher": "trifactorscaling",
   "license": "MIT",
   "repository": {
@@ -99,6 +99,12 @@
         "title": "Forget an API Key",
         "category": "Prompt Forge",
         "icon": "$(trash)"
+      },
+      {
+        "command": "promptForge.attachProject",
+        "title": "Attach a Project Folder",
+        "category": "Prompt Forge",
+        "icon": "$(folder-opened)"
       },
       {
         "command": "promptForge.toggleRail",
@@ -229,6 +235,64 @@
           "scope": "window",
           "order": 10,
           "description": "Collapse the Prompts list to a strip. Click the chevron on the list, or run Prompt Forge: Toggle the Prompts List."
+        },
+        "promptForge.projectRoots": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": [],
+          "scope": "machine",
+          "order": 11,
+          "markdownDescription": "Folders the picker may **list** when you attach a project. Their immediate children that look like projects (a `.git` or a manifest) become the picker's contents. Names and paths only — nothing in these folders is ever read. Empty means the picker offers the open workspace and Browse."
+        },
+        "promptForge.projectContext": {
+          "type": "string",
+          "enum": [
+            "off",
+            "brief"
+          ],
+          "enumDescriptions": [
+            "Never send project context.",
+            "Send the attached project's brief with every merge and polish."
+          ],
+          "default": "brief",
+          "scope": "window",
+          "order": 12,
+          "description": "Whether an attached project's brief is sent to the engine. Nothing is read until you attach a folder to a prompt."
+        },
+        "promptForge.projectDefault": {
+          "type": "string",
+          "enum": [
+            "workspace",
+            "none"
+          ],
+          "enumDescriptions": [
+            "Attach the folder VS Code has open.",
+            "Attach nothing; pick a project per prompt."
+          ],
+          "default": "none",
+          "scope": "window",
+          "order": 13,
+          "description": "What a brand-new prompt attaches."
+        },
+        "promptForge.projectMaxFiles": {
+          "type": "number",
+          "default": 400,
+          "minimum": 1,
+          "maximum": 5000,
+          "scope": "window",
+          "order": 14,
+          "description": "Hard cap on how many files are considered when building a project brief."
+        },
+        "promptForge.projectMaxBytes": {
+          "type": "number",
+          "default": 2000000,
+          "minimum": 10000,
+          "maximum": 50000000,
+          "scope": "window",
+          "order": 15,
+          "description": "Hard cap on how many bytes are read when building a project brief."
         },
         "promptForge.cli.claudePath": {
           "type": "string",

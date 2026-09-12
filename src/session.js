@@ -73,9 +73,10 @@ function createSession({ slug, store, docio, engine, cfg, log, publish = () => {
         const conflicts = sc.conflicts.map(publicConflict);
         const revisions = revised.map((r) => { const e = sc.entries.find((x) => x.id === r.entryId); return e ? { id: e.id, before: r.before, after: e.text } : null; }).filter(Boolean);
         const touched = [...entryIds, ...revised.map((r) => r.entryId)];
+        const projects = sc.projects || [];
         const prompt = role === 'polish'
-          ? buildPolishPrompt({ doc: body, conflicts, target, styleGuide: targets.styleGuide(target.family) })
-          : buildMergePrompt({ doc: body, ideas, resolutions, revisions, conflicts, recent, target });
+          ? buildPolishPrompt({ doc: body, conflicts, target, styleGuide: targets.styleGuide(target.family), projects })
+          : buildMergePrompt({ doc: body, ideas, resolutions, revisions, conflicts, recent, target, projects });
         const timeoutMs = (engineCfg().timeoutSeconds || 240) * 1000;
 
         const res = await engine.call({ role, prompt, timeoutMs });
@@ -221,6 +222,7 @@ function createSession({ slug, store, docio, engine, cfg, log, publish = () => {
       entries: sc.entries.map((e) => ({ ...e })),
       snapshots: sc.snapshots.map(({ doc, ...rest }) => rest),
       conflicts: sc.conflicts.map((c) => ({ ...c })),
+      projects: (sc.projects || []).map((p) => ({ ...p })),
       engine: { ...engineState, queued: queue.size() },
       usage,
     };
@@ -232,6 +234,9 @@ function createSession({ slug, store, docio, engine, cfg, log, publish = () => {
 
   return {
     slug, docPath, load, snapshot, submitIdea, editIdea, retry, retryAll,
+    // The runtime owns attaching a project (it needs the picker and the engine), so it writes the
+    // sidecar and tells the session to pick the change up.
+    reread: () => { reread(); },
     resolve: (conflictId, keep) => queue.push({ kind: 'resolve', conflictId, keep }),
     polish: () => queue.push({ kind: 'polish' }),
     setTarget(target) { store.setTarget(slug, target); reread(); queue.push({ kind: 'polish' }); },

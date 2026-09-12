@@ -1,6 +1,6 @@
 # Project context, design
 
-Status: design only. Nothing in this document is built.
+Status: **phase 1 is built** (0.4.0) — settings, picker, sidecar, brief builder, merge and polish wiring, the chip and the Settings section. Phases 2–4 (staleness refresh, per-idea lookup, multi-project citations) are still design.
 
 ## Problem
 
@@ -162,7 +162,8 @@ Off until a folder is attached. Attaching names one folder, and only that folder
 3. **Per-idea lookup.** Opt-in retrieval, shown per merged idea.
 4. **Multi-project.** Two or three labelled projects on one prompt, with labelled citations.
 
-## Open questions
+## Decided
 
-- Should a brief be shared between prompts attached to the same path, or stay per prompt? Per prompt is proposed above, for isolation; a shared cache saves a rebuild.
-- Should `projectRoots` default to the open workspace's parent, or stay empty until the user adds one? Empty is proposed — a default that enumerates a home directory is the thing this design exists to avoid.
+**A brief is per prompt, not shared between prompts on the same path.** Isolation was the weaker argument. The deciding one is that the brief is *hand-editable*: if briefs were shared, correcting one by hand would silently rewrite the context of every other prompt pointed at that folder — action at a distance on text that is sent to a model on every merge. A rebuild is one call; a surprise edit is a bad prompt nobody can trace. The saving is available without the coupling: attaching a folder another prompt already describes can offer to *copy* that brief, once, rather than link to it. (The copy offer is not built yet.)
+
+**`projectRoots` stays empty by default.** The cost is nearly nil, because the picker already offers the folder the window has open — which is the right project the large majority of the time — and Browse. A default that enumerates a home directory is precisely what this design exists to avoid. The list should fill by consent: after someone Browses to a folder, offer once to add its parent as a root. (Not built yet; today the picker links to the setting.)

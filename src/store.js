@@ -66,7 +66,7 @@ function open(libraryPath, { home } = {}) {
   function read(slug) {
     const sc = readJson(sidecarPath(slug));
     if (!sc || sc.version !== 1) return null;
-    for (const k of ['entries', 'snapshots', 'conflicts', 'resolved']) if (!Array.isArray(sc[k])) sc[k] = [];
+    for (const k of ['entries', 'snapshots', 'conflicts', 'resolved', 'projects']) if (!Array.isArray(sc[k])) sc[k] = [];
     return sc;
   }
 
@@ -170,6 +170,9 @@ function open(libraryPath, { home } = {}) {
 
   const setTarget = (slug, target) => withSidecar(slug, (sc) => { sc.target = target; return sc.target; });
   const setTitle = (slug, title) => withSidecar(slug, (sc) => { sc.title = String(title); return sc.title; });
+  // An allow-list the person wrote one path at a time. Replaced wholesale so a detach cannot leave
+  // a half-removed entry behind.
+  const setProjects = (slug, projects) => withSidecar(slug, (sc) => { sc.projects = Array.isArray(projects) ? projects : []; return sc.projects; });
 
   function setConflicts(slug, conflicts, { entryId = null } = {}) {
     return withSidecar(slug, (sc) => {
@@ -218,7 +221,7 @@ function open(libraryPath, { home } = {}) {
 
   return {
     dir, docPath, sidecarPath, exists, read, write, create, list, stats,
-    appendEntry, updateEntry, addSnapshot, setTarget, setTitle, setConflicts, resolveConflict, remove,
+    appendEntry, updateEntry, addSnapshot, setTarget, setTitle, setProjects, setConflicts, resolveConflict, remove,
     readDoc, writeDoc,
   };
 }

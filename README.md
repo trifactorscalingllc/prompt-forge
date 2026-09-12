@@ -50,6 +50,21 @@ Two alternatives are a setting away (`promptForge.docEditor`): `office` uses [Of
 
 ## Files
 
+## Project context
+
+A prompt written with no knowledge of the codebase it is for comes out general — "your framework", "the nav component". Attach a folder with the **+ Project** chip in the header and the engine gets a short, accurate description of that project with every merge and polish, so it uses real names, paths and vocabulary instead.
+
+Two scopes, deliberately different sizes:
+
+| | Scope | What it holds |
+|---|---|---|
+| **Finding** a project | `promptForge.projectRoots` — several folders | Names and paths only. Never file contents. |
+| **Reading** a project | Exactly the one you attach | The brief, built once, reused every merge |
+
+Umbrella *reading* is refused on purpose — it would re-create the ambiguity the feature removes, cannot be costed, and would put every `.env` on the machine inside the blast radius. [docs/project-context.md](docs/project-context.md) has the full reasoning.
+
+Nothing is read until you attach a folder. `.env*`, keys, credentials, anything `.gitignore`d and every build directory are excluded *before* the search runs. The brief is capped at 40 lines, and **View** shows you the exact text being sent plus the list of files it came from. Set `promptForge.projectContext` to `off` to stop sending it without detaching.
+
 Prompts live in `~/.prompt-forge/prompts/` (setting `promptForge.libraryPath`): one `<name>.md` you can edit, and one `<name>.forge.json` holding the ideas, every version of the document, open conflicts and per-call usage. Deleted prompts move to `.trash/` inside that folder.
 
 ## Settings

@@ -43,6 +43,13 @@ function readConfig() {
       split: c.get('layoutSplit', 52),
       railCollapsed: c.get('railCollapsed', false),
     },
+    project: {
+      roots: c.get('projectRoots', []),
+      context: c.get('projectContext', 'brief'),
+      attachDefault: c.get('projectDefault', 'none'),
+      maxFiles: c.get('projectMaxFiles', 400),
+      maxBytes: c.get('projectMaxBytes', 2000000),
+    },
     docEditor: c.get('docEditor', 'forge'),
     sourcePath: c.get('sourcePath', ''),
     autoReload: c.get('autoReload', true),
@@ -172,6 +179,7 @@ function activate(context) {
     vscode.commands.registerCommand('promptForge.setApiKey', () => send({ type: 'engine.setKey' })),
     vscode.commands.registerCommand('promptForge.forgetApiKey', () => send({ type: 'engine.forgetKey' })),
     vscode.commands.registerCommand('promptForge.toggleRail', () => send({ type: 'setLayout', toggleRail: true })),
+    vscode.commands.registerCommand('promptForge.attachProject', () => send({ type: 'project.pick' })),
   );
   // NOTE: the kit registers `promptForge.reload` and its own configuration watcher for
   // sourcePath / autoReload. Anything else that must react to a settings change belongs in the

@@ -48,6 +48,7 @@ function html({ vscode, webview, mediaRoots, stamp }) {
           <h1 id="title" title="Click to rename">Prompt Forge</h1>
           <input id="title-edit" class="title-edit" type="text" spellcheck="false" autocomplete="off" hidden>
           <div class="head-actions">
+            <button id="project" class="btn chip" title="The project this prompt is for"></button>
             <label class="lbl">Target
               <select id="target" title="The model this prompt is being written for"></select>
             </label>

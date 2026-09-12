@@ -201,6 +201,11 @@ html, body { height: 100%; overflow: hidden; max-width: 100%; }
   .head-actions select { width: 100%; }
   .sctl select { min-width: 0; width: 100%; }
 }
+/* The project chip sits with the target selector: set once per prompt, then ignored. */
+.chip { max-width: 22ch; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.chip.attached { background: var(--vscode-button-background); color: var(--vscode-button-foreground); }
+.chip.bad { background: var(--vscode-inputValidation-errorBackground); color: var(--vscode-errorForeground); }
+
 .icon-btn { background: none; border: none; color: inherit; cursor: pointer; padding: 0 4px; font-size: 1.15em; line-height: 1; opacity: 0.75; }
 .icon-btn:hover { opacity: 1; }
 

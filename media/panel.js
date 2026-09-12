@@ -52,6 +52,44 @@
   }
 
   // ------------------------------------------------------------------------------------------
+  // Project chip
+  //
+  // Attached or not, and what it read. The chip is the whole surface in the header: the picker and
+  // the brief live behind it, because this is a thing you set once per prompt and then forget.
+  // ------------------------------------------------------------------------------------------
+  function renderProjectChip(s) {
+    const btn = $('project');
+    const a = s.active;
+    const off = s.project && s.project.context === 'off';
+    btn.disabled = !a;
+    const list = (a && a.projects) || [];
+    btn.classList.toggle('attached', list.length > 0);
+    btn.classList.toggle('bad', list.some((p) => p.error));
+    if (!list.length) {
+      btn.textContent = '+ Project';
+      btn.title = a
+        ? 'Attach the codebase this prompt is for, so the engine uses its real names instead of "your framework". Only the folder you pick is read.'
+        : 'Open a prompt first.';
+      return;
+    }
+    const names = list.map((p) => p.label).join(', ');
+    btn.textContent = off ? `${names} (off)` : names;
+    const lines = list.map((p) => {
+      if (p.error) return `${p.label}: ${p.error}`;
+      const when = p.builtAt ? new Date(p.builtAt).toLocaleString() : 'not built';
+      return `${p.label} \u2014 ${p.path}\nread ${p.files.length} file(s), built ${when}${p.head ? ` at ${p.head}` : ''}`;
+    });
+    if (off) lines.push('promptForge.projectContext is off, so this is not being sent.');
+    lines.push('Click to change, view the brief, refresh or detach.');
+    btn.title = lines.join('\n');
+  }
+
+  $('project').addEventListener('click', () => {
+    const list = (latest && latest.active && latest.active.projects) || [];
+    vscode.postMessage({ type: list.length ? 'project.menu' : 'project.pick' });
+  });
+
+  // ------------------------------------------------------------------------------------------
   // Header
   // ------------------------------------------------------------------------------------------
   function renderHeader(s) {
@@ -73,6 +111,7 @@
     sel.title = (s.blurbs && s.blurbs.targets && s.blurbs.targets[want]) ? `${s.blurbs.roles.target}\n${s.blurbs.targets[want]}` : (s.blurbs && s.blurbs.roles.target) || '';
     $('polish').disabled = !a;
     $('copy').disabled = !a;
+    renderProjectChip(s);
 
     const e = s.engine;
     const summary = $('engine-summary');
@@ -130,7 +169,7 @@
     // Left: sections. Right: rows. Each row is title, one line, control.
     const nav = el('nav', 'snav');
     const body = el('div', 'sbody');
-    const sections = [['engine', 'Engine'], ['models', 'Models'], ['target', 'Target'], ['layout', 'Layout'], ['document', 'Document']];
+    const sections = [['engine', 'Engine'], ['models', 'Models'], ['target', 'Target'], ['project', 'Project'], ['layout', 'Layout'], ['document', 'Document']];
     const anchors = {};
     for (const [id, label] of sections) {
       const b = el('button', 'snav-item', label);
@@ -240,6 +279,40 @@
       if (!s.targets.some((t) => t.id === a.target)) opts.push([a.target, a.target]);
       const sel = select(opts, a.target, (sl) => { describe(sl.value); vscode.postMessage({ type: 'setTarget', target: sl.value }); });
       const c = el('div', 'sctl'); c.append(sel); r.append(c);
+    }
+
+    // --- Project ---
+    // The brief is text about the person's own code that is sent to a model on every merge, so it
+    // has to be readable in one click and correctable by hand. That is a requirement, not a nicety.
+    section('project', 'Project');
+    const proj = s.project || { context: 'brief', roots: [], maxFiles: 400, maxBytes: 2000000 };
+    const attached = (s.active && s.active.projects) || [];
+    row('Send project context', 'When a folder is attached, its brief goes to the engine with every merge and polish. Nothing is read until you attach one.',
+      select([['brief', 'Send the attached project\u2019s brief'], ['off', 'Never send project context']], proj.context,
+        (sel) => vscode.postMessage({ type: 'setProjectContext', value: sel.value })));
+    row('Folders to list projects from',
+      proj.roots.length
+        ? `${proj.roots.join(', ')} \u2014 names and paths only. Nothing in these folders is read unless you attach one of them.`
+        : 'Empty. The picker offers the folder this window has open, and Browse. Add roots so you never hunt for a path.',
+      small('Edit roots', 'Opens promptForge.projectRoots', () => vscode.postMessage({ type: 'openSettings', query: 'promptForge.projectRoots' })));
+    if (!s.active) {
+      row('Attached to this prompt', 'Open a prompt to attach a project to it.', small('Attach\u2026', null, () => vscode.postMessage({ type: 'project.pick' })));
+    } else if (!attached.length) {
+      row('Attached to this prompt', 'Nothing. The engine writes \u201cyour framework\u201d and \u201cthe existing component\u201d because those are the only honest things it can say.',
+        small('Attach a project\u2026', null, () => vscode.postMessage({ type: 'project.pick' })));
+    } else {
+      for (const p of attached) {
+        const when = p.builtAt ? new Date(p.builtAt).toLocaleString() : 'never';
+        const desc = p.error
+          ? `${p.path} \u2014 no brief: ${p.error}`
+          : `${p.path} \u2014 read ${p.files.length} file${p.files.length === 1 ? '' : 's'}, built ${when}${p.head ? `, at ${p.head}` : ''}${p.truncated ? '. The caps stopped it before the whole tree.' : ''}`;
+        row(p.label, desc, [
+          small('View', 'Open the brief that is sent to the engine', () => vscode.postMessage({ type: 'project.view', id: p.id })),
+          small('Refresh', 'Rebuild it from the folder as it is now. One engine call.', () => vscode.postMessage({ type: 'project.refresh', id: p.id })),
+          small('Detach', null, () => vscode.postMessage({ type: 'project.detach', id: p.id })),
+        ]);
+      }
+      row('Caps', `At most ${proj.maxFiles} files and ${Math.round(proj.maxBytes / 1000).toLocaleString()} KB are read when a brief is built. .env files, keys, anything .gitignore\u2019d, and every build directory are excluded before the search runs, not after.`);
     }
 
     // --- Layout ---

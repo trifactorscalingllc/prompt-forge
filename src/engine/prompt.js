@@ -2,6 +2,7 @@
 // The two engine prompts, as pure string builders. Nothing here touches the network or the disk;
 // the style guide arrives as text so this file is testable and the guides stay editable.
 const { SECTIONS } = require('../doc');
+const { contextBlock } = require('../project');
 
 const OUTPUT_CONTRACT = [
   'Output: one JSON object and nothing else. No code fence, no commentary before or after it.',
@@ -13,7 +14,7 @@ const iso = (ts) => { try { return new Date(ts).toISOString(); } catch { return 
 const block = (s) => (String(s == null ? "" : s).endsWith("\n") ? String(s) : `${s}\n`);
 const q = (s) => `"${String(s == null ? '' : s).replace(/\s+/g, ' ').trim()}"`;
 
-function buildMergePrompt({ doc, ideas = [], resolutions = [], revisions = [], conflicts = [], recent = [], target, sections = SECTIONS }) {
+function buildMergePrompt({ doc, ideas = [], resolutions = [], revisions = [], conflicts = [], recent = [], target, projects = [], sections = SECTIONS }) {
   const label = (target && target.label) || 'the target model';
   const merged = recent.length
     ? recent.map((e) => `- [${iso(e.ts)}] ${String(e.text || '').replace(/\s+/g, ' ').trim()}`).join('\n')
@@ -31,7 +32,7 @@ function buildMergePrompt({ doc, ideas = [], resolutions = [], revisions = [], c
 
   return `You are the merge engine inside Prompt Forge, a workbench where a person builds one complicated prompt for ${label} by adding ideas one at a time. You edit the working document; you never answer the prompt yourself.
 
-<document>
+${contextBlock(projects)}<document>
 ${block(doc)}</document>
 
 The document is the source of truth. The person may have edited it by hand since the last merge, and every word of it is deliberate: keep hand edits, keep the section order and headings as they are (whatever style they are in), and keep the wording of anything you are not changing.
@@ -73,12 +74,13 @@ ${OUTPUT_CONTRACT}
 `;
 }
 
-function buildPolishPrompt({ doc, conflicts = [], target, styleGuide }) {
+function buildPolishPrompt({ doc, conflicts = [], target, styleGuide, projects = [] }) {
   const label = (target && target.label) || 'the target model';
   const family = (target && target.family) || 'claude';
+  const ctx = contextBlock(projects);
   return `You are the polish engine inside Prompt Forge. Rewrite the working document below into the final prompt for ${label}, following the style guide exactly. Change form, not substance: every goal, requirement, constraint, example and open question must survive with the same meaning. Add nothing the document does not say; drop nothing it does.
 
-<style-guide family="${family}">
+${ctx}${ctx ? 'You may name real paths and files from the context above where the document already refers to them vaguely; that is a change of form, not substance. Do not introduce a path the document does not already imply.\n\n' : ''}<style-guide family="${family}">
 ${styleGuide}
 </style-guide>
 

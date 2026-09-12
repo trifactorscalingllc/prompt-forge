@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.4.0
+
+- **Attach a project folder to a prompt.** The **+ Project** chip in the header opens a picker; the engine then gets a short description of that codebase with every merge and polish, and writes real names, paths and vocabulary instead of “your framework” and “the existing component”. The brief is built once, on attach, with the polish model, and reused after that.
+- **Two scopes, deliberately different sizes.** `promptForge.projectRoots` is the umbrella the picker may **list** — names and paths only, never a file, and `scope: machine` so a workspace cannot nominate folders for the forge to enumerate. **Reading** is exactly the one project you attach. Umbrella reading is refused; [docs/project-context.md](docs/project-context.md) records the four reasons, because it will be proposed again.
+- **The deny-list runs before the search, not after.** `.env*`, `*.pem`, `*.key`, `id_rsa*`, `credentials*`, `secrets*`, `.npmrc`, `.netrc`, every build and dependency directory, anything over 256 KB and anything that fails a UTF-8 sniff. A rule applied to results is a rule that has already read the file it meant to skip.
+- **What it read is a list, not a promise.** **View** opens the exact brief being sent plus every file it came from. **Refresh** rebuilds it, **Detach** removes it, and `promptForge.projectContext: off` stops sending it without detaching.
+- The context block tells the model to use the project’s real names *and* not to invent files the brief does not mention — anything an idea needs that the context does not cover goes to Open questions. Context is there to reduce assumptions, not to license new ones.
+- Attaching works with no engine signed in: the folder is recorded and the brief builds on the next successful call.
+- A brief is per prompt rather than shared between prompts on the same path, because it is hand-editable and a shared one would rewrite other prompts' context silently. `projectRoots` defaults to empty, because the picker already offers the open workspace.
+
 ## 0.3.6
 
 - **The Prompts list collapses.** The chevron next to the heading shuts it to a 30px strip and gives the space to the work; the chevron brings it back. Also *Prompt Forge: Toggle the Prompts List* in the command palette, and a row in Settings → Layout. The choice is remembered (`promptForge.railCollapsed`).
