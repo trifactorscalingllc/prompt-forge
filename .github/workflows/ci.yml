@@ -17,9 +17,9 @@ jobs:
           node-version: 22
       - run: npm test
       - run: npm run check
-      - run: npx --yes @vscode/vsce@3 package --no-dependencies --out promptforge.vsix
+      - run: npx --yes @vscode/vsce@3 package --no-dependencies --out prompt-forge-trifactor.vsix
       - uses: actions/upload-artifact@v4
         if: matrix.os == 'ubuntu-latest'
         with:
-          name: promptforge-vsix
-          path: promptforge.vsix
+          name: prompt-forge-trifactor-vsix
+          path: prompt-forge-trifactor.vsix

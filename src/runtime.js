@@ -344,7 +344,7 @@ function create(host) {
         if (m.url && /^(https?|mailto):/i.test(m.url)) await vscode.env.openExternal(vscode.Uri.parse(m.url));
         return;
       case 'openSettings':
-        await vscode.commands.executeCommand('workbench.action.openSettings', '@ext:trifactorscaling.promptforge');
+        await vscode.commands.executeCommand('workbench.action.openSettings', '@ext:trifactorscaling.prompt-forge-trifactor');
         return;
       case 'setDocEditor':
         if (m.value === 'forge' || m.value === 'office' || m.value === 'text') {

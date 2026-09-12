@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.3.5
+
+- **Published to the VS Code Marketplace** as `trifactorscaling.prompt-forge-trifactor`, shown as *Prompt Forge for VS Code*.
+- The id and the display name both had to move, and the Marketplace explains neither. It checks the extension `name` **globally**, not as a `publisher.name` pair, and it applies the same rule to `displayName` — so a name held by any other publisher, including by extensions that do not appear in Marketplace search, is unusable. `prompt-forge`, `promptforge` and `prompt-forge-vscode` were each rejected with the same message naming only the id, which is why this took four attempts to read correctly (microsoft/vsmarketplace#378, microsoft/vscode-vsce#671). A publisher-qualified id went through first try.
+- `~/.prompt-forge/prompts` is unrelated to the Marketplace id and is unchanged. Existing prompt libraries are untouched.
+
 ## 0.3.4
 
 - **The extension id is now `trifactorscaling.promptforge`** (was `prompt-forge`). The name it shows in VS Code is unchanged. The VS Code Marketplace enforces globally unique extension *names*, not unique `publisher.name` pairs, so an unrelated `drendog.prompt-forge` made the old id unpublishable under any publisher — 0.3.3 failed on exactly that. Only one line of code referred to the id (the *Open Settings* command's `@ext:` filter); the `~/.prompt-forge/prompts` library path is a different thing and is untouched.
