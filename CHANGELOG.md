@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.12.1
+
+- **The model marks in the target list are the vendors' own**, lifted verbatim from Simple Icons (CC0) and Bootstrap Icons (MIT), each keeping its source viewBox. The ones I drew from memory rendered as a thin asterisk and a plain hexagon at 13px, which is worse than showing no logo at all.
+- The send button is a filled dart with a fold line. Stroked, at 14px, it read as an arbitrary polygon.
+
 ## 0.12.0
 
 Groundwork for a library that lives on more than one machine, plus a correction to an icon.
