@@ -174,6 +174,10 @@ test('the target reads as "for <model>" on the Prompt head, and is a floating li
 
   const css = fs.readFileSync(path.join(ROOT, 'media/panel.css'), 'utf8');
   assert.ok(/\.floating \{[^}]*position: fixed/.test(css), 'fixed, so the panel overflow cannot clip it');
+  // The target is a <button> too, so :first-of-type never matches an .iconbtn: the trio has to be
+  // pushed right from the left-hand group, not pulled right by itself.
+  assert.ok(/\.col-head \.targetpick \{ margin-right: auto/.test(css), 'the icon trio stays pinned right');
+  assert.ok(!/\.col-head \.iconbtn:first-of-type \{ margin-left: auto/.test(css), 'the selector that silently never matched is gone');
   assert.ok(/\.fitem-desc/.test(css), 'each option carries its blurb, which is why this is not a select');
   // A vendor mark per family, from one map, so an official asset replaces a drawn one in one line.
   assert.ok(/const MARK = \{/.test(panel) && /claude:/.test(panel) && /gemini:/.test(panel) && /gpt:/.test(panel));

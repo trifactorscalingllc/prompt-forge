@@ -317,3 +317,57 @@ test('an untitled prompt names itself from the first idea, once; rename changes 
   assert.equal(sc.snapshots[sc.snapshots.length - 1].kind, 'rename');
   assert.equal(session.snapshot().title, 'Landing brief');
 });
+
+test('a suggestion never reaches the document, the disk, or the clipboard', async () => {
+  const ADVICE = 'Name the three output formats you accept here.';
+  const { s, slug, session, docio, docPath } = setup((req) => {
+    const doc = docOf(req.prompt);
+    return {
+      text: JSON.stringify({
+        doc: doc.includes('## Goal\n') ? doc.replace('## Goal\n', '## Goal\n\nShip it.\n') : `${doc}\n## Goal\n\nShip it.\n`,
+        conflicts: [], changes: ['added goal'],
+        suggestions: [{ section: 'Output format', text: ADVICE }],
+      }),
+      usage: { input: 10, output: 2 }, error: null,
+      call: { provider: 'fake', mode: 'cli', model: 'fast', role: req.role, ms: 1, usage: { input: 10, output: 2 } },
+    };
+  });
+  await session.load();
+  session.submitIdea('ship it');
+  await session.idle();
+
+  // It exists, and the panel can see it.
+  assert.deepEqual(s.read(slug).suggestions, [{ section: 'Output format', text: ADVICE }]);
+  assert.equal(session.snapshot().suggestions[0].text, ADVICE);
+
+  // And it is in none of the three places a prompt actually leaves the tool from. This is the
+  // point of storing it in the sidecar: there is no strip step here that could be got wrong.
+  assert.ok(!(await docio.readDoc(docPath)).includes(ADVICE), 'not in the document on disk');
+  assert.ok(!(await session.copyText()).includes(ADVICE), 'not in a copy');
+  const sc = s.read(slug);
+  assert.ok(!sc.snapshots.some((x) => String(x.doc || '').includes(ADVICE)), 'not in any snapshot, so restore cannot resurrect it');
+});
+
+test('suggestions are replaced wholesale by the next merge, never accumulated', async () => {
+  let n = 0;
+  const { s, slug, session } = setup((req) => {
+    n += 1;
+    const doc = docOf(req.prompt);
+    return {
+      text: JSON.stringify({
+        doc: doc.includes('## Goal\n') ? doc.replace('## Goal\n', `## Goal\n\nL${n}\n`) : `${doc}\n## Goal\n\nL${n}\n`,
+        conflicts: [], changes: [],
+        suggestions: [{ section: 'Goal', text: `advice ${n}` }],
+      }),
+      usage: { input: 1, output: 1 }, error: null,
+      call: { provider: 'fake', mode: 'cli', model: 'fast', role: req.role, ms: 1, usage: { input: 1, output: 1 } },
+    };
+  });
+  await session.load();
+  session.submitIdea('one');
+  await session.idle();
+  session.submitIdea('two');
+  await session.idle();
+  // Stale advice about a section that has since been filled is worse than none.
+  assert.deepEqual(s.read(slug).suggestions.map((x) => x.text), ['advice 2']);
+});

@@ -14,7 +14,7 @@ const iso = (ts) => { try { return new Date(ts).toISOString(); } catch { return 
 const block = (s) => (String(s == null ? "" : s).endsWith("\n") ? String(s) : `${s}\n`);
 const q = (s) => `"${String(s == null ? '' : s).replace(/\s+/g, ' ').trim()}"`;
 
-function buildMergePrompt({ doc, ideas = [], resolutions = [], revisions = [], conflicts = [], recent = [], target, projects = [], needsTitle = false, sections = SECTIONS, sectionNames = [], mergedTotal = null }) {
+function buildMergePrompt({ doc, ideas = [], resolutions = [], revisions = [], conflicts = [], recent = [], target, projects = [], needsTitle = false, suggest = false, sections = SECTIONS, sectionNames = [], mergedTotal = null }) {
   const label = (target && target.label) || 'the target model';
   const merged = recent.length
     ? recent.map((e) => `- [${iso(e.ts)}] ${String(e.text || '').replace(/\s+/g, ' ').trim()}`).join('\n')
@@ -79,7 +79,8 @@ ${aliases}
 9. Write clearly enough that a model reading the finished prompt has nothing to assume: prefer a concrete statement over a vague one, and put anything the person left undecided under Open questions rather than guessing.
 10. Add nothing of your own. Every line you write must come from a new idea, a resolution, or text already in the document. Do not invent requirements, constraints, examples, names, numbers or file paths the person has not given, and do not fill a section to make it look complete — a section with no material is left out. Rule 9 asks you to state the person's material precisely; it is not permission to supply material they did not.
 
-${OUTPUT_CONTRACT}${needsTitle ? `
+${OUTPUT_CONTRACT}${suggest ? `
+Also return "suggestions": up to three objects {"section": "<section name>", "text": "<one or two sentences>"}. Each names a section of THIS document that is empty, thin, or missing something a model would have to guess at, and says concretely what belongs there — drawn from what the document and the ideas already establish. Write them as advice to the person, addressed to them ("Name the three formats you accept here"), never as text to paste in. Nothing to say is an empty array; do not manufacture three. These are advice only and must never appear in "doc".` : ''}${needsTitle ? `
 Also return "title": a name for this prompt of AT MOST FIVE WORDS, describing what the finished prompt is for. Name the subject, not the act of asking: "Collapsible prompt sidebar", not "Oh idea" or "User wants changes". No trailing punctuation, no quotes.` : ''}
 `;
 }

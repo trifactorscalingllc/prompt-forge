@@ -72,6 +72,14 @@ function parseEngineOutput(text, { kind = 'merge', inputDoc = '' } = {}) {
     conflicts: coerceConflicts(obj.conflicts),
     changes: Array.isArray(obj.changes) ? obj.changes.map((c) => str(c)).filter(Boolean) : [],
     title: typeof obj.title === 'string' ? str(obj.title).trim() : '',
+    // Advice about the document, never part of it. Capped here so a chatty engine cannot turn the
+    // prompt panel into a lecture.
+    suggestions: Array.isArray(obj.suggestions)
+      ? obj.suggestions
+        .filter((x) => x && typeof x === 'object' && String(x.text || '').trim())
+        .slice(0, 3)
+        .map((x) => ({ section: str(x.section).trim().slice(0, 60), text: str(x.text).replace(/\s+/g, ' ').trim().slice(0, 400) }))
+      : [],
   };
 }
 

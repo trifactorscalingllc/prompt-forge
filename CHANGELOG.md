@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.6.0
+
+- **Prompt suggestions.** Where a section is empty or thin, a soft-yellow note appears in the prompt saying what belongs there, drawn from what the document and your ideas already establish — the empty *Output format* and *Constraints* headings that sit there for a reason and never get filled. Dismiss one with × and it stays gone for that prompt.
+- **They cannot be copied, because they were never in the prompt.** The engine returns them as a separate field, they are stored in the sidecar, and they are injected into the rendered panel. There is no strip-on-copy step to get wrong: the `.md` has never held one, so the document on disk, every snapshot, and the clipboard are all clean by construction. Three assertions cover exactly that.
+- They cost no extra call — the merge is already reading the whole document, so it returns the advice alongside the merged text. At most three, never padded to a quota, and phrased as advice to you rather than text to paste in. Off with `promptForge.suggestions` or the Settings → Project row.
+- Fixed: Polish, Copy and Edit drifted left against the title on the Prompt panel. `.col-head .iconbtn:first-of-type` never matched, because the target button is a `<button>` too and took `:first-of-type` for itself.
+
 ## 0.5.1
 
 - Restores eight tests in `test/prompt.test.mjs` that 0.5.0 destroyed: the new cases were written into a file that already existed rather than appended to it. The suite is 181, and nothing about 0.5.0's three fixes changes — the older cases pass against them unaltered, which is the useful part of finding it.

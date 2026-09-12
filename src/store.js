@@ -66,7 +66,7 @@ function open(libraryPath, { home } = {}) {
   function read(slug) {
     const sc = readJson(sidecarPath(slug));
     if (!sc || sc.version !== 1) return null;
-    for (const k of ['entries', 'snapshots', 'conflicts', 'resolved', 'projects']) if (!Array.isArray(sc[k])) sc[k] = [];
+    for (const k of ['entries', 'snapshots', 'conflicts', 'resolved', 'projects', 'suggestions', 'dismissed']) if (!Array.isArray(sc[k])) sc[k] = [];
     return sc;
   }
 
@@ -173,6 +173,20 @@ function open(libraryPath, { home } = {}) {
   // An allow-list the person wrote one path at a time. Replaced wholesale so a detach cannot leave
   // a half-removed entry behind.
   const setProjects = (slug, projects) => withSidecar(slug, (sc) => { sc.projects = Array.isArray(projects) ? projects : []; return sc.projects; });
+  // Suggestions live here and never in the .md, so a copy cannot carry them and a hand edit cannot
+  // accidentally save one into the prompt. `dismissed` holds the text of ones waved away, because
+  // every merge regenerates the list and an unremembered dismissal would nag.
+  const setSuggestions = (slug, list) => withSidecar(slug, (sc) => {
+    const gone = new Set(sc.dismissed || []);
+    sc.suggestions = (Array.isArray(list) ? list : []).filter((x) => x && x.text && !gone.has(x.text));
+    return sc.suggestions;
+  });
+  const dismissSuggestion = (slug, text) => withSidecar(slug, (sc) => {
+    const t = String(text || '');
+    if (t && !sc.dismissed.includes(t)) sc.dismissed.push(t);
+    sc.suggestions = sc.suggestions.filter((x) => x && x.text !== t);
+    return sc.suggestions;
+  });
 
   function setConflicts(slug, conflicts, { entryId = null } = {}) {
     return withSidecar(slug, (sc) => {
@@ -221,7 +235,7 @@ function open(libraryPath, { home } = {}) {
 
   return {
     dir, docPath, sidecarPath, exists, read, write, create, list, stats,
-    appendEntry, updateEntry, addSnapshot, setTarget, setTitle, setProjects, setConflicts, resolveConflict, remove,
+    appendEntry, updateEntry, addSnapshot, setTarget, setTitle, setProjects, setSuggestions, dismissSuggestion, setConflicts, resolveConflict, remove,
     readDoc, writeDoc,
   };
 }

@@ -322,6 +322,12 @@
     }
     row('Split', `Ideas gets ${lay.split}% of the space. Drag the divider between the panels, or double-click it to even them up.`,
       small('Even split', null, () => vscode.postMessage({ type: 'setLayout', split: 50 })));
+    row('Suggestions', (s.suggestions === false)
+      ? 'Off. The prompt is shown exactly as it is.'
+      : 'On. Where a section is empty or thin, a note in the prompt says what belongs there. They live beside the prompt and never inside it, so a copy never carries one and a hand edit cannot save one into the document.',
+      small(s.suggestions === false ? 'Turn on' : 'Turn off', null,
+        () => vscode.postMessage({ type: 'setSuggestions', value: s.suggestions === false })));
+
     row('Prompts list', lay.railCollapsed
       ? 'Collapsed to a strip. The chevron on the strip brings it back, as does Prompt Forge: Toggle the Prompts List.'
       : 'Shown down the left. Collapse it with the chevron next to the heading to give the work the space.',
@@ -363,6 +369,49 @@
       return;
     }
     root.innerHTML = renderMarkdown(a.doc || '');
+    placeSuggestions(root, s);
+  }
+
+  // ------------------------------------------------------------------------------------------
+  // Suggestions
+  //
+  // Advice about the prompt, drawn beside it. They are never part of the document: the engine
+  // returns them separately, they are stored in the sidecar, and they are injected into the
+  // rendered DOM here. So "a copy must not carry them" is not a strip step that could be got
+  // wrong -- there is nothing to strip, because the .md never held one.
+  // ------------------------------------------------------------------------------------------
+  const norm = (t) => String(t || '').toLowerCase().replace(/[^a-z0-9]+/g, '');
+
+  function placeSuggestions(root, s) {
+    const list = (s.active && s.active.suggestions) || [];
+    if (!list.length || s.suggestions === false) return;
+    const heads = [...root.querySelectorAll('h1, h2, h3, h4')];
+    for (const sg of list) {
+      const card = suggestionCard(sg);
+      const want = norm(sg.section);
+      // Sections are named differently once polished (<open_questions>, # Task), so match on the
+      // squashed text and fall back to the end of the document rather than dropping the advice.
+      const head = want && heads.find((h) => {
+        const n = norm(h.textContent);
+        return n === want || n.includes(want) || want.includes(n);
+      });
+      if (!head) { root.append(card); continue; }
+      let at = head;
+      while (at.nextElementSibling && !/^H[1-4]$/.test(at.nextElementSibling.tagName)) at = at.nextElementSibling;
+      at.after(card);
+    }
+  }
+
+  function suggestionCard(sg) {
+    const card = el('div', 'suggestion');
+    const body = el('div', 'sg-body');
+    if (sg.section) body.append(el('span', 'sg-where', sg.section));
+    body.append(el('span', 'sg-text', sg.text));
+    const x = el('button', 'sg-x', '\u00d7');
+    x.title = 'Dismiss. It will not come back for this prompt.';
+    x.addEventListener('click', () => vscode.postMessage({ type: 'suggestion.dismiss', text: sg.text }));
+    card.append(body, x);
+    return card;
   }
 
   // ------------------------------------------------------------------------------------------

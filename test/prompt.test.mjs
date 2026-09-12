@@ -150,3 +150,59 @@ test('merge may not invent, which until now only polish was told', () => {
 test('polish still carries its own no-invention rule, unchanged', () => {
   assert.ok(/Add nothing the document does not say; drop nothing it does/.test(buildPolishPrompt({ ...solo, styleGuide: 'g' })));
 });
+
+// ----------------------------------------------------------------------------------------------
+// Suggestions: advice about the prompt that must never become part of it.
+// ----------------------------------------------------------------------------------------------
+
+test('suggestions are asked for only when wanted, and never into the document', () => {
+  assert.ok(!buildMergePrompt(solo).includes('"suggestions"'), 'off by default in the builder');
+  const p = buildMergePrompt({ ...solo, suggest: true });
+  assert.ok(p.includes('"suggestions"'));
+  assert.ok(/up to three/.test(p) && /do not manufacture three/.test(p), 'no padding to a quota');
+  assert.ok(/never as text to paste in/.test(p), 'advice to the person, not body copy');
+  assert.ok(/must never appear in "doc"/.test(p), 'the engine is told the boundary too');
+  // Polish never asks: it is a restyle of what exists, not a review of what is missing.
+  assert.ok(!buildPolishPrompt({ ...solo, styleGuide: 'g' }).includes('"suggestions"'));
+});
+
+test('the parser caps suggestions and drops the empty ones', () => {
+  const { parseEngineOutput } = require('../src/engine/output.js');
+  const reply = JSON.stringify({
+    doc: '# T\n\n## Goal\n\nx\n',
+    suggestions: [
+      { section: 'Output format', text: '  Name the three formats you accept.  ' },
+      { section: 'Examples', text: '' },
+      { section: 'Constraints', text: 'Say which constraint wins.' },
+      { section: 'Context', text: 'Who is this for?' },
+      { section: 'Goal', text: 'A fourth, over the cap.' },
+    ],
+  });
+  const out = parseEngineOutput(reply, { kind: 'merge', inputDoc: '# T\n\n## Goal\n\nx\n' });
+  assert.ok(out.ok);
+  assert.equal(out.suggestions.length, 3, 'three at most, empties removed first');
+  assert.equal(out.suggestions[0].text, 'Name the three formats you accept.', 'whitespace normalised');
+  assert.ok(!out.suggestions.some((x) => x.text.includes('fourth')));
+  assert.deepEqual(parseEngineOutput(JSON.stringify({ doc: '# T\n\nx\n' }), { kind: 'merge' }).suggestions, [],
+    'an engine that returns none is not an error');
+});
+
+test('a dismissed suggestion does not come back when the next merge regenerates them', async () => {
+  const os = require('node:os');
+  const fsn = require('node:fs');
+  const storeMod = require('../src/store.js');
+  const dir = fsn.mkdtempSync(path.join(os.tmpdir(), 'forge-sg-'));
+  const store = storeMod.open(dir);
+  const { slug } = store.create('T');
+
+  store.setSuggestions(slug, [{ section: 'Examples', text: 'Add one worked example.' }, { section: 'Goal', text: 'Say what done looks like.' }]);
+  assert.equal(store.read(slug).suggestions.length, 2);
+
+  store.dismissSuggestion(slug, 'Add one worked example.');
+  assert.deepEqual(store.read(slug).suggestions.map((x) => x.text), ['Say what done looks like.']);
+
+  // Every merge regenerates the list, so the dismissal has to be remembered or it nags forever.
+  store.setSuggestions(slug, [{ section: 'Examples', text: 'Add one worked example.' }, { section: 'Context', text: 'Name the audience.' }]);
+  assert.deepEqual(store.read(slug).suggestions.map((x) => x.text), ['Name the audience.']);
+  fsn.rmSync(dir, { recursive: true, force: true });
+});

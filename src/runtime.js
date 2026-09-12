@@ -103,6 +103,7 @@ function create(host) {
       layout: layoutState(),
       engineCfg: config().engine || {},
       project: projectCfg(),
+      suggestions: setting('suggestions', config().suggestions) !== false,
       blurbs: blurbs(engine.state()),
     };
   }
@@ -462,6 +463,13 @@ function create(host) {
         await handleMessage({ type: `project.${pick.act}`, id: pick.id });
         return;
       }
+      case 'suggestion.dismiss':
+        if (s && m.text) s.dismissSuggestion(String(m.text));
+        return;
+      case 'setSuggestions':
+        await updateSetting('suggestions', m.value !== false);
+        post();
+        return;
       case 'project.detach':
         if (s && m.id) detachProject(s.slug, String(m.id));
         return;

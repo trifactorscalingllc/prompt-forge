@@ -77,9 +77,10 @@ function createSession({ slug, store, docio, engine, cfg, log, publish = () => {
         const needsTitle = role === 'merge' && /^Untitled( \d+)?$/.test(sc.title) && !sc.entries.some((e) => e.status === 'merged');
         const mergedTotal = sc.entries.filter((e) => e.status === 'merged').length;
         const sectionNames = targets.sectionsFor(target.family);
+        const suggest = role === 'merge' && (cfg() || {}).suggestions !== false;
         const prompt = role === 'polish'
           ? buildPolishPrompt({ doc: body, conflicts, target, styleGuide: targets.styleGuide(target.family), projects })
-          : buildMergePrompt({ doc: body, ideas, resolutions, revisions, conflicts, recent, target, projects, needsTitle, sectionNames, mergedTotal });
+          : buildMergePrompt({ doc: body, ideas, resolutions, revisions, conflicts, recent, target, projects, needsTitle, suggest, sectionNames, mergedTotal });
         const timeoutMs = (engineCfg().timeoutSeconds || 240) * 1000;
 
         const res = await engine.call({ role, prompt, timeoutMs });
@@ -115,6 +116,9 @@ function createSession({ slug, store, docio, engine, cfg, log, publish = () => {
           out.doc = docm.setTitle(out.doc, title);
           reread();
         }
+        // Written to the sidecar, never to the document: that is the whole guarantee that a copy
+        // cannot carry them. `out.doc` is what reaches disk and it has never seen them.
+        if (role === 'merge') { store.setSuggestions(slug, suggest ? out.suggestions : []); reread(); }
         await docio.writeDoc(docPath, docm.withConflictBlock(out.doc, sc.conflicts));
         const kind = role === 'polish' ? 'polish' : entryIds.length ? 'merge' : revised.length ? 'revise' : 'resolve';
         const snap = store.addSnapshot(slug, { kind, entryIds: touched, doc: out.doc, conflicts: sc.conflicts, changes: out.changes, target: sc.target, call: res.call });
@@ -228,6 +232,7 @@ function createSession({ slug, store, docio, engine, cfg, log, publish = () => {
       snapshots: sc.snapshots.map(({ doc, ...rest }) => rest),
       conflicts: sc.conflicts.map((c) => ({ ...c })),
       projects: (sc.projects || []).map((p) => ({ ...p })),
+      suggestions: (sc.suggestions || []).map((x) => ({ ...x })),
       engine: { ...engineState, queued: queue.size() },
       usage,
     };
@@ -246,6 +251,7 @@ function createSession({ slug, store, docio, engine, cfg, log, publish = () => {
     polish: () => queue.push({ kind: 'polish' }),
     setTarget(target) { store.setTarget(slug, target); reread(); queue.push({ kind: 'polish' }); },
     restore, rename, copyText, idle,
+    dismissSuggestion(text) { store.dismissSuggestion(slug, text); reread(); publish('suggestions'); },
     busy: () => queue.busy() || queue.size() > 0,
     dispose() { disposed = true; queue.clear(); },
   };

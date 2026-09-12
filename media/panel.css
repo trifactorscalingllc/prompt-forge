@@ -138,7 +138,10 @@ h2 { font-size: 1.1em; margin: 0 0 6px; }
    34px strip would outweigh the panel they label. */
 .col-head .iconbtn { background: none; color: var(--vscode-descriptionForeground); padding: 3px 5px; }
 .col-head .iconbtn:hover:not(:disabled) { background: var(--vscode-toolbar-hoverBackground, var(--vscode-list-hoverBackground)); color: var(--vscode-foreground); }
-.col-head .iconbtn:first-of-type { margin-left: auto; }
+/* The target button is also a <button>, so :first-of-type never matched an .iconbtn and the trio
+   drifted left against the title. Push from the left-hand group instead of pulling the right. */
+.col-head .targetpick { margin-right: auto; }
+.col-head > .iconbtn:first-of-type:not(.targetpick) { margin-left: auto; }
 .col-head .iconbtn.swap.ok { background: none; color: var(--vscode-testing-iconPassed, var(--vscode-charts-green, #3fb950)); }
 #ideas .conflicts { margin: 8px 10px 0; }
 #history { padding: 0 10px; }
@@ -257,6 +260,18 @@ html, body { height: 100%; overflow: hidden; max-width: 100%; }
 /* The brief inside the idea box is guidance, not content: it should read as the quietest thing on
    the panel and never compete with what you are typing. */
 #idea::placeholder { font-size: 0.88em; opacity: 0.5; line-height: 1.45; }
+
+/* Suggestions: advice sitting beside the prompt, never in it. A soft yellow that reads on both
+   themes without borrowing an error colour -- this is not a problem, it is a prompt. */
+.suggestion { display: flex; align-items: flex-start; gap: 8px; margin: 6px 0 10px;
+  padding: 7px 9px; border-radius: 4px; border-left: 3px solid #e0b341;
+  background: rgba(224, 179, 65, 0.11); color: var(--vscode-foreground); }
+.sg-body { flex: 1; min-width: 0; font-size: 0.92em; line-height: 1.45; }
+.sg-where { display: inline-block; margin-right: 6px; padding: 0 5px; border-radius: 3px;
+  background: rgba(224, 179, 65, 0.22); font-size: 0.86em; opacity: 0.95; }
+.sg-text { opacity: 0.92; }
+.sg-x { flex: none; background: none; border: none; color: inherit; opacity: 0.45; cursor: pointer; padding: 0 3px; line-height: 1; }
+.sg-x:hover { opacity: 1; }
 
 /* The foot of the Prompt panel: the count always, a notice only when there is one. */
 .col-foot { flex: none; display: flex; align-items: center; justify-content: space-between; gap: 8px;

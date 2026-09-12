@@ -2,7 +2,7 @@
   "name": "prompt-forge-trifactor",
   "displayName": "Prompt Forge for VS Code",
   "description": "Build complicated prompts one idea at a time. Every Enter merges an idea into a structured prompt, contradictions surface instead of being guessed away, and Polish rewrites it for the model you are sending it to. Works with your own Claude, Gemini, or OpenAI login, or any API key.",
-  "version": "0.5.1",
+  "version": "0.6.0",
   "publisher": "trifactorscaling",
   "license": "MIT",
   "repository": {
@@ -235,6 +235,13 @@
           "scope": "window",
           "order": 10,
           "description": "Collapse the Prompts list to a strip. Click the chevron on the list, or run Prompt Forge: Toggle the Prompts List."
+        },
+        "promptForge.suggestions": {
+          "type": "boolean",
+          "default": true,
+          "scope": "window",
+          "order": 10.5,
+          "markdownDescription": "Show suggestions in the prompt where a section is empty or thin. They are advice only: they live beside the prompt, never inside it, so they are never copied and never saved into the document."
         },
         "promptForge.projectRoots": {
           "type": "array",

@@ -50,6 +50,7 @@ function readConfig() {
       maxFiles: c.get('projectMaxFiles', 400),
       maxBytes: c.get('projectMaxBytes', 2000000),
     },
+    suggestions: c.get('suggestions', true),
     docEditor: c.get('docEditor', 'forge'),
     sourcePath: c.get('sourcePath', ''),
     autoReload: c.get('autoReload', true),
