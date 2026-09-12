@@ -28,7 +28,7 @@ jobs:
           generate_release_notes: true
       - name: Publish to the VS Code Marketplace
         if: ${{ env.VSCE_PAT != '' }}
-        run: npx --yes @vscode/vsce@3 publish --packagePath prompt-forge-trifactor-*.vsix
+        run: npx --yes @vscode/vsce@3 publish --skip-duplicate --packagePath prompt-forge-trifactor-*.vsix
       - name: Publish to Open VSX
         if: ${{ env.OVSX_PAT != '' }}
         run: npx --yes ovsx publish prompt-forge-trifactor-*.vsix -p "$OVSX_PAT"
