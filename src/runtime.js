@@ -10,6 +10,7 @@ const os = require('node:os');
 const view = require('./view');
 const storeMod = require('./store');
 const { createDocio } = require('./docio');
+const { createDocEditors } = require('./docedit');
 const { createSession } = require('./session');
 const { createEngine } = require('./engine/engine');
 const { createProviders, secretKey } = require('./providers');
@@ -31,6 +32,12 @@ function create(host) {
   const disposables = [];
 
   const docio = createDocio(vscode, { log });
+  // The custom editor is registered by the cold shell; this owns what happens inside one.
+  const docEditors = createDocEditors({
+    vscode, docio, log,
+    docHtml: view.docHtml,
+    mediaRoots: () => (host.mediaRoots ? host.mediaRoots() : []),
+  });
   const providers = createProviders({ runCli, resolveBin, fetch: globalThis.fetch, fs, home: os.homedir() });
   const engine = createEngine({ providers, config, secrets, log });
 
@@ -294,13 +301,13 @@ function create(host) {
         await vscode.commands.executeCommand('revealFileInOS', vscode.Uri.file(store.dir));
         return;
       case 'openUrl':
-        if (m.url && /^https:\/\//.test(m.url)) await vscode.env.openExternal(vscode.Uri.parse(m.url));
+        if (m.url && /^(https?|mailto):/i.test(m.url)) await vscode.env.openExternal(vscode.Uri.parse(m.url));
         return;
       case 'openSettings':
         await vscode.commands.executeCommand('workbench.action.openSettings', '@ext:trifactorscaling.prompt-forge');
         return;
       case 'setDocEditor':
-        if (m.value === 'office' || m.value === 'text') {
+        if (m.value === 'forge' || m.value === 'office' || m.value === 'text') {
           await vscode.workspace.getConfiguration('promptForge').update('docEditor', m.value, vscode.ConfigurationTarget.Global);
           post();
         }
@@ -350,6 +357,9 @@ function create(host) {
 
   return {
     html: view.html,
+    /** One open document editor, handed over by the cold shell on open and again after a reload. */
+    attachDoc: (document, panel, gen) => docEditors.attach(document, panel, gen),
+    detachDoc: (panel) => docEditors.detach(panel),
     handleMessage,
     replay() { post(); },
     start() {
@@ -383,6 +393,7 @@ function create(host) {
     dispose() {
       disposed = true;
       clearTimeout(repaintTimer);
+      docEditors.dispose();
       for (const s of sessions.values()) s.dispose();
       sessions.clear();
       for (const d of disposables) { try { d.dispose(); } catch { /* already gone */ } }

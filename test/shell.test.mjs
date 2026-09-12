@@ -21,7 +21,7 @@ function fakeHost() {
     config: () => ({
       libraryPath: fs.mkdtempSync(path.join(require('node:os').tmpdir(), 'forge-shell-')),
       engine: { provider: 'auto', mergeModel: 'auto', polishModel: 'auto', timeoutSeconds: 240, recentEntries: 12 },
-      cli: { claudePath: '', geminiPath: '', codexPath: '' }, compatible: { baseUrl: '' }, docEditor: 'office',
+      cli: { claudePath: '', geminiPath: '', codexPath: '' }, compatible: { baseUrl: '' }, docEditor: 'forge',
       sourcePath: '', autoReload: true,
     }),
     getPanel: () => null,
@@ -29,6 +29,7 @@ function fakeHost() {
     globalState: { get: () => undefined, update: async () => {} },
     secrets: { get: async () => undefined, store: async () => {}, delete: async () => {} },
     extensionPath: ROOT,
+    mediaRoots: () => [path.join(ROOT, 'media')],
   };
 }
 
@@ -36,7 +37,7 @@ test('the hot runtime builds from its host alone and exposes the kit contract', 
   const mod = require('../src/runtime.js');
   assert.equal(typeof mod.create, 'function');
   const rt = mod.create(fakeHost());
-  for (const k of ['html', 'handleMessage', 'replay', 'start', 'dispose']) assert.equal(typeof rt[k], 'function', k);
+  for (const k of ['html', 'handleMessage', 'replay', 'start', 'dispose', 'attachDoc', 'detachDoc']) assert.equal(typeof rt[k], 'function', k);
   rt.dispose();
 });
 
@@ -66,6 +67,34 @@ test('every setting the cold shell reads is declared in the manifest, and vice v
   const read = [...shell.matchAll(/c\.get\('([^']+)'/g)].map((m) => m[1]);
   for (const k of read) assert.ok(props.includes(k), `${k} is declared`);
   for (const k of props) assert.ok(read.includes(k), `${k} is read`);
+});
+
+test('the built-in document editor is contributed, registered cold, and opened by that exact id', () => {
+  const [ce] = pkg.contributes.customEditors;
+  assert.equal(ce.viewType, 'promptForge.markdown');
+  assert.equal(ce.priority, 'option', 'never steals .md files from the default editor');
+  assert.ok(shell.includes('registerCustomEditorProvider'), 'a provider cannot be re-registered hot');
+  assert.ok(shell.includes(`'${ce.viewType}'`));
+  const docio = fs.readFileSync(path.join(ROOT, 'src/docio.js'), 'utf8');
+  assert.ok(docio.includes(`'${ce.viewType}'`), 'docio opens the id the manifest declares');
+  // Nothing in the extension may require another extension to be installed.
+  assert.ok(!pkg.extensionDependencies, 'no hard dependency on a third-party extension');
+  const props = pkg.contributes.configuration.properties['promptForge.docEditor'];
+  assert.equal(props.default, 'forge');
+  assert.deepEqual(props.enum, ['forge', 'office', 'text']);
+  assert.equal(props.enum.length, props.enumDescriptions.length);
+});
+
+test('every media file the pages load is in the vsix and parses', () => {
+  const view = fs.readFileSync(path.join(ROOT, 'src/view.js'), 'utf8');
+  const wanted = [...view.matchAll(/asset\('([^']+)'\)/g)].map((m) => m[1]);
+  assert.ok(wanted.includes('md.js') && wanted.includes('doc.js') && wanted.includes('doc.css'));
+  for (const f of new Set(wanted)) {
+    assert.ok(fs.existsSync(path.join(ROOT, 'media', f)), `media/${f} exists`);
+    if (!f.endsWith('.js')) continue;
+    const r = spawnSync(process.execPath, ['--check', path.join(ROOT, 'media', f)], { encoding: 'utf8' });
+    assert.equal(r.status, 0, `media/${f}: ${r.stderr}`);
+  }
 });
 
 test('the cold shell and the hot entry parse', () => {

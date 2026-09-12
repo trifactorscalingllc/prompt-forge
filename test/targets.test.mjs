@@ -29,6 +29,6 @@ test('an unknown id is treated as a custom target: label is the id, family defau
   assert.deepEqual(targets.resolve('my-model', 'gemini'), { id: 'my-model', label: 'my-model', family: 'gemini' });
 });
 
-test('the claude guide insists on block-level tags (the WYSIWYG editor mangles inline ones)', () => {
+test('the claude guide insists on block-level tags (an inline tag reads as literal text)', () => {
   assert.match(targets.styleGuide('claude'), /own line/i);
 });

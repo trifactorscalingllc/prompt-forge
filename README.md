@@ -42,7 +42,11 @@ Every idea is written to disk before the engine is called, so nothing is lost if
 
 ## The document beside the panel
 
-If the [Office Viewer](https://marketplace.visualstudio.com/items?itemName=cweijan.vscode-office) extension is installed, the document opens in its WYSIWYG markdown editor and updates in place. Otherwise it opens in the normal text editor. Set `promptForge.docEditor` to `text` to always use the text editor.
+The document opens in Prompt Forge's own editor: the prompt **formatted**, not raw markdown, and editable in place. Click any heading, paragraph, list, table or code block to edit just that part; **Cmd/Ctrl+Enter** or clicking away saves, **Esc** cancels. **Source** in the toolbar switches to the raw markdown for the whole file.
+
+Nothing to install — the editor ships inside the extension, and Prompt Forge has no extension dependencies at all. It follows the document live, so an idea you merge in the panel appears in the editor as it lands (and if a merge arrives while you are editing a block, your box stays open and the update waits).
+
+Two alternatives are a setting away (`promptForge.docEditor`): `office` uses [Office Viewer](https://marketplace.visualstudio.com/items?itemName=cweijan.vscode-office)'s WYSIWYG editor if you happen to have it, and `text` always uses the plain text editor. Any `.md` file can be opened this way — right-click, *Reopen Editor With…*, *Prompt Forge* — but Prompt Forge never takes over markdown files it was not asked to open.
 
 ## Files
 
@@ -60,7 +64,7 @@ Prompts live in `~/.prompt-forge/prompts/` (setting `promptForge.libraryPath`): 
 | `promptForge.engine.recentEntries` | `12` | Already-merged ideas shown to the engine as context |
 | `promptForge.cli.claudePath` / `geminiPath` / `codexPath` | `""` | Binary paths; empty searches PATH |
 | `promptForge.compatible.baseUrl` | `""` | OpenAI-compatible base URL |
-| `promptForge.docEditor` | `office` | `office` or `text` |
+| `promptForge.docEditor` | `forge` | `forge` (built in), `office` (Office Viewer), or `text` |
 
 ## Privacy
 
@@ -79,7 +83,7 @@ No telemetry. Prompts go only to the provider you chose, through its CLI or its 
 
 ## Developing
 
-Zero runtime dependencies, plain CommonJS, vanilla DOM in the webview.
+Zero runtime dependencies, no extension dependencies, plain CommonJS, vanilla DOM in the webviews. The markdown renderer in [media/md.js](media/md.js) is shared by the panel preview and the document editor, and is exercised directly by the tests.
 
 ```bash
 npm test                      # node --test, no VS Code needed

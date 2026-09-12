@@ -244,8 +244,8 @@
 
     // --- Document ---
     section('document', 'Document');
-    row('Editor for hand edits', 'Where the pencil opens the prompt file.',
-      select([['office', 'Pencil editor (Office Viewer) when installed'], ['text', 'Plain text editor']], s.docEditor || 'office',
+    row('Editor for hand edits', 'Where the pencil opens the prompt file. The built-in one needs nothing installed.',
+      select([['forge', 'Prompt Forge editor (formatted, click to edit)'], ['office', 'Office Viewer, if that extension is installed'], ['text', 'Plain text editor']], s.docEditor || 'forge',
         (sel) => vscode.postMessage({ type: 'setDocEditor', value: sel.value })));
     row('Library folder', s.library || '', small('Open folder', null, () => vscode.postMessage({ type: 'openLibrary' })));
     const all = el('button', 'link small-text', 'All settings in VS Code');
@@ -256,50 +256,11 @@
   }
 
   // ------------------------------------------------------------------------------------------
-  // Prompt panel: the document, rendered. Text is escaped first, so a prompt cannot script the page.
+  // Prompt panel: the document, rendered by the shared renderer in media/md.js — the same one the
+  // built-in document editor uses, so the preview and the editor never disagree about the markdown.
+  // Text is escaped there before it is placed, so a prompt cannot script the page.
   // ------------------------------------------------------------------------------------------
-  const esc = (t) => String(t).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-  function inline(t) {
-    return esc(t)
-      .replace(/`([^`]+)`/g, '<code>$1</code>')
-      .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
-      .replace(/(^|[^*])\*([^*\n]+)\*/g, '$1<em>$2</em>');
-  }
-  function renderMarkdown(md) {
-    const lines = String(md || '').replace(/\r/g, '').split('\n');
-    const out = [];
-    let list = null;
-    let para = [];
-    let fence = null;
-    const flushPara = () => { if (para.length) { out.push(`<p>${inline(para.join(' '))}</p>`); para = []; } };
-    const flushList = () => { if (list) { out.push(`</${list}>`); list = null; } };
-    for (const raw of lines) {
-      if (fence !== null) {
-        if (/^```/.test(raw)) { out.push(`<pre><code>${esc(fence.join('\n'))}</code></pre>`); fence = null; } else fence.push(raw);
-        continue;
-      }
-      const line = raw.replace(/\s+$/, '');
-      if (/^```/.test(line)) { flushPara(); flushList(); fence = []; continue; }
-      const h = /^(#{1,6})\s+(.*)$/.exec(line);
-      if (h) { flushPara(); flushList(); out.push(`<h${h[1].length}>${inline(h[2])}</h${h[1].length}>`); continue; }
-      const ul = /^\s*[-*]\s+(.*)$/.exec(line);
-      const ol = /^\s*\d+[.)]\s+(.*)$/.exec(line);
-      if (ul || ol) {
-        flushPara();
-        const kind = ul ? 'ul' : 'ol';
-        if (list !== kind) { flushList(); out.push(`<${kind}>`); list = kind; }
-        out.push(`<li>${inline((ul || ol)[1])}</li>`);
-        continue;
-      }
-      const tag = /^\s*<\/?[a-zA-Z_][\w-]*(?:\s[^>]*)?>\s*$/.test(line);
-      if (tag) { flushPara(); flushList(); out.push(`<div class="xtag">${esc(line.trim())}</div>`); continue; }
-      if (!line.trim()) { flushPara(); flushList(); continue; }
-      para.push(line);
-    }
-    flushPara(); flushList();
-    if (fence !== null) out.push(`<pre><code>${esc(fence.join('\n'))}</code></pre>`);
-    return out.join('\n');
-  }
+  const renderMarkdown = (md) => window.ForgeMD.render(md);
 
   function renderPreview(s) {
     const a = s.active;
@@ -528,6 +489,13 @@
   $('settings').addEventListener('click', () => { engineOpen = !engineOpen; save(); if (latest) render(latest); });
   $('open-library').addEventListener('click', () => vscode.postMessage({ type: 'openLibrary' }));
   $('open-doc').addEventListener('click', () => vscode.postMessage({ type: 'openDoc' }));
+  // A webview cannot follow a link itself; hand it to the extension, which opens it in the browser.
+  $('doc').addEventListener('click', (e) => {
+    const a = e.target.closest && e.target.closest('a[href]');
+    if (!a) return;
+    e.preventDefault();
+    vscode.postMessage({ type: 'openUrl', url: a.getAttribute('href') });
+  });
   $('polish').addEventListener('click', () => vscode.postMessage({ type: 'polish' }));
   $('copy').addEventListener('click', () => vscode.postMessage({ type: 'copy' }));
   $('target').addEventListener('change', (e) => vscode.postMessage({ type: 'setTarget', target: e.target.value }));

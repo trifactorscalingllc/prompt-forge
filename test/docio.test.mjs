@@ -78,6 +78,25 @@ test('writeDoc waits out the editor echo window after a save it was told about',
   assert.ok(Date.now() - t0 >= 120, 'waited for the echo window');
 });
 
+test('openBeside uses the built-in editor by default, in column two', async () => {
+  const p = tmpFile('x');
+  const v = fakeVscode({ office: true });
+  await createDocio(v, { echoMs: 0 }).openBeside(p);
+  assert.equal(v.executed[0][0], 'vscode.openWith');
+  assert.equal(v.executed[0][2], 'promptForge.markdown', 'ours, not a third party extension');
+  assert.equal(v.executed[0][3].viewColumn, 2);
+  assert.equal(v.shown.length, 0);
+});
+
+test('openBeside falls back to the text editor when the built-in one is not registered yet', async () => {
+  const p = tmpFile('x');
+  const v = fakeVscode();
+  v.commands.executeCommand = async () => { throw new Error('No editor found for promptForge.markdown'); };
+  const where = await createDocio(v, { echoMs: 0, log: { warn() {}, info() {}, error() {} } }).openBeside(p);
+  assert.equal(where, 'text', 'the document still opens');
+  assert.equal(v.shown.length, 1);
+});
+
 test('openBeside uses Office Viewer when installed and wanted, else the text editor in column two', async () => {
   const p = tmpFile('x');
   const office = fakeVscode({ office: true });

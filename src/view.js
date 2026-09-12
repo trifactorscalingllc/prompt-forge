@@ -1,5 +1,6 @@
 'use strict';
-// The page. HOT: changes here land without a host restart.
+// The pages: the Prompt Forge panel, and the built-in document editor. HOT: changes here land
+// without a host restart.
 const path = require('node:path');
 const fs = require('node:fs');
 
@@ -7,12 +8,18 @@ const fs = require('node:fs');
  * `stamp` busts the asset cache. Without it a reload refreshes the extension's logic while the
  * webview keeps the media/panel.js it already loaded: new backend, stale UI.
  */
-function html({ vscode, webview, mediaRoots, stamp }) {
-  const asset = (f) => {
+function assets({ vscode, webview, mediaRoots, stamp }) {
+  return (f) => {
     const root = mediaRoots.find((r) => fs.existsSync(path.join(r, f))) || mediaRoots[0];
     return `${webview.asWebviewUri(vscode.Uri.file(path.join(root, f)))}?v=${stamp}`;
   };
-  const nonce = String(Math.random()).slice(2) + String(Date.now());
+}
+
+const nonceOf = () => String(Math.random()).slice(2) + String(Date.now());
+
+function html({ vscode, webview, mediaRoots, stamp }) {
+  const asset = assets({ vscode, webview, mediaRoots, stamp });
+  const nonce = nonceOf();
   return `<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -84,9 +91,46 @@ function html({ vscode, webview, mediaRoots, stamp }) {
     </section>
   </main>
 </div>
+<script nonce="${nonce}" src="${asset('md.js')}"></script>
 <script nonce="${nonce}" src="${asset('panel.js')}"></script>
 </body>
 </html>`;
 }
 
-module.exports = { html };
+/** The built-in document editor, shown by the `promptForge.markdown` custom editor. */
+function docHtml({ vscode, webview, mediaRoots, stamp, title = 'Prompt' }) {
+  const asset = assets({ vscode, webview, mediaRoots, stamp });
+  const nonce = nonceOf();
+  const esc = (t) => String(t).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  return `<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src ${webview.cspSource}; script-src 'nonce-${nonce}'; img-src ${webview.cspSource};">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<link href="${asset('doc.css')}" rel="stylesheet">
+<title>${esc(title)}</title>
+</head>
+<body>
+<div id="bar">
+  <span id="name">${esc(title)}</span>
+  <span id="hint"></span>
+  <span class="sp"></span>
+  <span class="segs">
+    <button class="seg" data-mode="formatted" title="The document, formatted. Click any part to edit it.">Formatted</button>
+    <button class="seg" data-mode="source" title="The raw markdown">Source</button>
+  </span>
+  <button id="copy" class="btn" title="Copy the whole document">Copy</button>
+  <button id="panel" class="btn" title="Open the Prompt Forge panel">Panel</button>
+  <button id="text" class="btn" title="Reopen this file in the plain text editor">Text</button>
+</div>
+<div id="notice" class="notice" hidden></div>
+<div id="view"></div>
+<textarea id="source" spellcheck="false" hidden></textarea>
+<script nonce="${nonce}" src="${asset('md.js')}"></script>
+<script nonce="${nonce}" src="${asset('doc.js')}"></script>
+</body>
+</html>`;
+}
+
+module.exports = { html, docHtml };

@@ -2,12 +2,14 @@
 // The three things that touch a TextDocument: read it, write it, open it beside the panel.
 // `vscode` is injected so this can be exercised with a fake.
 //
-// Why writes go through a WorkspaceEdit and not the filesystem: Office Viewer's markdown editor is a
-// CustomTextEditorProvider. It re-renders when the TextDocument changes and does NOT watch the file
-// on disk, so a disk write while the document is open is invisible and then collides with the
-// editor's own dirty model on its next save. It also ignores document changes for ~800 ms after its
-// own Cmd+S, hence the echo window below.
+// Why writes go through a WorkspaceEdit and not the filesystem: a markdown document open in a
+// CustomTextEditorProvider — our own built-in editor, or Office Viewer — re-renders from the
+// TextDocument and does NOT watch the file on disk, so a disk write while the document is open is
+// invisible and then collides with the editor's dirty model on its next save. Office Viewer also
+// ignores document changes for ~800 ms after its own Cmd+S, hence the echo window below.
 const fs = require('node:fs');
+
+const FORGE_EDITOR = 'promptForge.markdown';   // must match contributes.customEditors in package.json
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
@@ -50,8 +52,19 @@ function createDocio(vscode, { echoMs = 900, log = null } = {}) {
     return 'edit';
   }
 
-  async function openBeside(fsPath, { editor = 'office' } = {}) {
+  async function openBeside(fsPath, { editor = 'forge' } = {}) {
     const uri = vscode.Uri.file(fsPath);
+    // The built-in editor: formatted, editable, and nothing to install. The fallback matters on the
+    // one occasion it can fail — a vsix that added the custom editor is installed but the extension
+    // host has not restarted yet, so the viewType the manifest declares is not registered.
+    if (editor !== 'office' && editor !== 'text') {
+      try {
+        await vscode.commands.executeCommand('vscode.openWith', uri, FORGE_EDITOR, { viewColumn: vscode.ViewColumn.Two, preserveFocus: true, preview: false });
+        return 'forge';
+      } catch (e) {
+        if (log) log.warn(`the built-in editor is not registered yet (${e.message}); opening the text editor. Reload the window to finish the update.`);
+      }
+    }
     const office = editor === 'office' && vscode.extensions && vscode.extensions.getExtension('cweijan.vscode-office');
     if (office) {
       await vscode.commands.executeCommand('vscode.openWith', uri, 'cweijan.markdownViewer', { viewColumn: vscode.ViewColumn.Two, preserveFocus: true, preview: false });
@@ -62,7 +75,7 @@ function createDocio(vscode, { echoMs = 900, log = null } = {}) {
     return 'text';
   }
 
-  return { readDoc, writeDoc, openBeside, noteSaved, isOpen: (p) => Boolean(find(p)), same: (a, b) => key(a) === key(b) };
+  return { readDoc, writeDoc, openBeside, noteSaved, FORGE_EDITOR, isOpen: (p) => Boolean(find(p)), same: (a, b) => key(a) === key(b) };
 }
 
-module.exports = { createDocio };
+module.exports = { createDocio, FORGE_EDITOR };

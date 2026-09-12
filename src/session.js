@@ -58,7 +58,7 @@ function createSession({ slug, store, docio, engine, cfg, log, publish = () => {
     publish('engine');
     try {
       for (let attempt = 0; attempt < 2; attempt++) {
-        // The WYSIWYG editor writes hand edits with a short debounce; give the last keystrokes time to land.
+        // A formatted editor writes hand edits with a short debounce; give the last keystrokes time to land.
         if (settleMs) await sleep(settleMs);
         const body = await currentBody();
         if (body !== lastSnapshot().doc) {

@@ -90,7 +90,7 @@ ${JSON.stringify(conflicts, null, 2)}
 </open-conflicts>
 Open conflicts are unresolved contradictions. Do not resolve them and do not mention them in the body; return "conflicts" exactly as given (same ids and texts).
 
-The person will keep adding ideas after this, so the result must stay a document the merge engine can extend: keep sections that map to ${SECTIONS.join(', ')}, named and formatted as the style guide says. Put any XML or HTML tag on its own line with a blank line before and after it; the document is edited in a WYSIWYG markdown editor that preserves block-level tags but not inline ones.
+The person will keep adding ideas after this, so the result must stay a document the merge engine can extend: keep sections that map to ${SECTIONS.join(', ')}, named and formatted as the style guide says. Put any XML or HTML tag on its own line with a blank line before and after it; the document is read in a formatted editor, which shows a tag on its own line as structure and an inline one as literal text mid-sentence.
 
 ${OUTPUT_CONTRACT}
 `;

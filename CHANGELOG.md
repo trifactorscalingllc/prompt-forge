@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.3.0
+
+- **The formatted editor is built in.** The prompt document opens in Prompt Forge's own editor — the prompt formatted rather than raw markdown, with headings, lists, tables, quotes and code blocks — and no second extension has to be installed for it. Office Viewer is still supported for anyone who prefers it (`promptForge.docEditor: office`), and is now purely optional.
+- Edit in place: click any block to edit that block's markdown, Cmd/Ctrl+Enter or click away to save, Esc to cancel. `+ Add a paragraph` writes straight into the document. **Source** switches to the raw markdown for the whole file.
+- An edit is placed by its text, not blindly by line number: if the engine rewrote the document while you were typing, the block is found by what it said, and if that has become ambiguous the edit is refused rather than guessed. A merge landing mid-edit no longer yanks the box away — it waits.
+- One markdown renderer now serves both the panel preview and the editor, with tables, blockquotes, task lists, nested lists, horizontal rules, links, strikethrough and fenced code with a language label.
+
+
 ## 0.2.4
 
 - Window constraints: no sideways scrolling at any width. Below about 760px the Ideas and Prompt panels stack; below 640px the prompt list moves to a strip across the top. Settings folds its nav into a row when narrow.

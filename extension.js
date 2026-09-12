@@ -11,12 +11,14 @@ const path = require('node:path');
 const { createHotHost } = require('./src/hot/hot');
 
 const PANEL_ID = 'promptForge.panel';
+const DOC_EDITOR_ID = 'promptForge.markdown';   // must match contributes.customEditors
 
 let log;
 let statusItem;
 let panel = null;
 let hot = null;
 let ctx = null;
+const docEditors = new Set();   // { document, panel } for every open built-in document editor
 
 function readConfig() {
   const c = vscode.workspace.getConfiguration('promptForge');
@@ -35,7 +37,7 @@ function readConfig() {
       codexPath: c.get('cli.codexPath', ''),
     },
     compatible: { baseUrl: c.get('compatible.baseUrl', '') },
-    docEditor: c.get('docEditor', 'office'),
+    docEditor: c.get('docEditor', 'forge'),
     sourcePath: c.get('sourcePath', ''),
     autoReload: c.get('autoReload', true),
   };
@@ -58,6 +60,39 @@ function paint(runtime) {
     stamp: `${hot.generation()}-${Date.now()}`,
   });
   runtime.replay();
+}
+
+/**
+ * The built-in markdown editor. Registered here because a custom editor provider cannot be
+ * re-registered on the fly; what happens INSIDE one is the hot runtime's business, and every live
+ * editor is handed to the new runtime after a reload (see afterBoot).
+ */
+function registerDocEditor() {
+  return vscode.window.registerCustomEditorProvider(DOC_EDITOR_ID, {
+    async resolveCustomTextEditor(document, webviewPanel) {
+      const entry = { document, panel: webviewPanel };
+      docEditors.add(entry);
+      webviewPanel.onDidDispose(() => {
+        docEditors.delete(entry);
+        const rt = hot.current();
+        if (rt) rt.detachDoc(webviewPanel);
+      });
+      const rt = hot.current();
+      if (rt) await rt.attachDoc(document, webviewPanel, hot.generation());
+    },
+  }, { webviewOptions: { retainContextWhenHidden: true }, supportsMultipleEditorsPerDocument: false });
+}
+
+/** Hand every open document editor to a freshly booted runtime, or it keeps running the old code. */
+function repaintDocEditors(runtime, generation) {
+  for (const entry of [...docEditors]) {
+    // A disposed webview throws on first touch, sync or async depending on where it is noticed.
+    const drop = (e) => { docEditors.delete(entry); log.debug(`dropped a closed document editor: ${e.message}`); };
+    try {
+      const done = runtime.attachDoc(entry.document, entry.panel, generation);
+      if (done && typeof done.catch === 'function') done.catch(drop);
+    } catch (e) { drop(e); }
+  }
 }
 
 /** Create the Prompt Forge window if it is not open, and reveal it. */
@@ -115,12 +150,14 @@ function activate(context) {
       globalState: context.globalState,
       secrets: context.secrets,
       extensionPath: context.extensionPath,
+      mediaRoots: () => mediaRoots(hot.root()),
     }),
-    // Rebuild the page too, or the logic reloads behind the media/panel.js the webview already has.
-    afterBoot: (runtime) => paint(runtime),
+    // Rebuild the pages too, or the logic reloads behind the media/*.js the webviews already have.
+    afterBoot: (runtime, _from, generation) => { paint(runtime); repaintDocEditors(runtime, generation); },
   });
 
   context.subscriptions.push(
+    registerDocEditor(),
     vscode.commands.registerCommand('promptForge.open', () => ensurePanel()),
     vscode.commands.registerCommand('promptForge.newPrompt', () => send({ type: 'newPrompt' })),
     vscode.commands.registerCommand('promptForge.polish', () => send({ type: 'polish' })),

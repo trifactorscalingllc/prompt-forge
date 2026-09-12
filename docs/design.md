@@ -57,7 +57,7 @@ CLI calls run in an empty temporary directory (no project instruction files get 
 
 **Merge** (fast model). Input: the document body, the new ideas (numbered), the recently merged ideas, the open conflicts, and any resolutions. Rules: merge each idea into the section it belongs to, never as a loose bullet; fold duplicates; never resolve a contradiction silently (report it in `conflicts` with a stable id); apply resolutions exactly; do not restyle; return the complete document.
 
-**Polish** (best model). Input: the document body, the open conflicts, and the target family's style guide. Rules: change form, not substance; return conflicts unchanged; keep sections the merge engine can extend; put every XML/HTML tag on its own line (the WYSIWYG editor preserves block-level tags, not inline ones).
+**Polish** (best model). Input: the document body, the open conflicts, and the target family's style guide. Rules: change form, not substance; return conflicts unchanged; keep sections the merge engine can extend; put every XML/HTML tag on its own line (the formatted editor shows those as structure; an inline tag reads as literal text).
 
 Both return one JSON object: `{ "doc", "conflicts": [{id, section, existing, incoming}], "changes": [] }`. The parser tolerates fences and prose, assigns missing ids, drops duplicates, strips any stray conflict section, and refuses a merge result that is less than 40% of the input's length.
 
@@ -69,7 +69,7 @@ Both return one JSON object: `{ "doc", "conflicts": [{id, section, existing, inc
 4. After the call the document is read again. If it changed during the call, the merge runs once more on the new text instead of overwriting it.
 5. Every landed result is a snapshot with the call's provider, model, duration and token usage. Restore rewrites the document from any snapshot and is itself recorded.
 6. Copy strips the conflict block and any forge comments.
-7. Writes to an open document go through a WorkspaceEdit followed by a save, after waiting out the WYSIWYG editor's post-save echo window; writes to a closed document go to disk.
+7. Writes to an open document go through a WorkspaceEdit followed by a save, after waiting out a WYSIWYG editor's post-save echo window; writes to a closed document go to disk.
 
 ## Sidecar (`<slug>.forge.json`, version 1)
 
@@ -94,4 +94,4 @@ Extension to webview: `state` (the whole state on every change), `notice`, `focu
 - Subscription quota is not visible to third parties; the panel shows per-call tokens only.
 - Vendor CLI contracts drift. Flags rejected by an older Claude CLI are dropped and the call retried; model catalogs for CLI modes carry a `lastVerified` date and any id can be typed.
 - The Codex CLI mode is written to its documented contract and not yet exercised on a machine with Codex installed.
-- The Claude style guide uses block-level XML tags because the WYSIWYG editor may escape inline ones; the plain text editor is a setting away.
+- The Claude style guide uses block-level XML tags because a formatted editor reads those as structure and an inline one as literal text; the plain text editor is a setting away.

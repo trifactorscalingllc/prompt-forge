@@ -41,7 +41,7 @@ Anything the person has not decided. Tell Claude to ask about these, or to state
 
 ## Wording
 
-- Every tag on its own line. Never put a tag inline inside a sentence: the document lives in a WYSIWYG markdown editor that preserves block-level tags but rewrites inline ones.
+- Every tag on its own line. Never put a tag inline inside a sentence: the document is read in a formatted editor, which shows a tag on its own line as structure and an inline one as literal text in the middle of a sentence.
 - Say what to do, not what not to do, wherever a positive form exists. Keep genuine prohibitions in constraints.
 - Be explicit and literal. Claude follows instructions closely, so a vague line becomes a vague result and an over-specified line becomes a rigid one. State the outcome and the limits; do not script the steps unless the order itself matters.
 - Tell Claude how to handle uncertainty: "If a requirement is ambiguous, say which reading you chose and why" beats letting it pick silently.

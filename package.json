@@ -2,7 +2,7 @@
   "name": "prompt-forge",
   "displayName": "Prompt Forge",
   "description": "Build complicated prompts one idea at a time. Every Enter merges an idea into a structured prompt, contradictions surface instead of being guessed away, and Polish rewrites it for the model you are sending it to. Works with your own Claude, Gemini, or OpenAI login, or any API key.",
-  "version": "0.2.4",
+  "version": "0.3.0",
   "publisher": "trifactorscaling",
   "license": "MIT",
   "repository": {
@@ -107,6 +107,18 @@
         "icon": "$(debug-restart)"
       }
     ],
+    "customEditors": [
+      {
+        "viewType": "promptForge.markdown",
+        "displayName": "Prompt Forge",
+        "selector": [
+          {
+            "filenamePattern": "*.md"
+          }
+        ],
+        "priority": "option"
+      }
+    ],
     "configuration": {
       "title": "Prompt Forge",
       "properties": {
@@ -201,15 +213,17 @@
         "promptForge.docEditor": {
           "type": "string",
           "enum": [
+            "forge",
             "office",
             "text"
           ],
-          "default": "office",
+          "default": "forge",
           "scope": "window",
           "order": 20,
           "enumDescriptions": [
-            "Office Viewer's WYSIWYG markdown editor when that extension is installed, else the text editor.",
-            "Always the plain text editor."
+            "Prompt Forge's own editor: the document formatted, click any part to edit it. Nothing to install.",
+            "Office Viewer's WYSIWYG markdown editor, if you have that extension installed.",
+            "The plain text editor, markdown source."
           ],
           "description": "How the prompt document opens beside the panel."
         },

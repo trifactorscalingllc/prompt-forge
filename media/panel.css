@@ -144,6 +144,14 @@ h2 { font-size: 1.1em; margin: 0 0 6px; }
 .doc pre { background: var(--vscode-textCodeBlock-background); padding: 8px; border-radius: 4px; overflow: auto; }
 .doc .xtag { font-family: var(--vscode-editor-font-family); font-size: 0.9em; color: var(--vscode-descriptionForeground); margin: 8px 0 2px; }
 .doc .xtag + .xtag { margin-top: 2px; }
+.doc a { color: var(--vscode-textLink-foreground); }
+.doc blockquote { margin: 6px 0; padding-left: 10px; border-left: 3px solid var(--vscode-panel-border); color: var(--vscode-descriptionForeground); }
+.doc hr { border: none; border-top: 1px solid var(--vscode-panel-border); margin: 10px 0; }
+.doc table { border-collapse: collapse; margin: 6px 0; display: block; overflow-x: auto; max-width: 100%; }
+.doc th, .doc td { border: 1px solid var(--vscode-panel-border); padding: 3px 8px; text-align: left; }
+.doc th { background: var(--vscode-sideBar-background); font-weight: 600; }
+.doc .task { font-family: var(--vscode-editor-font-family); color: var(--vscode-descriptionForeground); }
+.doc .task.done { color: var(--vscode-testing-iconPassed, #6a9955); }
 
 /* settings, VS Code style */
 .settings { flex: 1; min-height: 0; display: grid; grid-template-columns: 150px 1fr; gap: 0 16px; }
