@@ -19,8 +19,10 @@ h2 { font-size: 1.1em; margin: 0 0 6px; }
 .btn.small { padding: 1px 8px; font-size: 0.9em; }
 .btn:disabled { opacity: 0.5; cursor: default; }
 
-#app { display: flex; min-height: 100vh; }
-#rail { width: 210px; flex: none; border-right: 1px solid var(--vscode-panel-border); padding: var(--gap); display: flex; flex-direction: column; gap: 6px; background: var(--vscode-sideBar-background); }
+/* The shell never scrolls: the page is exactly the window, and each region scrolls inside it. That
+   is what keeps the prompt list fixed while a long document scrolls past it. */
+#app { display: flex; height: 100vh; overflow: hidden; }
+#rail { width: 210px; flex: none; height: 100%; overflow: hidden; border-right: 1px solid var(--vscode-panel-border); padding: var(--gap); display: flex; flex-direction: column; gap: 6px; background: var(--vscode-sideBar-background); }
 .rail-head { display: flex; justify-content: space-between; align-items: center; }
 .rail-title { font-weight: 600; }
 #prompts { flex: 1; overflow: auto; }
@@ -32,8 +34,9 @@ h2 { font-size: 1.1em; margin: 0 0 6px; }
 .prow .x { grid-column: 2; grid-row: 1 / span 2; opacity: 0; padding: 0 4px; }
 .prow:hover .x, .prow:focus .x { opacity: 0.7; }
 
-#main { flex: 1; min-width: 0; display: flex; flex-direction: column; }
-.work { flex: 1; min-height: 100vh; display: flex; flex-direction: column; padding: var(--gap) 12px; gap: var(--gap); }
+#main { flex: 1; min-width: 0; height: 100%; display: flex; flex-direction: column; overflow: hidden; }
+.work { flex: 1; min-height: 0; display: flex; flex-direction: column; padding: var(--gap) 12px; gap: var(--gap); overflow: hidden; }
+#head { flex: none; }
 #head { display: flex; flex-direction: column; gap: 4px; }
 .head-row { display: flex; align-items: center; justify-content: space-between; gap: var(--gap); flex-wrap: wrap; }
 .head-actions { display: flex; align-items: center; gap: var(--gap); }
@@ -85,15 +88,10 @@ h2 { font-size: 1.1em; margin: 0 0 6px; }
 .etext { white-space: pre-wrap; word-break: break-word; }
 .emeta { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; font-size: 0.85em; color: var(--vscode-descriptionForeground); }
 .usage { font-size: 0.85em; color: var(--vscode-descriptionForeground); }
-.empty { flex: 1; min-height: 100vh; display: flex; align-items: center; justify-content: center; padding: 24px; }
+.empty { flex: 1; min-height: 0; overflow: auto; display: flex; align-items: center; justify-content: center; padding: 24px; }
 .welcome { max-width: 560px; display: flex; flex-direction: column; gap: 10px; align-items: center; text-align: center; }
 .welcome h2 { font-size: 1.3em; }
 .welcome-actions { display: flex; gap: 8px; }
-
-@media (max-width: 640px) {
-  #app { flex-direction: column; }
-  #rail { width: auto; border-right: none; border-bottom: 1px solid var(--vscode-panel-border); max-height: 30vh; }
-}
 
 /* settings module + inline naming */
 .btn.active { outline: 1px solid var(--accent); }
@@ -120,8 +118,17 @@ h2 { font-size: 1.1em; margin: 0 0 6px; }
 .edit-actions { display: flex; gap: 6px; margin-top: 4px; }
 #compose { border-top: 1px solid var(--vscode-panel-border); padding-top: 8px; }
 
-/* two columns of work */
-.columns { flex: 1; min-height: 0; display: grid; grid-template-columns: minmax(300px, 1fr) minmax(320px, 1.15fr); gap: 12px; }
+/* Two panels of work, side by side or stacked, with a divider you can drag. `--split` is the share
+   of the axis the Ideas panel gets; panel.js sets it and the layout class from the settings. */
+.columns { flex: 1; min-height: 0; display: grid; gap: 0; grid-template-columns: var(--split, 52%) 10px minmax(0, 1fr); grid-template-rows: minmax(0, 1fr); }
+.columns.stacked { grid-template-columns: minmax(0, 1fr); grid-template-rows: var(--split, 52%) 10px minmax(0, 1fr); }
+.split { display: flex; align-items: center; justify-content: center; cursor: col-resize; touch-action: none; }
+.columns.stacked .split { cursor: row-resize; }
+.split::before { content: ''; background: var(--vscode-panel-border); border-radius: 2px; width: 2px; height: 28px; transition: background 120ms; }
+.columns.stacked .split::before { width: 28px; height: 2px; }
+.split:hover::before, .split.dragging::before { background: var(--accent); }
+.split:hover::before { width: 3px; }
+.columns.stacked .split:hover::before { width: 28px; height: 3px; }
 .col { display: flex; flex-direction: column; min-height: 0; min-width: 0; border: 1px solid var(--vscode-panel-border); border-radius: 6px; overflow: hidden; }
 .col-head { display: flex; align-items: center; gap: 8px; height: 34px; padding: 0 10px; border-bottom: 1px solid var(--vscode-panel-border); background: var(--vscode-sideBar-background); }
 .col-head .icon { width: 22px; height: 22px; }
@@ -176,17 +183,13 @@ h1.editable { cursor: text; border-bottom: 1px dashed transparent; }
 h1.editable:hover { border-bottom-color: var(--vscode-descriptionForeground); }
 .title-edit { font-size: 1.15em; font-weight: 600; padding: 2px 6px; min-width: 24ch; }
 
-/* window constraints: never scroll sideways; stack when narrow; the rail moves on top when very narrow */
-html, body { overflow-x: hidden; max-width: 100%; }
+/* window constraints: never scroll sideways, and never let a long word push the shell wider */
+html, body { height: 100%; overflow: hidden; max-width: 100%; }
 #app { min-width: 0; max-width: 100%; }
 #main { container-type: inline-size; min-width: 0; }
-.columns { grid-template-columns: minmax(0, 1fr) minmax(0, 1.15fr); }
 .head-row h1 { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 100%; }
 .engine { min-width: 0; overflow-wrap: anywhere; }
-@container (max-width: 760px) {
-  .work { min-height: 0; }
-  .columns { grid-template-columns: minmax(0, 1fr); }
-  .col { height: 70vh; min-height: 320px; }
+@container (max-width: 700px) {
   .settings { grid-template-columns: 1fr; }
   .snav { flex-direction: row; flex-wrap: wrap; border-right: none; border-bottom: 1px solid var(--vscode-panel-border); padding: 4px 0; }
   .snav-spacer { display: none; }
@@ -198,8 +201,12 @@ html, body { overflow-x: hidden; max-width: 100%; }
   .head-actions select { width: 100%; }
   .sctl select { min-width: 0; width: 100%; }
 }
-@media (max-width: 640px) {
-  #rail { max-height: 26vh; }
-  #prompts { display: flex; gap: 6px; overflow-x: auto; overflow-y: hidden; }
+/* Very narrow: the prompt list becomes a fixed strip across the top. It still does not scroll with
+   the work below it — only the strip itself scrolls, sideways. */
+@media (max-width: 620px) {
+  #app { flex-direction: column; }
+  #rail { width: auto; height: auto; flex: none; border-right: none; border-bottom: 1px solid var(--vscode-panel-border); }
+  #prompts { display: flex; gap: 6px; overflow-x: auto; overflow-y: hidden; flex: none; }
   .prow { flex: 0 0 auto; max-width: 220px; }
+  #main { height: auto; flex: 1; min-height: 0; }
 }

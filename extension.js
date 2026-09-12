@@ -37,6 +37,11 @@ function readConfig() {
       codexPath: c.get('cli.codexPath', ''),
     },
     compatible: { baseUrl: c.get('compatible.baseUrl', '') },
+    layout: {
+      mode: c.get('layout', 'auto'),
+      stackWidth: c.get('layoutStackWidth', 620),
+      split: c.get('layoutSplit', 52),
+    },
     docEditor: c.get('docEditor', 'forge'),
     sourcePath: c.get('sourcePath', ''),
     autoReload: c.get('autoReload', true),

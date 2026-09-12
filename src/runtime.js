@@ -48,7 +48,7 @@ function create(host) {
   function buildState() {
     if (!store) {
       if (!bootError) return null;
-      return { bootError, library: config().libraryPath, prompts: [], active: null, engine: engine.state(), targets: targets.TARGETS, docEditor: config().docEditor, engineCfg: config().engine || {} };
+      return { bootError, library: config().libraryPath, prompts: [], active: null, engine: engine.state(), targets: targets.TARGETS, docEditor: config().docEditor, layout: config().layout, engineCfg: config().engine || {} };
     }
     const session = activeSlug ? sessions.get(activeSlug) : null;
     return {
@@ -58,6 +58,7 @@ function create(host) {
       engine: engine.state(),
       targets: targets.TARGETS,
       docEditor: config().docEditor,
+      layout: config().layout,
       engineCfg: config().engine || {},
       blurbs: blurbs(engine.state()),
     };
@@ -312,6 +313,16 @@ function create(host) {
           post();
         }
         return;
+      case 'setLayout': {
+        const c = vscode.workspace.getConfiguration('promptForge');
+        const target = vscode.ConfigurationTarget.Global;
+        if (m.mode === 'auto' || m.mode === 'columns' || m.mode === 'rows') await c.update('layout', m.mode, target);
+        if (Number.isFinite(m.stackWidth)) await c.update('layoutStackWidth', Math.max(0, Math.min(2000, Math.round(m.stackWidth))), target);
+        // The divider sends this on every drop; clamp here so a webview cannot write nonsense.
+        if (Number.isFinite(m.split)) await c.update('layoutSplit', Math.max(20, Math.min(80, Math.round(m.split))), target);
+        post();
+        return;
+      }
       case 'engine.detect':
         await engine.detectAll();
         post();
@@ -373,6 +384,7 @@ function create(host) {
       // The kit watches sourcePath/autoReload; the settings that change behaviour are watched here.
       disposables.push(vscode.workspace.onDidChangeConfiguration((e) => {
         if (e.affectsConfiguration('promptForge.libraryPath')) { openStore(); post(); }
+        if (e.affectsConfiguration('promptForge.layout') || e.affectsConfiguration('promptForge.layoutStackWidth') || e.affectsConfiguration('promptForge.layoutSplit')) post();
         if (['promptForge.engine', 'promptForge.cli', 'promptForge.compatible'].some((k) => e.affectsConfiguration(k))) {
           engine.detectAll().then(() => { if (!disposed) post(); });
         }

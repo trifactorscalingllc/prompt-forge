@@ -79,6 +79,7 @@ function html({ vscode, webview, mediaRoots, stamp }) {
             <textarea id="idea" rows="3" placeholder="Type an idea and press Enter. Shift+Enter for a new line." spellcheck="true"></textarea>
           </section>
         </section>
+        <div id="split" class="split" role="separator" tabindex="0" aria-label="Resize the panels" title="Drag to resize. Double-click to even them up."></div>
         <section id="preview" class="col">
           <div class="col-head">
             <span class="col-title">Prompt</span>

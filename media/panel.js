@@ -130,7 +130,7 @@
     // Left: sections. Right: rows. Each row is title, one line, control.
     const nav = el('nav', 'snav');
     const body = el('div', 'sbody');
-    const sections = [['engine', 'Engine'], ['models', 'Models'], ['target', 'Target'], ['document', 'Document']];
+    const sections = [['engine', 'Engine'], ['models', 'Models'], ['target', 'Target'], ['layout', 'Layout'], ['document', 'Document']];
     const anchors = {};
     for (const [id, label] of sections) {
       const b = el('button', 'snav-item', label);
@@ -241,6 +241,20 @@
       const sel = select(opts, a.target, (sl) => { describe(sl.value); vscode.postMessage({ type: 'setTarget', target: sl.value }); });
       const c = el('div', 'sctl'); c.append(sel); r.append(c);
     }
+
+    // --- Layout ---
+    section('layout', 'Layout');
+    const lay = { ...LAYOUT_DEFAULTS, ...(s.layout || {}) };
+    row('Panels', 'How Ideas and Prompt sit next to each other.',
+      select([['auto', 'Side by side, stacking when narrow'], ['columns', 'Always side by side'], ['rows', 'Always stacked']], lay.mode,
+        (sel) => vscode.postMessage({ type: 'setLayout', mode: sel.value })));
+    if (lay.mode === 'auto') {
+      row('Stack below', 'Width of the working area, in pixels, at which the panels stack. 0 never stacks.',
+        select([[0, 'Never stack'], [480, '480px'], [560, '560px'], [620, '620px (default)'], [720, '720px'], [860, '860px']].map(([v, l]) => [String(v), l]), String(lay.stackWidth),
+          (sel) => vscode.postMessage({ type: 'setLayout', stackWidth: Number(sel.value) })));
+    }
+    row('Split', `Ideas gets ${lay.split}% of the space. Drag the divider between the panels, or double-click it to even them up.`,
+      small('Even split', null, () => vscode.postMessage({ type: 'setLayout', split: 50 })));
 
     // --- Document ---
     section('document', 'Document');
@@ -428,11 +442,80 @@
     root.append(box);
   }
 
+  // ------------------------------------------------------------------------------------------
+  // Layout: side by side, stacked, or side by side until there is no room. The class is decided
+  // here rather than by a CSS container query so the breakpoint can be a setting, and so the
+  // divider can write a share back.
+  // ------------------------------------------------------------------------------------------
+  const LAYOUT_DEFAULTS = { mode: 'auto', stackWidth: 620, split: 52 };
+  let layout = { ...LAYOUT_DEFAULTS };
+
+  function applyLayout() {
+    const cols = $('columns');
+    const stacked = layout.mode === 'rows'
+      || (layout.mode === 'auto' && layout.stackWidth > 0 && $('main').clientWidth < layout.stackWidth);
+    cols.classList.toggle('stacked', stacked);
+    cols.style.setProperty('--split', `${layout.split}%`);
+    $('split').setAttribute('aria-orientation', stacked ? 'horizontal' : 'vertical');
+  }
+
+  function renderLayout(s) {
+    const next = { ...LAYOUT_DEFAULTS, ...(s.layout || {}) };
+    if (dragging) { layout = { ...next, split: layout.split }; return; }   // never fight a live drag
+    layout = next;
+    applyLayout();
+  }
+
+  // The share is only ever committed on drop: writing a setting on every mouse move would round-trip
+  // the whole state through the extension sixty times a second.
+  let dragging = null;
+  function startDrag(e) {
+    const cols = $('columns');
+    const stacked = cols.classList.contains('stacked');
+    const box = cols.getBoundingClientRect();
+    dragging = { stacked, box };
+    $('split').classList.add('dragging');
+    $('split').setPointerCapture(e.pointerId);
+    e.preventDefault();
+  }
+  function moveDrag(e) {
+    if (!dragging) return;
+    const { stacked, box } = dragging;
+    const pct = stacked
+      ? ((e.clientY - box.top) / box.height) * 100
+      : ((e.clientX - box.left) / box.width) * 100;
+    layout.split = Math.max(20, Math.min(80, Math.round(pct)));
+    $('columns').style.setProperty('--split', `${layout.split}%`);
+  }
+  function endDrag(e) {
+    if (!dragging) return;
+    dragging = null;
+    $('split').classList.remove('dragging');
+    try { $('split').releasePointerCapture(e.pointerId); } catch { /* already released */ }
+    vscode.postMessage({ type: 'setLayout', split: layout.split });
+  }
+  $('split').addEventListener('pointerdown', startDrag);
+  $('split').addEventListener('pointermove', moveDrag);
+  $('split').addEventListener('pointerup', endDrag);
+  $('split').addEventListener('pointercancel', endDrag);
+  $('split').addEventListener('dblclick', () => { layout.split = 50; applyLayout(); vscode.postMessage({ type: 'setLayout', split: 50 }); });
+  $('split').addEventListener('keydown', (e) => {
+    const step = e.key === 'ArrowLeft' || e.key === 'ArrowUp' ? -2 : e.key === 'ArrowRight' || e.key === 'ArrowDown' ? 2 : 0;
+    if (!step) return;
+    e.preventDefault();
+    layout.split = Math.max(20, Math.min(80, layout.split + step));
+    applyLayout();
+    vscode.postMessage({ type: 'setLayout', split: layout.split });
+  });
+  // `auto` has to react to the tab being dragged wider or narrower, not only to a new state message.
+  if (window.ResizeObserver) new ResizeObserver(() => applyLayout()).observe($('main'));
+
   function render(s) {
     latest = s;
     if (s.bootError) {
       showNotice('error', `Cannot open the prompt library: ${s.bootError}. Fix promptForge.libraryPath in Settings.`, true);
     }
+    renderLayout(s);
     renderRail(s);
     renderHeader(s);
     renderEngine(s);

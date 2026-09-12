@@ -2,7 +2,7 @@
   "name": "prompt-forge",
   "displayName": "Prompt Forge",
   "description": "Build complicated prompts one idea at a time. Every Enter merges an idea into a structured prompt, contradictions surface instead of being guessed away, and Polish rewrites it for the model you are sending it to. Works with your own Claude, Gemini, or OpenAI login, or any API key.",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "publisher": "trifactorscaling",
   "license": "MIT",
   "repository": {
@@ -181,6 +181,41 @@
           "scope": "window",
           "order": 6,
           "description": "How many already-merged ideas the engine is shown as context on each merge."
+        },
+        "promptForge.layout": {
+          "type": "string",
+          "enum": [
+            "auto",
+            "columns",
+            "rows"
+          ],
+          "default": "auto",
+          "scope": "window",
+          "order": 7,
+          "enumDescriptions": [
+            "Side by side while there is room, stacked when the panel is narrower than the width below.",
+            "Always side by side. Both panels squeeze rather than stack.",
+            "Always stacked: Ideas above, Prompt below."
+          ],
+          "description": "How the Ideas and Prompt panels sit next to each other."
+        },
+        "promptForge.layoutStackWidth": {
+          "type": "number",
+          "default": 620,
+          "minimum": 0,
+          "maximum": 2000,
+          "scope": "window",
+          "order": 8,
+          "markdownDescription": "With `#promptForge.layout#` set to `auto`, stack the panels once the working area is narrower than this many pixels. `0` never stacks."
+        },
+        "promptForge.layoutSplit": {
+          "type": "number",
+          "default": 52,
+          "minimum": 20,
+          "maximum": 80,
+          "scope": "window",
+          "order": 9,
+          "description": "Share of the working area given to Ideas, as a percentage. Drag the divider between the panels to change it."
         },
         "promptForge.cli.claudePath": {
           "type": "string",

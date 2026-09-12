@@ -97,6 +97,21 @@ test('every media file the pages load is in the vsix and parses', () => {
   }
 });
 
+test('the layout settings are declared, bounded, and the panel clamps to the same bounds', () => {
+  const props = pkg.contributes.configuration.properties;
+  assert.deepEqual(props['promptForge.layout'].enum, ['auto', 'columns', 'rows']);
+  assert.equal(props['promptForge.layoutSplit'].minimum, 20);
+  assert.equal(props['promptForge.layoutSplit'].maximum, 80);
+  const runtime = fs.readFileSync(path.join(ROOT, 'src/runtime.js'), 'utf8');
+  assert.ok(/Math\.max\(20, Math\.min\(80/.test(runtime), 'the runtime clamps what the webview sends');
+  const panel = fs.readFileSync(path.join(ROOT, 'media/panel.js'), 'utf8');
+  assert.ok(/Math\.max\(20, Math\.min\(80/.test(panel), 'the divider clamps too');
+  // The shell must never scroll as a whole, or the prompt list scrolls away with the document.
+  const css = fs.readFileSync(path.join(ROOT, 'media/panel.css'), 'utf8');
+  assert.ok(/#app \{[^}]*height: 100vh[^}]*overflow: hidden/.test(css), '#app is the window, and does not scroll');
+  assert.ok(/#rail \{[^}]*height: 100%/.test(css), 'the rail is full height');
+});
+
 test('the cold shell and the hot entry parse', () => {
   for (const f of ['extension.js', 'src/runtime.js']) {
     const r = spawnSync(process.execPath, ['--check', path.join(ROOT, f)], { encoding: 'utf8' });

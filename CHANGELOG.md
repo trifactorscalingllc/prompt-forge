@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.3.1
+
+- The window no longer scrolls as a whole. The prompt list on the left is fixed and full height; the Ideas log, the prompt document and the settings body each scroll inside their own panel. Scrolling a long prompt no longer carries the prompt list away with it.
+- **Layout** section in Settings: side by side, always stacked, or side by side until the working area is narrower than a width you choose (default 620px, was a fixed 760px).
+- The divider between Ideas and Prompt is draggable — double-click to even them up, arrow keys to nudge — and the share is remembered.
 ## 0.3.0
 
 - **The formatted editor is built in.** The prompt document opens in Prompt Forge's own editor — the prompt formatted rather than raw markdown, with headings, lists, tables, quotes and code blocks — and no second extension has to be installed for it. Office Viewer is still supported for anyone who prefers it (`promptForge.docEditor: office`), and is now purely optional.

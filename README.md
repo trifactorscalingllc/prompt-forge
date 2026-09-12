@@ -64,6 +64,9 @@ Prompts live in `~/.prompt-forge/prompts/` (setting `promptForge.libraryPath`): 
 | `promptForge.engine.recentEntries` | `12` | Already-merged ideas shown to the engine as context |
 | `promptForge.cli.claudePath` / `geminiPath` / `codexPath` | `""` | Binary paths; empty searches PATH |
 | `promptForge.compatible.baseUrl` | `""` | OpenAI-compatible base URL |
+| `promptForge.layout` | `auto` | `auto` (stack when narrow), `columns`, or `rows` |
+| `promptForge.layoutStackWidth` | `620` | Width at which `auto` stacks the panels; `0` never stacks |
+| `promptForge.layoutSplit` | `52` | Share of the space given to Ideas, as a percentage |
 | `promptForge.docEditor` | `forge` | `forge` (built in), `office` (Office Viewer), or `text` |
 
 ## Privacy
