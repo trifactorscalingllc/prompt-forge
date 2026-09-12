@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.3.3
+
+- **First release to the VS Code Marketplace.** No change to the extension itself since 0.3.2. Every previous release *could not* have published: both marketplace steps in the release workflow were gated on `env.VSCE_PAT != ''` while defining `VSCE_PAT` in that same step's own `env:` block, and a step's `if` is evaluated before that block exists — so the gate read empty and was always false, secret or not. Moved to job level, where the gate and the publish see the same value.
+- `docs/project-context.md` records the design for attaching a project folder to a prompt: umbrella scope for *finding* a project, exactly one project for *reading* it, and the reasons umbrella read access is refused.
+
 ## 0.3.2
 
 - Dragging the divider before reloading the window failed with *"promptForge.layoutSplit is not a registered configuration"*. A setting only exists once the extension host has read the manifest, and the manifest is read at host start — while `src/` and `media/` hot-reload immediately, so the new divider was running against the old manifest. Settings that cannot be written yet are now kept for the session, with one line saying a reload will make them permanent.
