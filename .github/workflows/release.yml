@@ -20,15 +20,15 @@ jobs:
           node-version: 22
       - run: npm test
       - name: Package
-        run: npx --yes @vscode/vsce@3 package --no-dependencies --out prompt-forge-${GITHUB_REF_NAME#v}.vsix
+        run: npx --yes @vscode/vsce@3 package --no-dependencies --out promptforge-${GITHUB_REF_NAME#v}.vsix
       - name: GitHub Release with the vsix
         uses: softprops/action-gh-release@v2
         with:
-          files: prompt-forge-*.vsix
+          files: promptforge-*.vsix
           generate_release_notes: true
       - name: Publish to the VS Code Marketplace
         if: ${{ env.VSCE_PAT != '' }}
-        run: npx --yes @vscode/vsce@3 publish --packagePath prompt-forge-*.vsix
+        run: npx --yes @vscode/vsce@3 publish --packagePath promptforge-*.vsix
       - name: Publish to Open VSX
         if: ${{ env.OVSX_PAT != '' }}
-        run: npx --yes ovsx publish prompt-forge-*.vsix -p "$OVSX_PAT"
+        run: npx --yes ovsx publish promptforge-*.vsix -p "$OVSX_PAT"

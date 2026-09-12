@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.3.4
+
+- **The extension id is now `trifactorscaling.promptforge`** (was `prompt-forge`). The name it shows in VS Code is unchanged. The VS Code Marketplace enforces globally unique extension *names*, not unique `publisher.name` pairs, so an unrelated `drendog.prompt-forge` made the old id unpublishable under any publisher — 0.3.3 failed on exactly that. Only one line of code referred to the id (the *Open Settings* command's `@ext:` filter); the `~/.prompt-forge/prompts` library path is a different thing and is untouched.
+
 ## 0.3.3
 
 - **First release to the VS Code Marketplace.** No change to the extension itself since 0.3.2. Every previous release *could not* have published: both marketplace steps in the release workflow were gated on `env.VSCE_PAT != ''` while defining `VSCE_PAT` in that same step's own `env:` block, and a step's `if` is evaluated before that block exists — so the gate read empty and was always false, secret or not. Moved to job level, where the gate and the publish see the same value.

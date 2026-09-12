@@ -90,8 +90,8 @@ Zero runtime dependencies, no extension dependencies, plain CommonJS, vanilla DO
 
 ```bash
 npm test                      # node --test, no VS Code needed
-npx @vscode/vsce package --no-dependencies  # -> prompt-forge-<version>.vsix
-code --install-extension prompt-forge-*.vsix
+npx @vscode/vsce package --no-dependencies  # -> promptforge-<version>.vsix
+code --install-extension promptforge-*.vsix
 ```
 
 ### Releasing
