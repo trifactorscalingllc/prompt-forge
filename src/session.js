@@ -5,6 +5,7 @@ const { createQueue } = require('./queue');
 const docm = require('./doc');
 const targets = require('./targets');
 const { buildMergePrompt, buildPolishPrompt } = require('./engine/prompt');
+const { buildAddendum } = require('./addendum');
 const { parseEngineOutput } = require('./engine/output');
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -214,7 +215,33 @@ function createSession({ slug, store, docio, engine, cfg, log, publish = () => {
 
   async function copyText() {
     const raw = await docio.readDoc(docPath);
-    return docm.stripForCopy(raw == null ? lastSnapshot().doc : raw);
+    const text = docm.stripForCopy(raw == null ? lastSnapshot().doc : raw);
+    // Copying is what starts an add-on round: from here, "new" means new relative to this.
+    store.setCopyMark(slug, text);
+    reread();
+    publish('copied');
+    return text;
+  }
+
+  /** The addendum since the last copy, or null when there is nothing new. Advances the mark. */
+  async function copyNewText() {
+    const mark = sc && sc.copied;
+    if (!mark) return null;
+    const raw = await docio.readDoc(docPath);
+    const now = docm.stripForCopy(raw == null ? lastSnapshot().doc : raw);
+    const add = buildAddendum(mark.doc, now);
+    if (!add.text) return null;
+    store.setCopyMark(slug, now);
+    reread();
+    publish('copied');
+    return add;
+  }
+
+  /** What the panel needs to decide whether to offer the add-on copy at all. */
+  function newSinceCopy() {
+    if (!sc || !sc.copied) return null;
+    const add = buildAddendum(sc.copied.doc, lastSnapshot().doc);
+    return add.text ? { added: add.added, removed: add.removed, restyled: add.restyled } : null;
   }
 
   function snapshot() {
@@ -233,6 +260,8 @@ function createSession({ slug, store, docio, engine, cfg, log, publish = () => {
       conflicts: sc.conflicts.map((c) => ({ ...c })),
       projects: (sc.projects || []).map((p) => ({ ...p })),
       suggestions: (sc.suggestions || []).map((x) => ({ ...x })),
+      copied: sc.copied ? { ts: sc.copied.ts } : null,
+      newSinceCopy: newSinceCopy(),
       engine: { ...engineState, queued: queue.size() },
       usage,
     };
@@ -250,7 +279,7 @@ function createSession({ slug, store, docio, engine, cfg, log, publish = () => {
     resolve: (conflictId, keep) => queue.push({ kind: 'resolve', conflictId, keep }),
     polish: () => queue.push({ kind: 'polish' }),
     setTarget(target) { store.setTarget(slug, target); reread(); queue.push({ kind: 'polish' }); },
-    restore, rename, copyText, idle,
+    restore, rename, copyText, copyNewText, idle,
     dismissSuggestion(text) { store.dismissSuggestion(slug, text); reread(); publish('suggestions'); },
     busy: () => queue.busy() || queue.size() > 0,
     dispose() { disposed = true; queue.clear(); },

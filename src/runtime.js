@@ -497,6 +497,18 @@ function create(host) {
         if (!engine.selection().ok) { notice('error', engine.selection().reason); return; }
         s.polish();
         return;
+      case 'copyNew': {
+        if (!s) return;
+        const add = await s.copyNewText();
+        if (!add) { notice('info', 'Nothing has been merged since your last copy.'); post(); return; }
+        await vscode.env.clipboard.writeText(add.text);
+        const p2 = getPanel();
+        if (p2) p2.webview.postMessage({ type: 'copiedNew', chars: add.text.length });
+        if (add.restyled) notice('info', 'The prompt was restyled since your last copy, so this add-on covers most of it. Copying the whole prompt may read better.');
+        log.info(`copied add-on: ${add.added} added, ${add.removed} removed, ${add.text.length} characters`);
+        post();
+        return;
+      }
       case 'copy': {
         if (!s) return;
         const text = await s.copyText();
@@ -505,6 +517,7 @@ function create(host) {
         // number it can already see at the foot of the prompt, is worse than no bar.
         const p = getPanel();
         if (p) p.webview.postMessage({ type: 'copied', chars: text.length });
+        post();   // copying moves the mark, so the add-on button's state changes with it
         log.info(`copied ${text.length} characters for ${targets.labelOf(s.snapshot().target)}`);
         return;
       }

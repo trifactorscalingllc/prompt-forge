@@ -273,6 +273,12 @@ html, body { height: 100%; overflow: hidden; max-width: 100%; }
 .sg-x { flex: none; background: none; border: none; color: inherit; opacity: 0.45; cursor: pointer; padding: 0 3px; line-height: 1; }
 .sg-x:hover { opacity: 1; }
 
+/* Add-on copy: present only when there is something new, so it carries a count rather than a
+   label. Tinted, because it is not the button you reach for by default. */
+.iconbtn.addon { gap: 3px; color: var(--vscode-charts-blue, #4aa3ff); }
+#copy-new-count { font-size: 0.8em; font-variant-numeric: tabular-nums; }
+.iconbtn.addon.warn { color: var(--vscode-editorWarning-foreground, #e0b341); }
+
 /* The foot of the Prompt panel: the count always, a notice only when there is one. */
 .col-foot { flex: none; display: flex; align-items: center; justify-content: space-between; gap: 8px;
   padding: 4px 10px; border-top: 1px solid var(--vscode-panel-border); min-height: 24px; }

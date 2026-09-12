@@ -105,6 +105,7 @@
     $('title').classList.toggle('editable', Boolean(a));
     $('polish').disabled = !a;
     $('copy').disabled = !a;
+    renderAddonCopy(s);
     renderConnect(s);
 
     const e = s.engine;
@@ -801,12 +802,46 @@
   window.addEventListener('resize', closeTargetMenu);
   $('engine-summary').addEventListener('click', () => { engineOpen = !engineOpen; save(); if (latest) render(latest); });
 
+  // ------------------------------------------------------------------------------------------
+  // Add-on copy
+  //
+  // Offered only once a prompt has been copied AND something has been merged since. What it copies
+  // is the change, not the prompt again: you have already pasted the prompt into a conversation, so
+  // this is the next message in it. Using it moves the mark, so the button goes until there is
+  // something new again — and that repeats without limit.
+  // ------------------------------------------------------------------------------------------
+  function renderAddonCopy(s) {
+    const btn = $('copy-new');
+    const a = s.active;
+    const n = a && a.newSinceCopy;
+    btn.hidden = !n;
+    if (!n) return;
+    const bits = [];
+    if (n.added) bits.push(`${n.added} new line${n.added === 1 ? '' : ''}`);
+    if (n.removed) bits.push(`${n.removed} removed`);
+    $('copy-new-count').textContent = String(n.added || n.removed);
+    btn.title = n.restyled
+      ? `The whole prompt was restyled since you copied it, so an add-on would be most of it again. Copy the full prompt instead.`
+      : `Copy just what changed since your last copy (${bits.join(', ')}), ready to paste as the next message in the same conversation.`;
+    btn.classList.toggle('warn', Boolean(n.restyled));
+  }
+
+  $('copy-new').addEventListener('click', () => vscode.postMessage({ type: 'copyNew' }));
+
   let copiedTimer = null;
   function flashCopied() {
     const btn = $('copy');
     btn.classList.add('ok');
     clearTimeout(copiedTimer);
     copiedTimer = setTimeout(() => btn.classList.remove('ok'), 1400);
+  }
+
+  let copiedNewTimer = null;
+  function flashCopiedNew() {
+    const btn = $('copy-new');
+    btn.classList.add('ok');
+    clearTimeout(copiedNewTimer);
+    copiedNewTimer = setTimeout(() => btn.classList.remove('ok'), 1400);
   }
 
   let noticeTimer = null;
@@ -825,6 +860,7 @@
     if (m.type === 'state') render(m.data);
     else if (m.type === 'notice') showNotice(m.level || 'info', m.text || '');
     else if (m.type === 'copied') flashCopied();
+    else if (m.type === 'copiedNew') flashCopiedNew();
     else if (m.type === 'focus') idea.focus();
   });
   vscode.postMessage({ type: 'ready' });

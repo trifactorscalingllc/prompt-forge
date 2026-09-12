@@ -176,6 +176,9 @@ function open(libraryPath, { home } = {}) {
   // Suggestions live here and never in the .md, so a copy cannot carry them and a hand edit cannot
   // accidentally save one into the prompt. `dismissed` holds the text of ones waved away, because
   // every merge regenerates the list and an unremembered dismissal would nag.
+  // The document as it stood when it was last copied out. Everything the add-on copy reports is
+  // measured from here, so a copy is the only thing that moves it.
+  const setCopyMark = (slug, doc) => withSidecar(slug, (sc) => { sc.copied = { doc: String(doc == null ? '' : doc), ts: now() }; return sc.copied; });
   const setSuggestions = (slug, list) => withSidecar(slug, (sc) => {
     const gone = new Set(sc.dismissed || []);
     sc.suggestions = (Array.isArray(list) ? list : []).filter((x) => x && x.text && !gone.has(x.text));
@@ -235,7 +238,7 @@ function open(libraryPath, { home } = {}) {
 
   return {
     dir, docPath, sidecarPath, exists, read, write, create, list, stats,
-    appendEntry, updateEntry, addSnapshot, setTarget, setTitle, setProjects, setSuggestions, dismissSuggestion, setConflicts, resolveConflict, remove,
+    appendEntry, updateEntry, addSnapshot, setTarget, setTitle, setProjects, setCopyMark, setSuggestions, dismissSuggestion, setConflicts, resolveConflict, remove,
     readDoc, writeDoc,
   };
 }

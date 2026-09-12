@@ -371,3 +371,51 @@ test('suggestions are replaced wholesale by the next merge, never accumulated', 
   // Stale advice about a section that has since been filled is worse than none.
   assert.deepEqual(s.read(slug).suggestions.map((x) => x.text), ['advice 2']);
 });
+
+test('the add-on copy appears only after a copy, carries just the change, and repeats', async () => {
+  let n = 0;
+  const { s, slug, session } = setup((req) => {
+    n += 1;
+    const doc = docOf(req.prompt);
+    const body = doc.includes('## Requirements\n')
+      ? doc.replace('## Requirements\n', `## Requirements\n\n- Requirement ${n}.\n`)
+      : `${doc}\n## Requirements\n\n- Requirement ${n}.\n`;
+    return {
+      text: JSON.stringify({ doc: body, conflicts: [], changes: [] }),
+      usage: { input: 1, output: 1 }, error: null,
+      call: { provider: 'fake', mode: 'cli', model: 'fast', role: req.role, ms: 1, usage: { input: 1, output: 1 } },
+    };
+  });
+  await session.load();
+
+  // Before any copy there is no add-on round to be in, so nothing is offered.
+  session.submitIdea('one');
+  await session.idle();
+  assert.equal(session.snapshot().newSinceCopy, null, 'nothing offered before the first copy');
+  assert.equal(await session.copyNewText(), null);
+
+  const full = await session.copyText();
+  assert.ok(full.includes('- Requirement 1.'));
+  assert.ok(s.read(slug).copied, 'copying sets the mark');
+  assert.equal(session.snapshot().newSinceCopy, null, 'and immediately after, nothing is new');
+
+  // Merge again: now there is something to send as a follow-up.
+  session.submitIdea('two');
+  await session.idle();
+  assert.deepEqual(session.snapshot().newSinceCopy, { added: 1, removed: 0, restyled: false });
+
+  const add = await session.copyNewText();
+  assert.ok(add.text.includes('- Requirement 2.'), 'the new line is in it');
+  assert.ok(!add.text.includes('- Requirement 1.'), 'and the already-sent one is not');
+
+  // Using it advances the mark, so the button goes until there is something new again...
+  assert.equal(session.snapshot().newSinceCopy, null);
+  assert.equal(await session.copyNewText(), null, 'and a second press has nothing to give');
+
+  // ...and the round repeats without limit.
+  session.submitIdea('three');
+  await session.idle();
+  const third = await session.copyNewText();
+  assert.ok(third.text.includes('- Requirement 3.'));
+  assert.ok(!third.text.includes('- Requirement 2.'));
+});

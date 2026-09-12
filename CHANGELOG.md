@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.7.0
+
+- **Add-on copy.** Copy a prompt, paste it somewhere, then keep adding ideas to the same prompt — a second copy button appears carrying **only what changed since your last copy**, ready to paste as the next message in the conversation you already started. Prompts on one topic stay one prompt instead of becoming five.
+- It appears only once you have copied at least once **and** something has been merged since; it shows how many lines are new; using it advances the mark, so it goes away until there is something new again. That round repeats without limit.
+- The addendum is **computed from the two documents, not written by the engine**. No extra call, nothing reworded behind your back, and it can be explained line by line. Unchanged sections are left out, a section that gained lines is named so the follow-up lands in the right place, and lines you deleted are listed under *No longer applies* — a follow-up that only ever adds would quietly be wrong.
+- Reordering is not a change. Headings are matched across a restyle, so `<requirements>` and `## Requirements` are the same section. If a polish moved most of the document, it says so rather than handing you the whole prompt again dressed as an addendum.
+
 ## 0.6.0
 
 - **Prompt suggestions.** Where a section is empty or thin, a soft-yellow note appears in the prompt saying what belongs there, drawn from what the document and your ideas already establish — the empty *Output format* and *Constraints* headings that sit there for a reason and never get filled. Dismiss one with × and it stays gone for that prompt.
