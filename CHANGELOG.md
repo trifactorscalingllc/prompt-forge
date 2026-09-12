@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.12.3
+
+- **A connected plug shows it.** An accent outline returns when a project is attached, and a red one when the connection failed. This was a real bug, not a preference: `.iconbtn.ghost` sits after `.iconbtn.on` at equal specificity, so dropping the plug's box in 0.9.1 silently took its connected state with it — the state was in the DOM and invisible on screen. An outline rather than a filled box, because it sits beside a ghost gear.
+
 ## 0.12.2
 
 - The plug says *connecting…* rather than *reading…* while it works. The button is labelled connect, so the progress should be too — what it is doing inside belongs in the tooltip, not on the control.

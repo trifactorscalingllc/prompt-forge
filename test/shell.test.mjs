@@ -154,6 +154,12 @@ test('the header is a plug and a gear; Polish, Copy and Edit live on the Prompt 
   assert.ok(/let connecting = false/.test(panel) && /connecting = true/.test(panel), 'the click paints immediately, before the round trip');
   assert.ok(/\{ connecting = false; render\(m\.data\); \}/.test(panel), 'and the next state clears it');
   assert.ok(/id="connect" class="iconbtn ghost named"/.test(whole), 'the plug has no box of its own');
+  // .ghost follows .on at equal specificity, so without a combined rule a connected plug renders
+  // identically to an idle one -- the state exists in the DOM and is invisible on screen.
+  const cssRules = fs.readFileSync(path.join(ROOT, 'media/panel.css'), 'utf8').replace(/\/\*[\s\S]*?\*\//g, '');
+  assert.ok(/\.iconbtn\.ghost\.on \{/.test(cssRules), 'connected is visible on a ghost button');
+  assert.ok(cssRules.indexOf('.iconbtn.ghost.on {') > cssRules.indexOf('.iconbtn.ghost {'), 'and it comes after the rule it must beat');
+  assert.ok(/\.iconbtn\.ghost\.bad \{/.test(cssRules), 'so is a failed connection');
 
   // Copy confirms on the button. Both glyphs are in the DOM so nothing is rebuilt from a string.
   assert.ok(/type: 'copied'/.test(runtime), 'the extension tells the panel, rather than raising a notice');
