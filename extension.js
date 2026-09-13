@@ -30,6 +30,15 @@ function readConfig() {
       polishModel: c.get('engine.polishModel', 'auto'),
       timeoutSeconds: c.get('engine.timeoutSeconds', 240),
       recentEntries: c.get('engine.recentEntries', 12),
+      mergeEffort: c.get('engine.mergeEffort', 'low'),
+      polishEffort: c.get('engine.polishEffort', 'auto'),
+      mergeOutput: c.get('engine.mergeOutput', 'edits'),
+      prewarm: c.get('engine.prewarm', true),
+    },
+    sync: {
+      remote: c.get('sync.remote', ''),
+      intervalMinutes: c.get('sync.intervalMinutes', 5),
+      auto: c.get('sync.auto', true),
     },
     cli: {
       claudePath: c.get('cli.claudePath', ''),
@@ -87,6 +96,7 @@ function registerDocEditor() {
   return vscode.window.registerCustomEditorProvider(DOC_EDITOR_ID, {
     async resolveCustomTextEditor(document, webviewPanel) {
       const entry = { document, panel: webviewPanel };
+      webviewPanel.iconPath = vscode.Uri.file(path.join(ctx.extensionPath, 'media', 'icon.png'));
       docEditors.add(entry);
       webviewPanel.onDidDispose(() => {
         docEditors.delete(entry);
@@ -119,7 +129,8 @@ function ensurePanel() {
     retainContextWhenHidden: true,
     localResourceRoots: mediaRoots(hot.root()).map((r) => vscode.Uri.file(r)),
   });
-  panel.iconPath = vscode.Uri.file(path.join(ctx.extensionPath, 'media', 'forge.svg'));
+  // The Marketplace icon, so the tab shows the same anvil people installed.
+  panel.iconPath = vscode.Uri.file(path.join(ctx.extensionPath, 'media', 'icon.png'));
   panel.onDidDispose(() => { panel = null; }, null, ctx.subscriptions);
   panel.webview.onDidReceiveMessage((m) => {
     const rt = hot.current();
@@ -135,6 +146,29 @@ function send(m) {
   ensurePanel();
   const rt = hot.current();
   if (rt) rt.handleMessage(m).catch((e) => log.error(`${m.type} failed: ${e.stack || e.message}`));
+}
+
+/** For commands used from an editor: act without pulling the panel in front of the code. */
+function quiet(m) {
+  const rt = hot.current();
+  if (rt) rt.handleMessage(m).catch((e) => log.error(`${m.type} failed: ${e.stack || e.message}`));
+}
+
+/** The selection is read here, before anything can move focus away from the editor it is in. */
+function selectionMessage() {
+  const ed = vscode.window.activeTextEditor;
+  if (!ed || ed.selection.isEmpty) return { type: 'addIdea' };
+  const sel = ed.selection;
+  // A selection ending at column 0 of the next line is "these lines", not "and one character more".
+  const end = sel.end.character === 0 && sel.end.line > sel.start.line ? sel.end.line : sel.end.line + 1;
+  return {
+    type: 'addSelection',
+    text: ed.document.getText(sel),
+    file: vscode.workspace.asRelativePath(ed.document.uri),
+    start: sel.start.line + 1,
+    end,
+    lang: ed.document.languageId,
+  };
 }
 
 function activate(context) {
@@ -185,6 +219,12 @@ function activate(context) {
     vscode.commands.registerCommand('promptForge.attachProject', () => send({ type: 'project.pick' })),
     vscode.commands.registerCommand('promptForge.newFromTemplate', () => send({ type: 'newFromTemplate' })),
     vscode.commands.registerCommand('promptForge.export', () => send({ type: 'export' })),
+    vscode.commands.registerCommand('promptForge.addIdea', () => quiet({ type: 'addIdea' })),
+    vscode.commands.registerCommand('promptForge.addSelection', () => quiet(selectionMessage())),
+    vscode.commands.registerCommand('promptForge.sendToClaude', () => quiet({ type: 'sendToClaude' })),
+    vscode.commands.registerCommand('promptForge.attachRemoteProject', () => send({ type: 'project.remote' })),
+    vscode.commands.registerCommand('promptForge.syncNow', () => quiet({ type: 'sync.now' })),
+    vscode.commands.registerCommand('promptForge.setUpSync', () => quiet({ type: 'sync.setup' })),
   );
   // NOTE: the kit registers `promptForge.reload` and its own configuration watcher for
   // sourcePath / autoReload. Anything else that must react to a settings change belongs in the

@@ -3,6 +3,7 @@
 // here: this file never names a vendor.
 
 const NO_ENGINE = 'No engine yet. Sign in to Claude, Gemini or OpenAI, or add an API key.';
+const EFFORTS = ['low', 'medium', 'high', 'xhigh', 'max'];
 
 const modeFor = (d) => (d.cli && d.cli.loggedIn ? 'cli' : d.apiKey && d.apiKey.stored ? 'apiKey' : null);
 
@@ -33,6 +34,18 @@ function resolveEngine({ cfg, detections }) {
     return { ok: false, reason: `${d.label || d.id} lists no models. Set promptForge.engine.mergeModel and promptForge.engine.polishModel by hand.` };
   }
   return { ok: true, provider: d.id, mode, mergeModel, polishModel };
+}
+
+/**
+ * How hard the model thinks, per role. A merge is a structured edit and defaults to low: replaying
+ * 33 recorded merges at low against the shipped default cut the mean from 20.6 s to 13.3 s with the
+ * same agreement with what the person had accepted (line overlap 0.700 vs 0.704). Polish and runs
+ * keep the vendor's default unless the person sets one. null means "send nothing".
+ */
+function effortFor(role, cfg) {
+  const e = (cfg && cfg.engine) || {};
+  const v = role === 'merge' ? (e.mergeEffort == null ? 'low' : e.mergeEffort) : role === 'polish' ? e.polishEffort : null;
+  return EFFORTS.includes(v) ? v : null;
 }
 
 function createEngine({ providers, config, secrets, log }) {
@@ -73,23 +86,46 @@ function createEngine({ providers, config, secrets, log }) {
     try { return await detecting; } finally { detecting = null; }
   }
 
-  async function call({ role, prompt, timeoutMs }) {
+  const selected = () => (selection.ok ? providers.find((x) => x.id === selection.provider) || null : null);
+  const modelFor = (role) => (role === 'polish' || role === 'run' ? selection.polishModel : selection.mergeModel);
+
+  async function call({ role, system = '', prompt, blocks = [], timeoutMs, onProgress = null }) {
     if (!selection.ok) return { text: '', usage: null, error: selection.reason, call: null };
     const p = providers.find((x) => x.id === selection.provider);
     if (!p) return { text: '', usage: null, error: `provider ${selection.provider} vanished`, call: null };
     // A test run is the prompt itself being answered, so it gets the good model like polish does.
     const model = role === 'polish' || role === 'run' ? selection.polishModel : selection.mergeModel;
+    const cfg = config();
+    const effort = effortFor(role, cfg);
     const t0 = Date.now();
     let res;
     try {
-      res = await p.complete({ mode: selection.mode, model, prompt, timeoutMs, cfg: config(), secrets });
+      res = await p.complete({ mode: selection.mode, model, system, prompt, blocks, effort, timeoutMs, cfg, secrets, onProgress });
     } catch (e) {
       res = { text: '', usage: null, error: e.message };
     }
-    const meta = { provider: p.id, mode: selection.mode, model, role, ms: Date.now() - t0, usage: res.usage || null };
-    const u = res.usage ? ` ${res.usage.input || 0}in/${res.usage.output || 0}out` : '';
-    log.info(`${p.id}/${selection.mode} ${model} ${role}: ${meta.ms}ms${u}${res.error ? ` error: ${res.error}` : ''}`);
+    const meta = { provider: p.id, mode: selection.mode, model, role, effort, warm: Boolean(res.warm), ms: Date.now() - t0, usage: res.usage || null };
+    const u = res.usage ? ` ${res.usage.input || 0}in/${res.usage.output || 0}out${res.usage.cacheRead ? ` (${res.usage.cacheRead} cached)` : ''}` : '';
+    log.info(`${p.id}/${selection.mode} ${model} ${role}${effort ? ` effort=${effort}` : ''}${res.warm ? ' warm' : ''}: ${meta.ms}ms${u}${res.error ? ` error: ${res.error}` : ''}`);
     return { text: res.text || '', usage: res.usage || null, error: res.error || null, call: meta };
+  }
+
+  /** Start the process the next call of this role will use, where the provider can. Never throws. */
+  function warm({ role = 'merge', system = '' } = {}) {
+    const p = selected();
+    if (!p || typeof p.warm !== 'function') return false;
+    try {
+      return p.warm({ mode: selection.mode, model: modelFor(role), effort: effortFor(role, config()), system, cfg: config() });
+    } catch (e) {
+      log.warn(`${p.id}: warm failed: ${e.message}`);
+      return false;
+    }
+  }
+
+  /** What the running provider accepts besides text. */
+  function capabilities() {
+    const p = selected();
+    return p && typeof p.capabilities === 'function' ? p.capabilities(selection.mode) : { image: false, pdf: false };
   }
 
   function state() {
@@ -103,7 +139,11 @@ function createEngine({ providers, config, secrets, log }) {
     };
   }
 
-  return { detectAll, refresh: detectAll, call, state, selection: () => selection, detections: () => detections };
+  function dispose() {
+    for (const p of providers) { try { if (typeof p.dispose === 'function') p.dispose(); } catch { /* best effort */ } }
+  }
+
+  return { detectAll, refresh: detectAll, call, warm, capabilities, state, dispose, selection: () => selection, detections: () => detections };
 }
 
-module.exports = { resolveEngine, createEngine, NO_ENGINE };
+module.exports = { resolveEngine, createEngine, effortFor, NO_ENGINE, EFFORTS };

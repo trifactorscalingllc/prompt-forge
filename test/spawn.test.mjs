@@ -127,6 +127,39 @@ test('runCli still scrubs when an explicit env is passed', async () => {
   assert.equal(r.stdout, '|kept');
 });
 
+test('openCli boots now and answers later: stdin goes in at send(), lines stream out, the temp dir goes after', async () => {
+  const { openCli } = require('../src/providers/spawn.js');
+  const h = openCli({ bin: node, args: ['-e', 'console.log("booted");process.stdin.on("data",d=>{process.stdout.write("got "+d+"\\n")});process.stdin.on("end",()=>console.log("end"))'] });
+  assert.ok(h.alive());
+  const dir = h.dir;
+  await new Promise((r) => setTimeout(r, 300));
+  const seen = [];
+  const r = await h.send('hello', { timeoutMs: 10000, onLine: (l) => seen.push(l) });
+  assert.equal(r.ok, true);
+  assert.deepEqual(seen, ['booted', 'got hello', 'end'], 'a line printed before send is replayed to the listener');
+  assert.ok(r.bootMs >= 250, 'the boot happened before the send');
+  assert.ok(!h.alive(), 'a used process is not warm any more');
+  assert.ok(!fs.existsSync(dir), 'temp cwd removed');
+  assert.match((await h.send('again')).error, /already used/);
+});
+
+test('openCli: a process that dies while it waits reports its exit at send(), and kill() before send cleans up', async () => {
+  const { openCli } = require('../src/providers/spawn.js');
+  const bad = openCli({ bin: node, args: ['-e', 'process.stderr.write("unknown option \'--nope\'");process.exit(2)'] });
+  await new Promise((r) => setTimeout(r, 400));
+  assert.equal(bad.alive(), false);
+  const r = await bad.send('x', { timeoutMs: 5000 });
+  assert.equal(r.ok, false);
+  assert.match(r.error, /unknown option/);
+  const idle = openCli({ bin: node, args: ['-e', 'setTimeout(()=>{}, 20000)'] });
+  const dir = idle.dir;
+  idle.kill();
+  assert.ok(!fs.existsSync(dir));
+  const slow = openCli({ bin: node, args: ['-e', 'setTimeout(()=>{}, 20000)'] });
+  const t = await slow.send('x', { timeoutMs: 300 });
+  assert.match(t.error, /timed out/);
+});
+
 test('resolveBin caches the PATH lookup until asked for a fresh one', () => {
   let n = 0;
   const which = () => { n += 1; return '/x/claude'; };

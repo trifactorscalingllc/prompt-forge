@@ -9,8 +9,10 @@ function nextBatch(ops) {
   if (first.kind === 'polish') {
     let i = 0;
     let last = first;
-    while (i < ops.length && ops[i].kind === 'polish') { last = ops[i]; i++; }
-    return { batch: { ...last }, rest: ops.slice(i) };
+    let full = false;
+    while (i < ops.length && ops[i].kind === 'polish') { last = ops[i]; full = full || Boolean(ops[i].full); i++; }
+    // Collapsing must not lose a request to rewrite everything: any one of them asked, so the batch does.
+    return { batch: { ...last, ...(full ? { full: true } : {}) }, rest: ops.slice(i) };
   }
   const entryIds = [];
   const resolutions = [];

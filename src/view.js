@@ -72,7 +72,10 @@ function html({ vscode, webview, mediaRoots, stamp }) {
               <span id="usage" class="usage" title="Tokens the engine read and wrote for this prompt, summed over every call. Counts toward your plan's rate limits."></span>
             </div>
             <div id="attached" class="attached" hidden></div>
-            <textarea id="idea" rows="3" placeholder="Type an idea and press Enter to merge it into the prompt. Shift+Enter for a new line. Paste a screenshot to attach it. Hover a sent idea to edit it." spellcheck="true"></textarea>
+            <div id="compose-box" class="compose-box">
+              <textarea id="idea" rows="3" placeholder="Type an idea and press Enter to merge it into the prompt. Shift+Enter for a new line. Paste, drop or clip a screenshot or a file to attach it. Hover a sent idea to edit it." spellcheck="true"></textarea>
+              <button id="attach" class="iconbtn ghost clip" title="Attach files or images to this idea. The engine reads what it can, the prompt refers to them by name, and they travel with it when you copy or send.">${ICON.clip}</button>
+            </div>
           </section>
         </section>
         <div id="split" class="split" role="separator" tabindex="0" aria-label="Resize the panels" title="Drag to resize. Double-click to even them up."></div>
@@ -82,14 +85,17 @@ function html({ vscode, webview, mediaRoots, stamp }) {
             <button id="tab-run" class="tabpill" hidden>Run</button>
             <button id="target-btn" class="targetpick" aria-haspopup="listbox" aria-expanded="false" title="The model this prompt is being written for. Click to change it."><span id="target-label"></span>${ICON.caret}</button>
             <div class="col-actions">
-              <button id="polish" class="iconbtn" title="Rewrite the whole document in the target model&#39;s preferred style">${ICON.hammer}</button>
+              <button id="polish" class="iconbtn" title="Rewrite the document in the target model&#39;s preferred style. After the first polish only what changed is rewritten; Alt+click rewrites all of it.">${ICON.hammer}</button>
               <button id="run" class="iconbtn" title="Send this prompt to a model and show the answer. Costs one call.">${ICON.send}</button>
+              <button id="send-claude" class="iconbtn" title="Send to Claude Code: a terminal running Claude, a conversation in this project, or a new one. It lands in the input box; nothing is submitted until you press Enter there.">${ICON.terminal}</button>
+              <button id="send-update" class="iconbtn addon" hidden>${ICON.terminal}<span id="send-update-count"></span></button>
               <button id="copy-new" class="iconbtn swap addon" hidden><span class="i-off">${ICON.copyPlus}</span><span class="i-on">${ICON.check}</span><span id="copy-new-count"></span></button>
               <button id="copy" class="iconbtn swap" title="Copy the final prompt to the clipboard"><span class="i-off">${ICON.copy}</span><span class="i-on">${ICON.check}</span></button>
               <button id="open-doc" class="iconbtn" title="Edit the document by hand in the editor">${ICON.pencil}</button>
             </div>
           </div>
           <div id="doc" class="doc"></div>
+          <div id="vars" class="vars" hidden></div>
           <div id="target-menu" class="floating" role="listbox" hidden></div>
           <div class="col-foot">
             <div id="notice" class="notice" hidden></div>
@@ -121,6 +127,9 @@ const ICON = {
   gear: '<svg viewBox="0 0 16 16" width="14" height="14" fill="currentColor" fill-rule="evenodd"><path d="M6.55 1h2.9l.26 1.72c.35.12.68.26.99.45l1.4-1.03 2.05 2.05-1.03 1.4c.19.31.33.64.45.99L15.29 6.9v2.9l-1.72.26c-.12.35-.26.68-.45.99l1.03 1.4-2.05 2.05-1.4-1.03c-.31.19-.64.33-.99.45L9.45 15.7h-2.9l-.26-1.72a4.9 4.9 0 0 1-.99-.45l-1.4 1.03-2.05-2.05 1.03-1.4a4.9 4.9 0 0 1-.45-.99L.71 9.86V6.96l1.72-.26c.12-.35.26-.68.45-.99L1.85 4.31 3.9 2.26l1.4 1.03c.31-.19.64-.33.99-.45zM8 5.6a2.4 2.4 0 1 0 0 4.8 2.4 2.4 0 0 0 0-4.8z"/></svg>',
   caret: '<svg viewBox="0 0 16 16" width="10" height="10" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="m4 6.5 4 4 4-4"/></svg>',
   pencil: '<svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M11.3 2.2 13.8 4.7 5.6 12.9 2.6 13.4l.5-3z"/></svg>',
+  clip: '<svg viewBox="0 0 16 16" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M13.4 7.4 8 12.8a3.3 3.3 0 0 1-4.7-4.7l5.8-5.8a2.2 2.2 0 0 1 3.1 3.1L6.4 11.2a1.1 1.1 0 0 1-1.6-1.6l5.2-5.2"/></svg>',
+  // A terminal prompt: this puts the prompt into Claude Code, where the work happens.
+  terminal: '<svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><rect x="1.8" y="2.8" width="12.4" height="10.4" rx="1.4"/><path d="m4.6 6.2 2 1.8-2 1.8M8.2 10h3.2"/></svg>',
 };
 
 /** The built-in document editor, shown by the `promptForge.markdown` custom editor. */

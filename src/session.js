@@ -1,27 +1,91 @@
 'use strict';
 // One prompt's controller: the queue, the store, the document and the engine, and the rules that
 // keep an idea from ever being lost or a hand edit from ever being overwritten.
+const nodeFs = require('node:fs');
 const { createQueue } = require('./queue');
 const docm = require('./doc');
 const targets = require('./targets');
-const { buildMergePrompt, buildPolishPrompt } = require('./engine/prompt');
+const { buildMergePrompt, buildPolishPrompt, mergeSystem } = require('./engine/prompt');
 const { buildAddendum, diffSections } = require('./addendum');
-const nodeFs = require('node:fs');
+const { parseEngineOutput } = require('./engine/output');
+const { formatDoc } = require('./engine/format');
+const S = require('./engine/sections');
+const { forEngine } = require('./attachments');
+const { findVars, fillVars } = require('./vars');
 const projectMod = require('./project');
 
 // Injected so a session test never touches a real filesystem.
 const defaultLookup = (dir, idea) => projectMod.lookup(dir, idea, { fs: nodeFs });
-const { parseEngineOutput } = require('./engine/output');
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const tick = () => new Promise((r) => setImmediate(r));
 const publicConflict = (c) => ({ id: c.id, section: c.section, existing: c.existing, incoming: c.incoming });
+const oneLine = (s, max) => { const t = String(s || '').replace(/\s+/g, ' ').trim(); return t.length > max ? `${t.slice(0, max - 1)}…` : t; };
+const idleState = () => ({ state: 'idle', op: null, model: null, startedAt: 0, error: null, progress: null });
 
-function createSession({ slug, store, docio, engine, cfg, log, publish = () => {}, settleMs = 450, lookupFor = defaultLookup }) {
+/**
+ * Text that can stand in the prompt as it is: a sentence or a list item, not a remark to the tool.
+ * "Keep new" is placed without a model only when the incoming side reads like this; "but i dont
+ * want to market it as lead generation" is an instruction, and dropping it verbatim into a Context
+ * paragraph would be worse than the call it saves.
+ */
+function documentReady(text) {
+  const t = String(text || '').trim();
+  if (!t || t.length > 2000) return false;
+  if (/^(but|and|so|also|actually|no|nah|maybe|i|i'm|im|we|let's|lets|oh|ok|okay|hmm|wait|instead)\b/i.test(t)) return false;
+  const shaped = /^([-*]\s+|\d+[.)]\s+)/.test(t) || (/^[A-Z"'(`]/.test(t) && /[.!?:)`"']$/.test(t));
+  return shaped;
+}
+
+/** Conflict answers that need no model: keep old always, keep new when it can be placed exactly. Pure. */
+function resolveLocally(body, resolutions, conflicts) {
+  let doc = body;
+  const applied = [];
+  const remaining = [];
+  for (const r of resolutions) {
+    const c = conflicts.find((x) => x.id === r.conflictId);
+    if (!c) continue;   // already closed, by hand or by an earlier merge
+    if (r.keep === 'old') { applied.push(r); continue; }
+    const existing = String(c.existing || '').trim();
+    const incoming = String(c.incoming || '').trim();
+    const at = existing ? doc.indexOf(existing) : -1;
+    if (at >= 0 && doc.indexOf(existing, at + 1) < 0 && documentReady(incoming)) {
+      doc = `${doc.slice(0, at)}${incoming}${doc.slice(at + existing.length)}`;
+      applied.push(r);
+      continue;
+    }
+    remaining.push(r);
+  }
+  return { doc, applied, remaining };
+}
+
+/** Which sections of `after` differ from `before`, by name as `after` writes them. Pure. */
+function changedSections(before, after) {
+  const A = S.parse(before);
+  const B = S.parse(after);
+  const text = (s) => S.trimBlank(s.body).join('\n');
+  const names = [];
+  const preA = S.trimBlank(A.preamble).join('\n');
+  const preB = S.trimBlank(B.preamble).join('\n');
+  if (preB && preA !== preB) names.push('(preamble)');
+  const was = new Map(A.sections.filter((s) => s.kind !== 'loose').map((s) => [S.keyOf(s.name), text(s)]));
+  let total = 0;
+  for (const s of B.sections) {
+    if (s.kind === 'loose') continue;
+    total += 1;
+    const k = S.keyOf(s.name);
+    if (!was.has(k) || was.get(k) !== text(s)) names.push(s.name);
+  }
+  return { names, total };
+}
+
+const quotePath = (p) => (/\s/.test(p) ? `"${p}"` : p);
+
+function createSession({ slug, store, docio, engine, cfg, log, publish = () => {}, settleMs = 450, lookupFor = defaultLookup, fs = nodeFs }) {
   const docPath = store.docPath(slug);
   let sc = null;
   let disposed = false;
-  let engineState = { state: 'idle', op: null, model: null, startedAt: 0, error: null };
+  let engineState = idleState();
 
   const reread = () => { sc = store.read(slug); return sc; };
   const lastSnapshot = () => sc.snapshots[sc.snapshots.length - 1];
@@ -30,12 +94,33 @@ function createSession({ slug, store, docio, engine, cfg, log, publish = () => {
     const n = (cfg() || {}).keepVersionBodies;
     return Number.isFinite(n) ? n : 20;
   };
+  const mergeMode = () => (engineCfg().mergeOutput === 'document' ? 'document' : 'edits');
+  const timeoutMs = () => (engineCfg().timeoutSeconds || 240) * 1000;
+  const suggesting = () => (cfg() || {}).suggestions !== false;
+  const isUntitled = () => /^Untitled( \d+)?$/.test(sc.title) && !sc.entries.some((e) => e.status === 'merged');
 
   const queue = createQueue({
     run: runBatch,
     onChange: () => publish('queue'),
     onError: (e) => log.error(`${slug}: batch failed: ${e.stack || e.message}`),
   });
+
+  // Streaming progress arrives many times a second; the panel needs it a few times a second.
+  let lastProgress = 0;
+  let progressTimer = null;
+  function progress(p) {
+    if (disposed || engineState.state !== 'busy') return;
+    engineState.progress = { ...p };
+    const due = 250 - (Date.now() - lastProgress);
+    if (due <= 0) { lastProgress = Date.now(); publish('progress'); return; }
+    if (!progressTimer) {
+      progressTimer = setTimeout(() => {
+        progressTimer = null;
+        lastProgress = Date.now();
+        if (!disposed && engineState.state === 'busy') publish('progress');
+      }, due);
+    }
+  }
 
   /** The body the engine should see: the live document minus the conflict block. */
   async function currentBody() {
@@ -49,107 +134,210 @@ function createSession({ slug, store, docio, engine, cfg, log, publish = () => {
     return docm.stripConflictBlock(raw);
   }
 
+  function recordHandEdit(body) {
+    if (body === lastSnapshot().doc) return;
+    store.addSnapshot(slug, { kind: 'hand-edit', entryIds: [], doc: body, conflicts: sc.conflicts, changes: [], target: sc.target }, { keepBodies: keepBodies() });
+    reread();
+    publish('hand-edit');
+  }
+
   function fail(entryIds, error, call) {
     for (const id of entryIds) store.updateEntry(slug, id, { status: 'failed', error });
     reread();
-    engineState = { state: 'error', op: null, model: call ? call.model : null, startedAt: 0, error };
+    engineState = { ...idleState(), state: 'error', model: call ? call.model : null, error };
     log.error(`${slug}: ${error}`);
     publish('failed');
+  }
+
+  /** Write the document, record the version, and mark the ideas it carries as merged. */
+  async function land({ kind, doc, touched = [], changes = [], call = null }) {
+    await docio.writeDoc(docPath, docm.withConflictBlock(doc, sc.conflicts));
+    const diff = diffSections(lastSnapshot().doc || '', doc);
+    const snap = store.addSnapshot(slug, { kind, entryIds: touched, doc, conflicts: sc.conflicts, changes, target: sc.target, call, diff }, { keepBodies: keepBodies() });
+    for (const id of touched) store.updateEntry(slug, id, { status: 'merged', snapshotId: snap.id, error: null });
+    reread();
+    return snap;
   }
 
   async function runBatch(batch) {
     if (disposed) return;
     reread();
     const role = batch.kind === 'polish' ? 'polish' : 'merge';
-    const entryIds = batch.entryIds || [];
-    const resolutions = batch.resolutions || [];
-    const revised = batch.revisions || [];
-    engineState = { state: 'busy', op: role, model: null, startedAt: Date.now(), error: null };
+    engineState = { ...idleState(), state: 'busy', op: role, startedAt: Date.now() };
     publish('engine');
+    const touched = [...(batch.entryIds || []), ...(batch.revisions || []).map((r) => r.entryId)];
     try {
-      for (let attempt = 0; attempt < 2; attempt++) {
-        // A formatted editor writes hand edits with a short debounce; give the last keystrokes time to land.
-        if (settleMs) await sleep(settleMs);
-        const body = await currentBody();
-        if (body !== lastSnapshot().doc) {
-          store.addSnapshot(slug, { kind: 'hand-edit', entryIds: [], doc: body, conflicts: sc.conflicts, changes: [], target: sc.target }, { keepBodies: keepBodies() });
+      if (role === 'polish') await runPolish(batch);
+      else await runMerge(batch);
+    } catch (e) {
+      fail(touched, e.message || String(e));
+    }
+  }
+
+  async function runMerge(batch) {
+    const entryIds = batch.entryIds || [];
+    const revised = batch.revisions || [];
+    const touched = [...entryIds, ...revised.map((r) => r.entryId)];
+    let resolutions = batch.resolutions || [];
+    let mode = mergeMode();
+    let reranForEdit = false;
+    let fellBack = false;
+    for (let guard = 0; guard < 4; guard += 1) {
+      // A formatted editor writes hand edits with a short debounce; give the last keystrokes time to land.
+      if (settleMs) await sleep(settleMs);
+      let body = await currentBody();
+      recordHandEdit(body);
+
+      // Answers to conflicts that need no model are placed before anything is sent, so a click on
+      // "keep old" lands in the time it takes to write a file.
+      if (resolutions.length) {
+        const local = resolveLocally(body, resolutions, sc.conflicts);
+        if (local.applied.length) {
+          for (const a of local.applied) store.resolveConflict(slug, a.conflictId, a.keep, { by: 'local' });
           reread();
-          publish('hand-edit');
+          const doc = local.doc === body ? body : formatDoc(local.doc);
+          await land({ kind: 'resolve', doc, changes: local.applied.map((a) => `${a.conflictId}: kept ${a.keep}`) });
+          publish('landed');
+          body = doc;
         }
-        const target = targets.resolve(sc.target);
-        const ideas = entryIds.map((id) => sc.entries.find((e) => e.id === id)).filter(Boolean);
-        const recentN = Number.isFinite(engineCfg().recentEntries) ? engineCfg().recentEntries : 12;
-        const recent = sc.entries.filter((e) => e.status === 'merged').slice(-recentN);
-        const conflicts = sc.conflicts.map(publicConflict);
-        const revisions = revised.map((r) => { const e = sc.entries.find((x) => x.id === r.entryId); return e ? { id: e.id, before: r.before, after: e.text } : null; }).filter(Boolean);
-        const touched = [...entryIds, ...revised.map((r) => r.entryId)];
-        const projects = sc.projects || [];
-        // Opt-in and per idea. It costs a filesystem scan on every Enter, which is exactly why it
-        // is off by default and why an empty result is a normal, silent outcome.
-        let excerpts = [];
-        if (role === 'merge' && ((cfg() || {}).project || {}).context === 'brief+lookup') {
-          const dir = projects.find((p) => p.path && !p.error);
-          if (dir) {
-            try { excerpts = lookupFor(dir.path, ideas.map((i) => i.text).join(' ')); } catch { excerpts = []; }
-          }
+        resolutions = local.remaining;
+        if (!touched.length && !resolutions.length) { engineState = idleState(); publish('landed'); return; }
+      }
+
+      const target = targets.resolve(sc.target);
+      const caps = typeof engine.capabilities === 'function' ? engine.capabilities() : { image: false, pdf: false };
+      const ideas = entryIds.map((id) => sc.entries.find((e) => e.id === id)).filter(Boolean)
+        .map((e) => ({ ...e, attached: (e.attachments || []).length ? forEngine(e.attachments, { fs, caps }) : null }));
+      const blocks = ideas.flatMap((i) => (i.attached ? i.attached.blocks : []));
+      const recentN = Number.isFinite(engineCfg().recentEntries) ? engineCfg().recentEntries : 12;
+      const merged = sc.entries.filter((e) => e.status === 'merged');
+      const conflicts = sc.conflicts.map(publicConflict);
+      const revisions = revised.map((r) => { const e = sc.entries.find((x) => x.id === r.entryId); return e ? { id: e.id, before: r.before, after: e.text } : null; }).filter(Boolean);
+      const projects = sc.projects || [];
+      // Opt-in and per idea. It costs a filesystem scan on every Enter, which is exactly why it
+      // is off by default and why an empty result is a normal, silent outcome.
+      let excerpts = [];
+      if (((cfg() || {}).project || {}).context === 'brief+lookup') {
+        const dir = projects.find((p) => p.path && !p.error && !p.host);
+        if (dir) {
+          try { excerpts = lookupFor(dir.path, ideas.map((i) => i.text).join(' ')); } catch { excerpts = []; }
         }
-        const needsTitle = role === 'merge' && /^Untitled( \d+)?$/.test(sc.title) && !sc.entries.some((e) => e.status === 'merged');
-        const mergedTotal = sc.entries.filter((e) => e.status === 'merged').length;
-        const sectionNames = targets.sectionsFor(target.family);
-        const suggest = role === 'merge' && (cfg() || {}).suggestions !== false;
-        const prompt = role === 'polish'
-          ? buildPolishPrompt({ doc: body, conflicts, target, styleGuide: targets.styleGuide(target.family), projects })
-          : buildMergePrompt({ doc: body, ideas, resolutions, revisions, conflicts, recent, target, projects, excerpts, needsTitle, suggest, sectionNames, mergedTotal });
-        const timeoutMs = (engineCfg().timeoutSeconds || 240) * 1000;
+      }
+      const suggest = suggesting();
+      const built = buildMergePrompt({
+        doc: body, ideas, resolutions, revisions, conflicts, recent: merged.slice(-recentN), target, projects, excerpts,
+        needsTitle: entryIds.length > 0 && isUntitled(), suggest, sectionNames: targets.sectionsFor(target.family), mergedTotal: merged.length, mode,
+      });
 
-        const res = await engine.call({ role, prompt, timeoutMs });
-        if (disposed) return;
-        if (res.call) engineState.model = res.call.model;
-        if (res.error) return fail(touched, res.error, res.call);
-        const out = parseEngineOutput(res.text, { kind: role, inputDoc: body });
-        if (!out.ok) return fail(touched, out.error, res.call);
-
-        // Did the person edit while the engine was thinking? Never overwrite that: run once more.
-        const nowRaw = await docio.readDoc(docPath);
-        const nowBody = nowRaw == null ? body : docm.stripConflictBlock(nowRaw);
-        if (nowBody !== body && attempt === 0) {
-          log.info(`${slug}: document changed during the call; merging again`);
-          publish('notice:The document changed while the engine was working. Merging again.');
+      const res = await engine.call({ role: 'merge', system: built.system, prompt: built.prompt, blocks, timeoutMs: timeoutMs(), onProgress: progress });
+      if (disposed) return;
+      if (res.call) engineState.model = res.call.model;
+      if (res.error) return fail(touched, res.error, res.call);
+      const out = parseEngineOutput(res.text, { kind: 'merge', inputDoc: body });
+      if (!out.ok) {
+        // The engine answered, but with edits that cannot be placed without guessing. One more call
+        // for the whole document is cheaper than an idea marked failed.
+        if (out.retryWithDocument && mode === 'edits' && !fellBack) {
+          fellBack = true;
+          mode = 'document';
+          log.info(`${slug}: ${out.error}; asking for the whole document`);
           continue;
         }
-
-        // Only a merge may change the open-conflict list. A polish that returns none (or forgets
-        // the key) must not make a contradiction disappear; that is the one thing this tool is for.
-        if (role === 'merge') {
-          for (const r of resolutions) store.resolveConflict(slug, r.conflictId, r.keep);
-          reread();
-          store.setConflicts(slug, out.conflicts, { entryId: entryIds.length ? entryIds[entryIds.length - 1] : null });
-          reread();
-        }
-        // An untitled prompt takes its name from the first idea that lands.
-        if (role === 'merge' && entryIds.length && /^Untitled( \d+)?$/.test(sc.title) && !sc.entries.some((e) => e.status === 'merged')) {
-          // The engine names it, because it has just read the idea and knows what it is about. The
-          // first five words of raw typing gave us "Oh idea".
-          const title = docm.capTitle(out.title) || docm.titleFrom(ideas[0] ? ideas[0].text : '');
-          store.setTitle(slug, title);
-          out.doc = docm.setTitle(out.doc, title);
-          reread();
-        }
-        // Written to the sidecar, never to the document: that is the whole guarantee that a copy
-        // cannot carry them. `out.doc` is what reaches disk and it has never seen them.
-        if (role === 'merge') { store.setSuggestions(slug, suggest ? out.suggestions : []); reread(); }
-        await docio.writeDoc(docPath, docm.withConflictBlock(out.doc, sc.conflicts));
-        const kind = role === 'polish' ? 'polish' : entryIds.length ? 'merge' : revised.length ? 'revise' : 'resolve';
-        const diff = diffSections(lastSnapshot().doc || '', out.doc);
-        const snap = store.addSnapshot(slug, { kind, entryIds: touched, doc: out.doc, conflicts: sc.conflicts, changes: out.changes, target: sc.target, call: res.call, diff }, { keepBodies: keepBodies() });
-        for (const id of touched) store.updateEntry(slug, id, { status: 'merged', snapshotId: snap.id, error: null });
-        reread();
-        engineState = { state: 'idle', op: null, model: null, startedAt: 0, error: null };
-        publish('landed');
-        return;
+        return fail(touched, out.error, res.call);
       }
-    } catch (e) {
-      fail([...entryIds, ...revised.map((r) => r.entryId)], e.message || String(e));
+
+      // Did the person edit while the engine was thinking? Never overwrite that: run once more.
+      const nowRaw = await docio.readDoc(docPath);
+      const nowBody = nowRaw == null ? body : docm.stripConflictBlock(nowRaw);
+      if (nowBody !== body && !reranForEdit) {
+        reranForEdit = true;
+        log.info(`${slug}: document changed during the call; merging again`);
+        publish('notice:The document changed while the engine was working. Merging again.');
+        continue;
+      }
+
+      // Only a merge may change the open-conflict list. A polish that returns none (or forgets
+      // the key) must not make a contradiction disappear; that is the one thing this tool is for.
+      for (const r of resolutions) store.resolveConflict(slug, r.conflictId, r.keep, { by: 'engine' });
+      reread();
+      store.setConflicts(slug, out.conflicts, { entryId: entryIds.length ? entryIds[entryIds.length - 1] : null });
+      reread();
+      let doc = formatDoc(out.doc);
+      // An untitled prompt takes its name from the first idea that lands.
+      if (entryIds.length && isUntitled()) {
+        // The engine names it, because it has just read the idea and knows what it is about. The
+        // first five words of raw typing gave us "Oh idea".
+        const title = docm.capTitle(out.title) || docm.titleFrom(ideas[0] ? ideas[0].text : '');
+        store.setTitle(slug, title);
+        doc = docm.setTitle(doc, title);
+        reread();
+      }
+      // Written to the sidecar, never to the document: that is the whole guarantee that a copy
+      // cannot carry them. `doc` is what reaches disk and it has never seen them.
+      store.setSuggestions(slug, suggest ? out.suggestions : []);
+      store.setIdeas(slug, suggest ? out.ideas : []);
+      reread();
+      const kind = entryIds.length ? 'merge' : revised.length ? 'revise' : 'resolve';
+      await land({ kind, doc, touched, changes: out.changes, call: res.call });
+      engineState = idleState();
+      publish('landed');
+      return;
+    }
+  }
+
+  async function runPolish(batch) {
+    let full = Boolean(batch.full);
+    let reranForEdit = false;
+    let fellBack = false;
+    for (let guard = 0; guard < 4; guard += 1) {
+      if (settleMs) await sleep(settleMs);
+      const body = await currentBody();
+      recordHandEdit(body);
+      const target = targets.resolve(sc.target);
+
+      // Polish -> merge -> polish is the normal loop. When the target is the one this was last
+      // polished for, everything that has not changed since is already in shape: rewrite only
+      // what moved, and nothing at all when nothing did.
+      let only = [];
+      const mark = sc.polished;
+      if (!full && mark && mark.target === sc.target && typeof mark.doc === 'string') {
+        const ch = changedSections(mark.doc, body);
+        if (!ch.names.length) {
+          engineState = idleState();
+          publish(`notice:Nothing has changed since this was polished for ${target.label}. Alt+click Polish to rewrite all of it again.`);
+          return;
+        }
+        // Past half the document, a partial rewrite costs what a whole one does and reads less evenly.
+        if (ch.names.length * 2 <= Math.max(ch.total, 1)) only = ch.names;
+      }
+
+      const conflicts = sc.conflicts.map(publicConflict);
+      const built = buildPolishPrompt({ doc: body, conflicts, target, styleGuide: targets.styleGuide(target.family), projects: sc.projects || [], only });
+      const res = await engine.call({ role: 'polish', system: built.system, prompt: built.prompt, timeoutMs: timeoutMs(), onProgress: progress });
+      if (disposed) return;
+      if (res.call) engineState.model = res.call.model;
+      if (res.error) return fail([], res.error, res.call);
+      const out = parseEngineOutput(res.text, { kind: 'polish', inputDoc: body });
+      if (!out.ok) {
+        if (only.length && !fellBack) { fellBack = true; full = true; continue; }
+        return fail([], out.error, res.call);
+      }
+      const nowRaw = await docio.readDoc(docPath);
+      const nowBody = nowRaw == null ? body : docm.stripConflictBlock(nowRaw);
+      if (nowBody !== body && !reranForEdit) {
+        reranForEdit = true;
+        publish('notice:The document changed while the engine was working. Polishing again.');
+        continue;
+      }
+      // The guide's shape, guaranteed: whatever the model returned, the headings, the order and the
+      // tags are the family's own.
+      const doc = formatDoc(out.doc, { family: target.family });
+      await land({ kind: 'polish', doc, changes: out.changes.length ? out.changes : only.length ? [`rewrote ${only.join(', ')}`] : [], call: res.call });
+      store.setPolished(slug, { doc, target: sc.target });
+      reread();
+      engineState = idleState();
+      publish('landed');
+      return;
     }
   }
 
@@ -165,10 +353,10 @@ function createSession({ slug, store, docio, engine, cfg, log, publish = () => {
     return sc;
   }
 
-  function submitIdea(text, images = []) {
+  function submitIdea(text, attachments = []) {
     const t = String(text == null ? '' : text).trim();
     if (!t) return null;
-    const entry = store.appendEntry(slug, t, images);
+    const entry = store.appendEntry(slug, t, attachments);
     reread();
     queue.push({ kind: 'idea', entryId: entry.id });
     publish('idea');
@@ -193,7 +381,7 @@ function createSession({ slug, store, docio, engine, cfg, log, publish = () => {
     if (!e || e.status !== 'failed') return false;
     store.updateEntry(slug, entryId, { status: 'pending', error: null });
     reread();
-    if (!queue.busy() && !queue.size()) engineState = { state: 'idle', op: null, model: null, startedAt: 0, error: null };
+    if (!queue.busy() && !queue.size()) engineState = idleState();
     queue.push({ kind: 'idea', entryId });
     return true;
   }
@@ -235,14 +423,93 @@ function createSession({ slug, store, docio, engine, cfg, log, publish = () => {
     return true;
   }
 
-  async function copyText() {
+  // ------------------------------------------------------------------------------------------
+  // Leaving the tool: copy, send, run
+  //
+  // What leaves is the document without its conflict block, with {{variables}} filled, and -- when
+  // ideas carried files -- a list of those files: each by name, the idea it came with, and where it
+  // is. A clipboard cannot hold text and files at once, so the list is what ties a file to the line
+  // of the prompt that mentions it; for a Claude Code destination the paths are @-mentions, which
+  // Claude Code opens itself.
+  // ------------------------------------------------------------------------------------------
+
+  /** Files from ideas that made it into the prompt, oldest first. */
+  function mergedFiles() {
+    const out = [];
+    for (const e of (sc && sc.entries) || []) {
+      if (e.status !== 'merged') continue;
+      for (const a of e.attachments || []) out.push({ name: a.name, kind: a.kind, path: a.path, idea: e.text, entryId: e.id, secret: Boolean(a.secret) });
+    }
+    return out;
+  }
+
+  function compose(doc, { mention = false } = {}) {
+    const body = fillVars(docm.stripForCopy(doc), sc.vars).text.replace(/\n+$/, '');
+    const files = mergedFiles();
+    if (!files.length) return `${body}\n`;
+    const what = (k) => (k === 'image' ? 'image' : k === 'pdf' ? 'PDF' : k === 'text' ? 'text file' : 'file');
+    const lines = files.map((f) => `- ${f.name} (${what(f.kind)}, from the idea "${oneLine(f.idea, 90)}"): ${mention ? `@${quotePath(f.path)}` : f.path}`);
+    const lead = mention ? 'Attached files, referred to above by name:' : 'Attached files, referred to above by name. Attach them alongside this prompt:';
+    return `${body}\n\n${lead}\n${lines.join('\n')}\n`;
+  }
+
+  async function liveDoc() {
     const raw = await docio.readDoc(docPath);
-    const text = docm.stripForCopy(raw == null ? lastSnapshot().doc : raw);
+    return raw == null ? lastSnapshot().doc : raw;
+  }
+
+  async function copyText() {
+    const text = compose(await liveDoc());
     // Copying is what starts an add-on round: from here, "new" means new relative to this.
     store.setCopyMark(slug, text);
     reread();
     publish('copied');
     return text;
+  }
+
+  /** The addendum since the last copy, or null when there is nothing new. Advances the mark. */
+  async function copyNewText() {
+    const mark = sc && sc.copied;
+    if (!mark) return null;
+    const now = compose(await liveDoc());
+    const add = buildAddendum(mark.doc, now);
+    if (!add.text) return null;
+    store.setCopyMark(slug, now);
+    reread();
+    publish('copied');
+    return add;
+  }
+
+  /** What the panel needs to decide whether to offer the add-on copy at all. */
+  function newSince(key, opts) {
+    const mark = sc && sc[key];
+    if (!mark) return null;
+    const add = buildAddendum(mark.doc, compose(lastSnapshot().doc, opts));
+    return add.text ? { added: add.added, removed: add.removed, restyled: add.restyled } : null;
+  }
+
+  /** The whole prompt for a send, with files as @-mentions. The mark moves when the runtime says it went. */
+  async function sendText() { return compose(await liveDoc(), { mention: true }); }
+  async function sendNewText() {
+    const mark = sc && sc.sent;
+    if (!mark) return null;
+    const add = buildAddendum(mark.doc, compose(await liveDoc(), { mention: true }));
+    return add.text ? add : null;
+  }
+  async function markSent(dest) {
+    store.setSentMark(slug, compose(await liveDoc(), { mention: true }), dest);
+    reread();
+    publish('sent');
+  }
+
+  function variables() {
+    return { names: findVars(docm.stripForCopy(lastSnapshot().doc)), values: { ...(sc.vars || {}) } };
+  }
+
+  function setVars(values) {
+    store.setVars(slug, values);
+    reread();
+    publish('vars');
   }
 
   /**
@@ -254,16 +521,19 @@ function createSession({ slug, store, docio, engine, cfg, log, publish = () => {
    * answer rather than implied, because "it worked" means nothing without it.
    */
   async function run() {
-    const raw = await docio.readDoc(docPath);
-    const prompt = docm.stripForCopy(raw == null ? lastSnapshot().doc : raw);
+    const prompt = fillVars(docm.stripForCopy(await liveDoc()), sc.vars).text;
     if (!prompt.trim()) return { error: 'There is no prompt to run yet.' };
-    engineState = { state: 'busy', op: 'run', model: null, startedAt: Date.now(), error: null };
+    const caps = typeof engine.capabilities === 'function' ? engine.capabilities() : { image: false, pdf: false };
+    const files = mergedFiles().map((f) => ({ name: f.name, path: f.path, kind: f.kind, secret: f.secret }));
+    const att = files.length ? forEngine(files, { fs, caps }) : { blocks: [], texts: [] };
+    const inline = att.texts.map((t) => `<attachment name=${JSON.stringify(t.name)}>\n${t.text}\n</attachment>`).join('\n\n');
+    engineState = { ...idleState(), state: 'busy', op: 'run', startedAt: Date.now() };
     publish('engine');
-    const res = await engine.call({ role: 'run', prompt, timeoutMs: (engineCfg().timeoutSeconds || 240) * 1000 });
+    const res = await engine.call({ role: 'run', prompt: inline ? `${prompt}\n${inline}\n` : prompt, blocks: att.blocks, timeoutMs: timeoutMs(), onProgress: progress });
     if (disposed) return { error: 'disposed' };
     engineState = res.error
-      ? { state: 'error', op: null, model: res.call ? res.call.model : null, startedAt: 0, error: res.error }
-      : { state: 'idle', op: null, model: res.call ? res.call.model : null, startedAt: 0, error: null };
+      ? { ...idleState(), state: 'error', model: res.call ? res.call.model : null, error: res.error }
+      : { ...idleState(), model: res.call ? res.call.model : null };
     if (res.error) { publish('run'); return { error: res.error }; }
     store.addRun(slug, {
       text: String(res.text || ''),
@@ -279,25 +549,10 @@ function createSession({ slug, store, docio, engine, cfg, log, publish = () => {
     return { ok: true };
   }
 
-  /** The addendum since the last copy, or null when there is nothing new. Advances the mark. */
-  async function copyNewText() {
-    const mark = sc && sc.copied;
-    if (!mark) return null;
-    const raw = await docio.readDoc(docPath);
-    const now = docm.stripForCopy(raw == null ? lastSnapshot().doc : raw);
-    const add = buildAddendum(mark.doc, now);
-    if (!add.text) return null;
-    store.setCopyMark(slug, now);
-    reread();
-    publish('copied');
-    return add;
-  }
-
-  /** What the panel needs to decide whether to offer the add-on copy at all. */
-  function newSinceCopy() {
-    if (!sc || !sc.copied) return null;
-    const add = buildAddendum(sc.copied.doc, lastSnapshot().doc);
-    return add.text ? { added: add.added, removed: add.removed, restyled: add.restyled } : null;
+  /** Start the engine process the next merge will use, while the person is still typing. */
+  function warm() {
+    if (disposed || typeof engine.warm !== 'function') return false;
+    return engine.warm({ role: 'merge', system: mergeSystem(mergeMode()) });
   }
 
   function snapshot() {
@@ -314,12 +569,19 @@ function createSession({ slug, store, docio, engine, cfg, log, publish = () => {
       entries: sc.entries.map((e) => ({ ...e })),
       snapshots: sc.snapshots.map(({ doc, ...rest }) => rest),
       conflicts: sc.conflicts.map((c) => ({ ...c })),
+      resolved: (sc.resolved || []).map((r) => ({ ...r })),
       keepVersions: keepBodies(),
       projects: (sc.projects || []).map((p) => ({ ...p })),
       suggestions: (sc.suggestions || []).map((x) => ({ ...x })),
+      ideas: (sc.ideas || []).map((x) => ({ ...x })),
       copied: sc.copied ? { ts: sc.copied.ts } : null,
+      sent: sc.sent ? { ts: sc.sent.ts, dest: sc.sent.dest } : null,
+      polished: sc.polished ? { target: sc.polished.target, ts: sc.polished.ts } : null,
       runs: (sc.runs || []).map((r) => ({ ...r })),
-      newSinceCopy: newSinceCopy(),
+      files: mergedFiles().map(({ secret, ...f }) => f),
+      vars: variables(),
+      newSinceCopy: newSince('copied'),
+      newSinceSend: newSince('sent', { mention: true }),
       engine: { ...engineState, queued: queue.size() },
       usage,
     };
@@ -335,13 +597,15 @@ function createSession({ slug, store, docio, engine, cfg, log, publish = () => {
     // sidecar and tells the session to pick the change up.
     reread: () => { reread(); },
     resolve: (conflictId, keep) => queue.push({ kind: 'resolve', conflictId, keep }),
-    polish: () => queue.push({ kind: 'polish' }),
+    polish: ({ full = false } = {}) => queue.push({ kind: 'polish', ...(full ? { full: true } : {}) }),
     setTarget(target) { store.setTarget(slug, target); reread(); queue.push({ kind: 'polish' }); },
-    restore, rename, copyText, copyNewText, run, idle,
+    restore, rename, copyText, copyNewText, sendText, sendNewText, markSent, variables, setVars, run, idle, warm,
+    progress: () => ({ ...engineState, queued: queue.size() }),
     dismissSuggestion(text) { store.dismissSuggestion(slug, text); reread(); publish('suggestions'); },
+    dismissIdea(text) { store.dismissIdea(slug, text); reread(); publish('suggestions'); },
     busy: () => queue.busy() || queue.size() > 0,
-    dispose() { disposed = true; queue.clear(); },
+    dispose() { disposed = true; clearTimeout(progressTimer); queue.clear(); },
   };
 }
 
-module.exports = { createSession };
+module.exports = { createSession, resolveLocally, documentReady, changedSections };

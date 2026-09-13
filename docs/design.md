@@ -47,9 +47,14 @@ Every provider exports `create(deps)` returning the same shape, so the engine an
 detect({cfg, secrets})            -> { cli: {found, path, version, loggedIn, account, plan, note}, apiKey: {stored} }
 listModels(mode, {cfg, secrets})  -> [{ id, label, tier: 'fast' | 'best' | 'other' }]
 defaults(models)                  -> { merge, polish }
-complete({mode, model, prompt, timeoutMs, cfg, secrets}) -> { text, usage: {input, output}, error }
+complete({mode, model, system, prompt, blocks, effort, timeoutMs, cfg, secrets, onProgress})
+                                  -> { text, usage: {input, output, cacheRead?}, error, warm? }
+capabilities(mode)                -> { image, pdf }   what `blocks` may carry
+warm({mode, model, effort, system, cfg}) -> boolean   optional: start the next call's process now
 signIn                            -> { cli: { command, args } } or null
 ```
+
+`system` is the half of a prompt that never varies between calls of its kind; `prompt` is everything else. `blocks` are attached images and PDFs as base64. `effort` is `low`…`max` or null, and each provider translates it (`--effort`, `output_config.effort`, `thinkingConfig`, `reasoning.effort`) or drops it for a model that does not take it. The Claude CLI streams (`--input-format stream-json --output-format stream-json`), which is what carries the blocks and the progress; a CLI too old for it falls back to the one-shot JSON call.
 
 CLI calls run in an empty temporary directory (no project instruction files get picked up), with the prompt on stdin (no command-line length limits), with the extension host's Node variables scrubbed, and with a process-group kill on timeout. In Claude CLI mode the billing variables are also scrubbed so the subscription pays, not a stray key.
 
@@ -59,7 +64,9 @@ CLI calls run in an empty temporary directory (no project instruction files get 
 
 **Polish** (best model). Input: the document body, the open conflicts, and the target family's style guide. Rules: change form, not substance; return conflicts unchanged; keep sections the merge engine can extend; put every XML/HTML tag on its own line (the formatted editor shows those as structure; an inline tag reads as literal text).
 
-Both return one JSON object: `{ "doc", "conflicts": [{id, section, existing, incoming}], "changes": [] }`. The parser tolerates fences and prose, assigns missing ids, drops duplicates, strips any stray conflict section, and refuses a merge result that is less than 40% of the input's length.
+A merge returns `{ "edits": [{section, op: append|replace|create|delete, text}], "conflicts": [...], "changes": [] }`: only the sections it changed, applied by `src/engine/edits.js` to the document as it stands, so an unnamed section is kept byte for byte. An edit that cannot be placed without guessing fails the reply, and the merge is asked once more for `{ "doc" }`, the whole document. Polish returns `{ "doc" }`, or edits to the sections listed in `<rewrite-only>` when only those changed since the last polish for the same target. The parser tolerates fences and prose, assigns missing ids, drops duplicates, strips any stray conflict section, and refuses a merge result that is less than 40% of the input's length.
+
+After either, `src/engine/format.js` enforces the shape: tags on their own lines, unclosed section tags closed, `-` bullets, one blank line between blocks, duplicate sections folded. After a polish it also renames every section to the family's heading and sorts them into the standard order. Fenced code is untouched and the pass is idempotent.
 
 ## Session rules
 

@@ -363,6 +363,51 @@ html, body { height: 100%; overflow: hidden; max-width: 100%; }
 .plus { font-weight: 600; }
 .new-label { margin-left: 4px; }
 
+/* The idea box carries a paperclip in its corner, and says so when a file is dragged over it. */
+.compose-box { position: relative; }
+.compose-box #idea { padding-right: 34px; }
+.compose-box .clip { position: absolute; right: 6px; bottom: 9px; padding: 3px; }
+.compose-box.dragover #idea { outline: 1px dashed var(--accent); outline-offset: -3px; }
+.imgchip .kindtag { font-size: 0.72em; font-weight: 600; letter-spacing: 0.04em; opacity: 0.75; }
+.imgchip.secret { background: var(--vscode-inputValidation-warningBackground, rgba(224, 179, 65, 0.3)); }
+
+/* Four kinds of highlight, four colours, and a word on each so the colour is never the only cue:
+   red is something the prompt stays worse without, green is background worth adding, yellow is a
+   conflict waiting for an answer, orange is an idea for taking the prompt further. */
+.sg-kind { display: inline-block; margin-right: 6px; font-size: 0.76em; font-weight: 700; letter-spacing: 0.05em; text-transform: uppercase; }
+.suggestion.action { border-left-color: #e5534b; background: rgba(229, 83, 75, 0.10); }
+.suggestion.action .sg-where { background: rgba(229, 83, 75, 0.20); }
+.suggestion.action .sg-kind { color: #e5534b; }
+.suggestion.info { border-left-color: #3fb950; background: rgba(63, 185, 80, 0.10); }
+.suggestion.info .sg-where { background: rgba(63, 185, 80, 0.20); }
+.suggestion.info .sg-kind { color: #3fb950; }
+
+.conflicts { background: rgba(224, 179, 65, 0.09); border-color: rgba(224, 179, 65, 0.65); }
+.rtag { display: inline-block; margin-right: 4px; font-size: 0.76em; font-weight: 700; letter-spacing: 0.05em; text-transform: uppercase; color: #e0b341; }
+.msg.resolution .bubble { background: rgba(224, 179, 65, 0.12); border-color: rgba(224, 179, 65, 0.65); }
+.rhead { display: flex; gap: 6px; align-items: baseline; margin-bottom: 3px; font-size: 0.85em; }
+.rwhere { opacity: 0.75; }
+.rdropped { margin-top: 4px; font-size: 0.88em; opacity: 0.55; text-decoration: line-through; white-space: pre-wrap; word-break: break-word; }
+
+.ideas-box { margin: 16px 0 6px; padding: 8px 10px; border-radius: 4px; border-left: 3px solid #f0883e; background: rgba(240, 136, 62, 0.10); }
+.ideas-title { font-size: 0.78em; font-weight: 700; letter-spacing: 0.05em; text-transform: uppercase; color: #f0883e; margin-bottom: 4px; }
+.idea-card { display: flex; align-items: flex-start; gap: 8px; padding: 4px 0; font-size: 0.92em; line-height: 1.45; }
+.idea-card + .idea-card { border-top: 1px solid rgba(240, 136, 62, 0.25); }
+.ic-text { flex: 1; min-width: 0; }
+.ic-use { flex: none; padding: 0 8px; border-radius: 3px; border: 1px solid rgba(240, 136, 62, 0.6); color: inherit; font-size: 0.85em; line-height: 1.6; }
+.ic-use:hover { background: rgba(240, 136, 62, 0.22); }
+
+/* {{variables}}: a strip under the prompt, values typed in place. */
+.vars { flex: none; display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; padding: 5px 10px; border-top: 1px solid var(--vscode-panel-border); font-size: 0.88em; }
+.vars-label { color: var(--vscode-descriptionForeground); cursor: help; }
+.var { display: inline-flex; align-items: center; gap: 4px; }
+.var-name { font-family: var(--vscode-editor-font-family); color: var(--vscode-descriptionForeground); }
+.var-input { width: 20ch; max-width: 40vw; font: inherit; color: var(--vscode-input-foreground); background: var(--vscode-input-background); border: 1px solid var(--vscode-input-border, transparent); border-radius: 3px; padding: 1px 5px; }
+.var-input:focus { outline: 1px solid var(--accent); }
+
+#send-update-count { font-size: 0.8em; font-variant-numeric: tabular-nums; }
+.iconbtn.addon#send-update { color: var(--vscode-charts-purple, #b180d7); }
+
 /* Very narrow: the prompt list becomes a fixed strip across the top. It still does not scroll with
    the work below it — only the strip itself scrolls, sideways. */
 @media (max-width: 620px) {

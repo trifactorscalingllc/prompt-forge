@@ -1,8 +1,8 @@
 {
   "name": "prompt-forge-trifactor",
   "displayName": "Prompt Forge for VS Code",
-  "description": "Build complicated prompts one idea at a time. Every Enter merges an idea into a structured prompt, contradictions surface instead of being guessed away, and Polish rewrites it for the model you are sending it to. Works with your own Claude, Gemini, or OpenAI login, or any API key.",
-  "version": "0.12.3",
+  "description": "Build complicated prompts one idea at a time. Every Enter merges an idea into a structured prompt, contradictions surface instead of being guessed away, Polish rewrites it for the model you are sending it to, and Send puts it straight into Claude Code. Works with your own Claude, Gemini, or OpenAI login, or any API key.",
+  "version": "0.13.0",
   "publisher": "trifactorscaling",
   "license": "MIT",
   "repository": {
@@ -47,7 +47,8 @@
         "promptForge.cli.geminiPath",
         "promptForge.cli.codexPath",
         "promptForge.compatible.baseUrl",
-        "promptForge.sourcePath"
+        "promptForge.sourcePath",
+        "promptForge.sync.remote"
       ],
       "description": "Prompt Forge runs a vendor CLI as a child process and sends prompts to an endpoint you configure. Paths and endpoints are not read from an untrusted workspace."
     },
@@ -129,6 +130,71 @@
         "title": "Reload Prompt Forge Code",
         "category": "Prompt Forge",
         "icon": "$(debug-restart)"
+      },
+      {
+        "command": "promptForge.addIdea",
+        "title": "Add an Idea",
+        "category": "Prompt Forge",
+        "icon": "$(lightbulb)"
+      },
+      {
+        "command": "promptForge.addSelection",
+        "title": "Send Selection as an Idea",
+        "category": "Prompt Forge",
+        "icon": "$(add)"
+      },
+      {
+        "command": "promptForge.sendToClaude",
+        "title": "Send This Prompt to Claude Code",
+        "category": "Prompt Forge",
+        "icon": "$(terminal)"
+      },
+      {
+        "command": "promptForge.attachRemoteProject",
+        "title": "Attach a Project over SSH",
+        "category": "Prompt Forge",
+        "icon": "$(remote)"
+      },
+      {
+        "command": "promptForge.syncNow",
+        "title": "Sync the Prompt Library Now",
+        "category": "Prompt Forge",
+        "icon": "$(sync)"
+      },
+      {
+        "command": "promptForge.setUpSync",
+        "title": "Set Up Library Sync",
+        "category": "Prompt Forge",
+        "icon": "$(repo)"
+      }
+    ],
+    "menus": {
+      "editor/context": [
+        {
+          "command": "promptForge.addSelection",
+          "when": "editorHasSelection",
+          "group": "9_promptForge@1"
+        }
+      ],
+      "commandPalette": [
+        {
+          "command": "promptForge.addSelection",
+          "when": "editorHasSelection"
+        }
+      ]
+    },
+    "keybindings": [
+      {
+        "command": "promptForge.addSelection",
+        "key": "ctrl+alt+shift+i",
+        "mac": "cmd+alt+shift+i",
+        "when": "editorTextFocus && editorHasSelection"
+      },
+      {
+        "command": "promptForge.addIdea",
+        "key": "ctrl+alt+shift+i",
+        "mac": "cmd+alt+shift+i",
+        "when": "!editorTextFocus || !editorHasSelection"
       }
     ],
     "customEditors": [
@@ -187,6 +253,85 @@
           "scope": "window",
           "order": 4,
           "description": "Model used by Polish and by every target-model change. `auto` picks the provider's best model."
+        },
+        "promptForge.engine.mergeEffort": {
+          "type": "string",
+          "enum": [
+            "low",
+            "medium",
+            "high",
+            "auto"
+          ],
+          "default": "low",
+          "scope": "window",
+          "order": 4.1,
+          "enumDescriptions": [
+            "Fastest. Replaying 33 real merges, low cut the average from 20.6 s to 13.3 s and matched what had been accepted as closely as the default did.",
+            "More deliberation on each merge.",
+            "The most deliberation a merge gets.",
+            "Whatever the provider does when nothing is asked."
+          ],
+          "markdownDescription": "How hard the model thinks on every merge. Claude, Gemini and OpenAI each receive it in their own terms; a model that does not take it is sent nothing."
+        },
+        "promptForge.engine.polishEffort": {
+          "type": "string",
+          "enum": [
+            "auto",
+            "low",
+            "medium",
+            "high",
+            "xhigh",
+            "max"
+          ],
+          "default": "auto",
+          "scope": "window",
+          "order": 4.2,
+          "markdownDescription": "How hard the model thinks on Polish, a test run and a project brief. `auto` leaves it to the provider."
+        },
+        "promptForge.engine.mergeOutput": {
+          "type": "string",
+          "enum": [
+            "edits",
+            "document"
+          ],
+          "default": "edits",
+          "scope": "window",
+          "order": 4.3,
+          "enumDescriptions": [
+            "The engine returns only the sections it changed; every other section is kept exactly as it is. A merge costs the change, not the whole prompt.",
+            "The engine returns the whole document on every merge, as before 0.13."
+          ],
+          "markdownDescription": "What a merge sends back. With `edits`, a reply that cannot be placed without guessing is asked for again as a whole document, once."
+        },
+        "promptForge.engine.prewarm": {
+          "type": "boolean",
+          "default": true,
+          "scope": "window",
+          "order": 4.4,
+          "markdownDescription": "Start the engine process while you type an idea. The Claude CLI spends about six seconds starting; started early, that is over before you press Enter. An unused process is stopped after 90 seconds."
+        },
+        "promptForge.sync.remote": {
+          "type": "string",
+          "default": "",
+          "scope": "machine",
+          "order": 30,
+          "markdownDescription": "A git remote the prompt library syncs with, such as a private GitHub repository you own. Prompts are committed on this machine and pulled on the others; when two machines both changed one prompt, their ideas and versions are merged rather than one side winning. Empty turns sync off. Needs `git` and credentials that work without a prompt."
+        },
+        "promptForge.sync.intervalMinutes": {
+          "type": "number",
+          "default": 5,
+          "minimum": 0,
+          "maximum": 1440,
+          "scope": "machine",
+          "order": 31,
+          "description": "How often the library syncs in the background, in minutes. It also syncs shortly after a merge lands and when the window regains focus. 0 syncs only on those events and on demand."
+        },
+        "promptForge.sync.auto": {
+          "type": "boolean",
+          "default": true,
+          "scope": "machine",
+          "order": 32,
+          "markdownDescription": "Sync without being asked. Off, the library syncs only with *Prompt Forge: Sync the Prompt Library Now*."
         },
         "promptForge.engine.timeoutSeconds": {
           "type": "number",

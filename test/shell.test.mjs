@@ -148,8 +148,8 @@ test('the header is a plug and a gear; Polish, Copy and Edit live on the Prompt 
   // Building a brief is an engine call. Without a busy state the plug looks dead for seconds, and
   // a dead-looking button gets clicked again -- each click starting another attach.
   assert.ok(/const attaching = new Set\(\)/.test(runtime), 'concurrent attaches are refused');
-  assert.ok(/attaching\.add\(slug\);\n\s*post\(\)/.test(runtime), 'the panel is told before the call, not after');
-  assert.ok(/} finally \{\n\s*attaching\.delete\(slug\);/.test(runtime), 'and it is released even when the call throws');
+  assert.ok(/attaching\.add\(slug\);\r?\n\s*post\(\)/.test(runtime), 'the panel is told before the call, not after');
+  assert.ok(/} finally \{\r?\n\s*attaching\.delete\(slug\);/.test(runtime), 'and it is released even when the call throws');
   assert.ok(/projectBusy:/.test(runtime));
   assert.ok(/let connecting = false/.test(panel) && /connecting = true/.test(panel), 'the click paints immediately, before the round trip');
   assert.ok(/\{ connecting = false; render\(m\.data\); \}/.test(panel), 'and the next state clears it');

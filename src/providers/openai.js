@@ -36,14 +36,15 @@ function create({ runCli, resolveBin, fetch, fs, home }) {
     return { cli, apiKey: { stored: Boolean(await secrets.get(KEY)) } };
   }
 
-  async function completeCli({ model, prompt, timeoutMs, cfg }) {
+  async function completeCli({ model, system = '', prompt, effort = null, timeoutMs, cfg }) {
     const b = bin(cfg);
     if (!b) return { text: '', usage: null, error: 'codex CLI not found on PATH' };
     const out = (dir) => path.join(dir, 'last-message.md');
+    const tune = effort ? ['-c', `model_reasoning_effort="${effort}"`] : [];
     const res = await runCli({
       bin: b,
-      args: (dir) => ['exec', '--json', '-m', model, '-s', 'read-only', '--skip-git-repo-check', '-o', out(dir), '-'],
-      stdin: prompt,
+      args: (dir) => ['exec', '--json', '-m', model, ...tune, '-s', 'read-only', '--skip-git-repo-check', '-o', out(dir), '-'],
+      stdin: system ? `${system}\n\n${prompt}` : prompt,
       timeoutMs,
       collect: (dir) => fs.readFileSync(out(dir), 'utf8'),
     });
@@ -64,13 +65,28 @@ function create({ runCli, resolveBin, fetch, fs, home }) {
     return { text, usage, error: null };
   }
 
-  async function completeApi({ model, prompt, timeoutMs, secrets }) {
+  async function completeApi({ model, system = '', prompt, blocks = [], effort = null, timeoutMs, secrets }) {
     const key = await secrets.get(KEY);
     if (!key) return { text: '', usage: null, error: 'No OpenAI API key stored. Run "Prompt Forge: Set an API Key".' };
+    const body = { model };
+    body.input = blocks.length
+      ? [{
+        role: 'user',
+        content: [
+          ...blocks.map((b) => (b.type === 'image'
+            ? { type: 'input_image', image_url: `data:${b.mime};base64,${b.data}` }
+            : { type: 'input_file', filename: b.name, file_data: `data:${b.mime};base64,${b.data}` })),
+          { type: 'input_text', text: prompt },
+        ],
+      }]
+      : prompt;
+    // Instructions first and unchanged between calls: the API caches a stable prefix on its own.
+    if (system) body.instructions = system;
+    if (effort && /^(gpt-5|o\d)/.test(model)) body.reasoning = { effort };
     const r = await jsonRequest(fetch, `${API}/responses`, {
       method: 'POST',
       headers: { authorization: `Bearer ${key}` },
-      body: { model, input: prompt },
+      body,
       timeoutMs,
     });
     if (!r.ok) return { text: '', usage: null, error: r.error };
@@ -113,6 +129,7 @@ function create({ runCli, resolveBin, fetch, fs, home }) {
     keyUrl: 'https://platform.openai.com/api-keys',
     signIn: { cli: { command: 'codex', args: ['login'] } },
     detect, listModels, defaults,
+    capabilities: (mode) => (mode === 'apiKey' ? { image: true, pdf: true } : { image: false, pdf: false }),
     complete: (req) => (req.mode === 'cli' ? completeCli(req) : completeApi(req)),
   };
 }

@@ -4,6 +4,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { createRequire } from 'node:module';
+import { fileURLToPath } from 'node:url';
 
 const require = createRequire(import.meta.url);
 const store = require('../src/store.js');
@@ -28,7 +29,7 @@ const echoReply = (req) => ({
   call: { provider: 'fake', mode: 'cli', model: 'best', role: req.role, ms: 1, usage: { input: 1, output: 1 } },
 });
 
-function setup(impl, { title = 'T' } = {}) {
+function setup(impl, { title = 'T', caps = null } = {}) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'forge-session-'));
   const s = store.open(dir);
   const { slug } = s.create(title);
@@ -39,7 +40,7 @@ function setup(impl, { title = 'T' } = {}) {
     isOpen: () => false,
   };
   const calls = [];
-  const engine = { call: async (req) => { calls.push({ ...req, sidecarAtCall: s.read(slug) }); return impl(req, calls.length); } };
+  const engine = { call: async (req) => { calls.push({ ...req, sidecarAtCall: s.read(slug) }); return impl(req, calls.length); }, ...(caps ? { capabilities: () => caps } : {}) };
   const published = [];
   const session = createSession({
     slug, store: s, docio, engine, log: silent,
@@ -116,10 +117,8 @@ test('unparseable engine output is a failed entry, not a crash or an overwrite',
   assert.equal(s.read(slug).snapshots.length, 1);
 });
 
-test('conflicts land in the sidecar and the doc block; resolve rides the next merge and clears them', async () => {
-  const { s, slug, session, calls, docio, docPath } = setup((req, n) => (n === 1
-    ? mergeReply(req, 'Keep it short.', [{ id: 'C1', section: 'Goal', existing: 'Keep it short.', incoming: 'Make it long.' }])
-    : mergeReply(req, 'Resolved.', [])));
+test('conflicts land in the sidecar and the doc block; keep old closes them with no engine call at all', async () => {
+  const { s, slug, session, calls, docio, docPath } = setup((req) => mergeReply(req, 'Keep it short.', [{ id: 'C1', section: 'Goal', existing: 'Keep it short.', incoming: 'Make it long.' }]));
   await session.load();
   session.submitIdea('make it long');
   await session.idle();
@@ -130,15 +129,133 @@ test('conflicts land in the sidecar and the doc block; resolve rides the next me
   assert.equal(session.snapshot().conflicts.length, 1);
   session.resolve('C1', 'old');
   await session.idle();
-  assert.equal(calls.length, 2);
-  assert.match(calls[1].prompt, /C1: keep old/);
-  assert.ok(!docOf(calls[1].prompt).includes('## Open conflicts'), 'the engine sees the body, never the block');
+  assert.equal(calls.length, 1, 'keeping what is already there needs no model');
   sc = s.read(slug);
   assert.equal(sc.conflicts.length, 0);
   assert.equal(sc.resolved[0].id, 'C1');
   assert.equal(sc.resolved[0].keep, 'old');
-  assert.ok(!(await docio.readDoc(docPath)).includes('## Open conflicts'));
+  assert.equal(sc.resolved[0].by, 'local');
+  assert.equal(sc.resolved[0].entryId, 'e1', 'the answer knows which idea raised it, so the thread can place it');
+  const body = await docio.readDoc(docPath);
+  assert.ok(!body.includes('## Open conflicts') && body.includes('Keep it short.'));
   assert.equal(sc.snapshots[sc.snapshots.length - 1].kind, 'resolve');
+  assert.equal(session.snapshot().resolved.length, 1, 'the panel can show the answer in the thread');
+});
+
+test('keep new is placed without a model when the incoming side reads as prompt text, and goes to the engine when it is a remark', async () => {
+  const conflict = (incoming) => [{ id: 'C1', section: 'Goal', existing: 'Keep it short.', incoming }];
+  const a = setup((req) => mergeReply(req, 'Keep it short.', conflict('Make it long.')));
+  await a.session.load();
+  a.session.submitIdea('make it long');
+  await a.session.idle();
+  a.session.resolve('C1', 'new');
+  await a.session.idle();
+  assert.equal(a.calls.length, 1);
+  const doc = await a.docio.readDoc(a.docPath);
+  assert.ok(doc.includes('Make it long.') && !doc.includes('Keep it short.'), 'the existing text was replaced exactly');
+
+  const b = setup((req, n) => (n === 1 ? mergeReply(req, 'Keep it short.', conflict('but i want it long')) : mergeReply(req, 'Make it long.', [])));
+  await b.session.load();
+  b.session.submitIdea('but i want it long');
+  await b.session.idle();
+  b.session.resolve('C1', 'new');
+  await b.session.idle();
+  assert.equal(b.calls.length, 2, 'a remark to the tool is rewritten by the engine, not pasted in');
+  assert.match(b.calls[1].prompt, /C1: keep new/);
+  assert.ok(!docOf(b.calls[1].prompt).includes('## Open conflicts'), 'the engine sees the body, never the block');
+  assert.equal(b.s.read(b.slug).conflicts.length, 0);
+  assert.equal(b.s.read(b.slug).resolved[0].by, 'engine');
+});
+
+test('a merge answered with edits lands them; edits that cannot be placed get one more call for the whole document', async () => {
+  const ok = setup((req) => ({ text: JSON.stringify({ edits: [{ section: 'Goal', op: 'create', text: 'Ship it.' }], conflicts: [], changes: ['goal'] }), usage: null, error: null, call: { provider: 'fake', mode: 'cli', model: 'fast', role: 'merge', ms: 1 } }));
+  await ok.session.load();
+  ok.session.submitIdea('ship it');
+  await ok.session.idle();
+  assert.equal(await ok.docio.readDoc(ok.docPath), '# T\n\n## Goal\n\nShip it.\n');
+  assert.match(ok.calls[0].system, /never re-send a section you are not changing/, 'edits are what is asked for by default');
+
+  const bad = setup((req, n) => (n === 1
+    ? { text: JSON.stringify({ edits: [{ section: 'Notes', op: 'append', text: 'x' }] }), usage: null, error: null, call: { provider: 'fake', mode: 'cli', model: 'fast', role: 'merge', ms: 1 } }
+    : mergeReply(req, 'Placed.')));
+  await bad.session.load();
+  bad.docs.set(bad.docPath, '# T\n\n## Notes\n\na\n\n## Notes\n\nb\n');
+  bad.session.submitIdea('note this');
+  await bad.session.idle();
+  assert.equal(bad.calls.length, 2);
+  assert.match(bad.calls[1].system, /COMPLETE document/, 'the fallback asks for the whole document');
+  assert.equal(bad.s.read(bad.slug).entries[0].status, 'merged');
+});
+
+test('streaming progress is published while the engine works, and ideas for taking the prompt further are kept beside it', async () => {
+  const { s, slug, session, published } = setup((req) => {
+    req.onProgress({ phase: 'writing', section: 'Goal', chars: 10 });
+    const r = mergeReply(req, 'Ship it.');
+    const obj = JSON.parse(r.text);
+    obj.ideas = [{ text: 'Add a launch checklist.' }];
+    return { ...r, text: JSON.stringify(obj) };
+  });
+  await session.load();
+  session.submitIdea('ship it');
+  await session.idle();
+  assert.ok(published.includes('progress'));
+  assert.deepEqual(s.read(slug).ideas, [{ text: 'Add a launch checklist.' }]);
+  session.dismissIdea('Add a launch checklist.');
+  assert.deepEqual(session.snapshot().ideas, []);
+});
+
+test('an idea\'s files reach the engine as blocks and by name, and copy and send carry them with the idea they came from', async () => {
+  const { s, slug, session, calls } = setup((req) => mergeReply(req, 'Match the layout in shot.png.'), { caps: { image: true, pdf: true } });
+  await session.load();
+  const img = s.saveImage(slug, { data: Buffer.from('PNGDATA').toString('base64'), ext: 'png', name: 'shot.png' });
+  const note = s.saveFile(slug, { data: Buffer.from('field: value').toString('base64'), name: 'notes.txt' });
+  assert.equal(note.kind, 'text');
+  session.submitIdea('make it look like this', [img, note]);
+  await session.idle();
+  assert.equal(calls[0].blocks.length, 1);
+  assert.equal(calls[0].blocks[0].name, 'shot.png');
+  assert.ok(calls[0].prompt.includes('shot.png (image, sent with this message)'));
+  assert.ok(calls[0].prompt.includes('<attachment name="notes.txt" idea="1">\nfield: value\n</attachment>'));
+  const raw = fs.readFileSync(s.sidecarPath(slug), 'utf8');
+  assert.ok(!raw.includes('PNGDATA') && !raw.includes(s.dir), 'names only in the sidecar');
+
+  const copy = await session.copyText();
+  assert.match(copy, /Attached files, referred to above by name\. Attach them alongside this prompt:/);
+  assert.ok(copy.includes(`- shot.png (image, from the idea "make it look like this"): ${img.path}`));
+  assert.ok(copy.includes('- notes.txt (text file, from the idea "make it look like this")'));
+  const send = await session.sendText();
+  assert.ok(send.includes(`@${img.path}`) || send.includes(`@"${img.path}"`), 'a Claude Code destination gets @-mentions it opens itself');
+  assert.equal(session.snapshot().files.length, 2);
+});
+
+test('{{variables}} stay in the document and are filled on the way out; a missing one stays a visible slot', async () => {
+  const { session, docio, docPath } = setup((req) => mergeReply(req, 'Write to {{client}} about {{offer}}.'));
+  await session.load();
+  session.submitIdea('x');
+  await session.idle();
+  assert.deepEqual(session.variables().names, ['client', 'offer']);
+  session.setVars({ client: 'Acme' });
+  const copy = await session.copyText();
+  assert.ok(copy.includes('Write to Acme about {{offer}}.'));
+  assert.ok((await docio.readDoc(docPath)).includes('{{client}}'), 'the document keeps the slot');
+  assert.equal(session.snapshot().newSinceCopy, null, 'a fill is not a change to report as an add-on');
+});
+
+test('send remembers where it went, and after more ideas offers just what changed', async () => {
+  let n = 0;
+  const { session } = setup((req) => { n += 1; return mergeReply(req, `Line ${n}.`); });
+  await session.load();
+  session.submitIdea('one');
+  await session.idle();
+  assert.equal(await session.sendNewText(), null, 'nothing sent yet, so no update to offer');
+  await session.markSent({ kind: 'terminal', name: 'claude' });
+  assert.deepEqual(session.snapshot().sent.dest, { kind: 'terminal', name: 'claude' });
+  assert.equal(session.snapshot().newSinceSend, null);
+  session.submitIdea('two');
+  await session.idle();
+  assert.ok(session.snapshot().newSinceSend.added >= 1);
+  const add = await session.sendNewText();
+  assert.match(add.text, /Line 2\./);
 });
 
 test('a hand edit made before the merge is recorded as its own snapshot and is what the engine sees', async () => {
@@ -171,20 +288,51 @@ test('a hand edit made DURING the merge is never overwritten: the merge runs aga
   assert.equal(ctx.s.read(ctx.slug).entries[0].status, 'merged');
 });
 
-test('setTarget persists the target and runs a polish on the polish model; Polish alone does the same', async () => {
-  const { s, slug, session, calls } = setup((req) => echoReply(req));
+test('setTarget runs a full polish with the family guide; polishing again with nothing changed is skipped, and a full rewrite can be forced', async () => {
+  const { s, slug, session, calls, published } = setup((req) => echoReply(req));
   await session.load();
   session.setTarget('gpt-5');
   await session.idle();
   assert.equal(s.read(slug).target, 'gpt-5');
   assert.equal(calls[0].role, 'polish');
-  assert.ok(calls[0].prompt.includes('<style-guide family="gpt">'));
+  assert.ok(calls[0].system.includes('<style-guide family="gpt">'));
+  assert.ok(!calls[0].prompt.includes('<rewrite-only>'));
   const snaps = s.read(slug).snapshots;
   assert.equal(snaps[snaps.length - 1].kind, 'polish');
   assert.equal(snaps[snaps.length - 1].target, 'gpt-5');
+  assert.equal(s.read(slug).polished.target, 'gpt-5');
   session.polish();
   await session.idle();
-  assert.equal(calls.length, 2);
+  assert.equal(calls.length, 1, 'nothing changed since the last polish for this target');
+  assert.ok(published.some((w) => /Nothing has changed since this was polished/.test(w)));
+  session.polish({ full: true });
+  await session.idle();
+  assert.equal(calls.length, 2, 'Alt+click rewrites it all again');
+});
+
+test('after a merge, Polish rewrites only the sections that changed, and the formatter gives them the family shape', async () => {
+  const { session, calls, docs, docPath, docio } = setup((req) => {
+    if (req.role === 'merge') return mergeReply(req, 'Also ship docs.');
+    if (req.prompt.includes('<rewrite-only>')) {
+      return { text: JSON.stringify({ edits: [{ section: 'Goal', op: 'replace', text: 'Ship the product and its docs.' }], changes: ['goal'] }), usage: null, error: null, call: { provider: 'fake', mode: 'cli', model: 'best', role: 'polish', ms: 1 } };
+    }
+    return echoReply(req);
+  });
+  await session.load();
+  docs.set(docPath, '# T\n\n## Goal\n\nShip it.\n\n## Context\n\nC.\n\n## Requirements\n\n* r\n');
+  session.setTarget('gemini-pro');
+  await session.idle();
+  session.submitIdea('also docs');
+  await session.idle();
+  session.polish();
+  await session.idle();
+  const last = calls[calls.length - 1];
+  assert.equal(last.role, 'polish');
+  assert.ok(last.prompt.includes('<rewrite-only>\n- Goal\n</rewrite-only>'), 'only the section the merge touched');
+  const doc = await docio.readDoc(docPath);
+  assert.ok(doc.includes('## Goal\n\nShip the product and its docs.'));
+  assert.ok(doc.includes('## Context\n\nC.'), 'an unchanged section is untouched');
+  assert.ok(doc.includes('- r') && !doc.includes('* r'), 'and the formatter normalised the list marker');
 });
 
 test('restore rewrites the doc from a snapshot and is itself recorded; refused while busy', async () => {
@@ -337,7 +485,7 @@ test('a suggestion never reaches the document, the disk, or the clipboard', asyn
   await session.idle();
 
   // It exists, and the panel can see it.
-  assert.deepEqual(s.read(slug).suggestions, [{ section: 'Output format', text: ADVICE }]);
+  assert.deepEqual(s.read(slug).suggestions, [{ section: 'Output format', kind: 'info', text: ADVICE }]);
   assert.equal(session.snapshot().suggestions[0].text, ADVICE);
 
   // And it is in none of the three places a prompt actually leaves the tool from. This is the
@@ -513,6 +661,6 @@ test('a run uses the polish model, because it is the prompt being answered for r
   await session.idle();
   await session.run();
   assert.deepEqual(seen, ['merge', 'run'], 'the run is its own role, not a merge or a polish');
-  const engine = require('node:fs').readFileSync(new URL('../src/engine/engine.js', import.meta.url).pathname, 'utf8');
+  const engine = require('node:fs').readFileSync(fileURLToPath(new URL('../src/engine/engine.js', import.meta.url)), 'utf8');
   assert.ok(/role === 'polish' \|\| role === 'run' \? selection\.polishModel/.test(engine), 'and it gets the good model');
 });

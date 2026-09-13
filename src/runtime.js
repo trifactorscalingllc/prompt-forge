@@ -15,16 +15,23 @@ const { createDocEditors } = require('./docedit');
 const { createSession } = require('./session');
 const { createEngine } = require('./engine/engine');
 const { createProviders, secretKey } = require('./providers');
-const { runCli, resolveBin } = require('./providers/spawn');
+const { runCli, openCli, resolveBin } = require('./providers/spawn');
 const targets = require('./targets');
 const docm = require('./doc');
 const { modelBlurb, ROLE_BLURBS } = require('./blurbs');
 const project = require('./project');
+const remote = require('./remote');
+const sendMod = require('./send');
+const clipfiles = require('./clipfiles');
+const { selectionIdea } = require('./selection');
+const { createSync } = require('./sync');
 const { lintPrompt } = require('./lint');
 const { diffSections } = require('./addendum');
 const templates = require('./templates');
 
 const LAST_OPEN = 'promptForge.lastOpen';
+const CLAUDE_EXTENSION = 'anthropic.claude-code';
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 function create(host) {
   const { log, vscode, config, getPanel, ensurePanel, globalState, secrets } = host;
@@ -35,16 +42,6 @@ function create(host) {
   const sessions = new Map();
   let activeSlug = null;
   const disposables = [];
-
-  const docio = createDocio(vscode, { log });
-  // The custom editor is registered by the cold shell; this owns what happens inside one.
-  const docEditors = createDocEditors({
-    vscode, docio, log,
-    docHtml: view.docHtml,
-    mediaRoots: () => (host.mediaRoots ? host.mediaRoots() : []),
-  });
-  const providers = createProviders({ runCli, resolveBin, fetch: globalThis.fetch, fs, home: os.homedir() });
-  const engine = createEngine({ providers, config, secrets, log });
 
   // ------------------------------------------------------------------------------------------
   // Settings
@@ -76,6 +73,28 @@ function create(host) {
 
   const setting = (key, fallback) => (overrides.has(key) ? overrides.get(key) : fallback);
 
+  /** The configuration with this session's unsaved settings laid over it. What every consumer reads. */
+  function effectiveConfig() {
+    const c = config() || {};
+    const engineCfg = { ...(c.engine || {}) };
+    for (const k of ['mergeEffort', 'polishEffort', 'prewarm', 'mergeOutput']) if (overrides.has(`engine.${k}`)) engineCfg[k] = overrides.get(`engine.${k}`);
+    const sync = { ...(c.sync || {}) };
+    for (const k of ['remote', 'intervalMinutes', 'auto']) if (overrides.has(`sync.${k}`)) sync[k] = overrides.get(`sync.${k}`);
+    const proj = { ...(c.project || {}) };
+    if (overrides.has('projectContext')) proj.context = overrides.get('projectContext');
+    return { ...c, engine: engineCfg, sync, project: proj, suggestions: setting('suggestions', c.suggestions) };
+  }
+
+  const docio = createDocio(vscode, { log });
+  // The custom editor is registered by the cold shell; this owns what happens inside one.
+  const docEditors = createDocEditors({
+    vscode, docio, log,
+    docHtml: view.docHtml,
+    mediaRoots: () => (host.mediaRoots ? host.mediaRoots() : []),
+  });
+  const providers = createProviders({ runCli, openCli, resolveBin, fetch: globalThis.fetch, fs, home: os.homedir() });
+  const engine = createEngine({ providers, config: effectiveConfig, secrets, log });
+
   // The defaults are repeated rather than read from the manifest for the same reason: an extension
   // host running an older manifest hands back nothing at all for a setting it does not know.
   const LAYOUT = { mode: 'auto', stackWidth: 620, split: 52, railCollapsed: false };
@@ -88,6 +107,11 @@ function create(host) {
       split: num(setting('layoutSplit', l.split), LAYOUT.split),
       railCollapsed: Boolean(setting('railCollapsed', l.railCollapsed) ?? LAYOUT.railCollapsed),
     };
+  };
+
+  const engineOptions = () => {
+    const e = effectiveConfig().engine || {};
+    return { mergeEffort: e.mergeEffort || 'low', polishEffort: e.polishEffort || 'auto', prewarm: e.prewarm !== false, mergeOutput: e.mergeOutput || 'edits' };
   };
 
   function buildState() {
@@ -105,10 +129,13 @@ function create(host) {
       docEditor: setting('docEditor', config().docEditor),
       layout: layoutState(),
       engineCfg: config().engine || {},
+      engineOptions: engineOptions(),
       project: projectCfg(),
       projectBusy: activeSlug ? attaching.has(activeSlug) : false,
       suggestions: setting('suggestions', config().suggestions) !== false,
       blurbs: blurbs(engine.state()),
+      sync: syncState(),
+      hasClaudeExtension: hasClaudeExtension(),
     };
   }
 
@@ -135,6 +162,14 @@ function create(host) {
     }, () => p.webview.postMessage({ type: 'state', data }));
   }
 
+  /** Streaming progress: a few bytes, several times a second, without rebuilding the whole state. */
+  function postProgress(slug) {
+    const p = getPanel();
+    const s = sessions.get(slug);
+    if (!p || !s || slug !== activeSlug) return;
+    p.webview.postMessage({ type: 'progress', slug, engine: s.progress() });
+  }
+
   let repaintTimer = null;
   function repaintSoon() {
     clearTimeout(repaintTimer);
@@ -155,9 +190,11 @@ function create(host) {
     let s = sessions.get(slug);
     if (!s) {
       s = createSession({
-        slug, store, docio, engine, cfg: config, log,
+        slug, store, docio, engine, cfg: effectiveConfig, log,
         publish: (why) => {
+          if (why === 'progress') { postProgress(slug); return; }
           if (why.startsWith('notice:')) notice('info', why.slice('notice:'.length));
+          if (why === 'landed') syncSoon('change');
           if (slug === activeSlug) post();
         },
       });
@@ -179,6 +216,16 @@ function create(host) {
     try { await docio.openBeside(s.docPath, { editor: config().docEditor }); } catch (e) { notice('error', `Could not open the document: ${e.message}`); }
   }
 
+  /** The prompt an out-of-panel command acts on: the open one, else the last one, else a new one. */
+  async function sessionForCommand() {
+    if (!store) return null;
+    if (active()) return active();
+    const last = globalState.get(LAST_OPEN);
+    if (last && store.exists(last)) return openSession(last);
+    const { slug } = store.create('Untitled');
+    return openSession(slug);
+  }
+
   // ------------------------------------------------------------------------------------------
   // Engine sign-in
   // ------------------------------------------------------------------------------------------
@@ -197,9 +244,10 @@ function create(host) {
   // Two scopes, deliberately different sizes. The picker LISTS several roots — names and paths
   // only, never a file. The brief READS exactly one folder, the one the person chose. Umbrella
   // reading is refused; docs/project-context.md records why, because it will be proposed again.
+  // A project on an SSH host is the same one folder, read through ssh under the same rules.
   // ------------------------------------------------------------------------------------------
   const projectCfg = () => {
-    const p = config().project || {};
+    const p = effectiveConfig().project || {};
     return {
       roots: Array.isArray(p.roots) ? p.roots : [],
       context: ['off', 'brief', 'brief+lookup'].includes(p.context) ? p.context : 'brief',
@@ -229,6 +277,7 @@ function create(host) {
     } catch { return null; }
   }
 
+  /** { dir, host } for the project the person chose, or null. */
   async function pickProjectDir() {
     const cfg = projectCfg();
     const ws = workspaceDir();
@@ -238,8 +287,9 @@ function create(host) {
       if (ws && p.path === ws) continue;
       items.push({ label: `$(folder) ${p.label}`, description: p.path, dir: p.path });
     }
-    items.push({ label: '$(folder-opened) Browse\u2026', detail: 'Pick any folder', dir: '\u0000browse' });
-    if (!cfg.roots.length) items.push({ label: '$(gear) Add folders to list projects from\u2026', detail: 'Sets promptForge.projectRoots, so you never hunt for a path again', dir: '\u0000roots' });
+    items.push({ label: '$(folder-opened) Browse…', detail: 'Pick any folder', dir: '\u0000browse' });
+    items.push({ label: '$(remote) A project on another machine, over SSH…', detail: 'A Mac mini, a server: anything in ~/.ssh/config. Nothing leaves this window.', dir: '\u0000ssh' });
+    if (!cfg.roots.length) items.push({ label: '$(gear) Add folders to list projects from…', detail: 'Sets promptForge.projectRoots, so you never hunt for a path again', dir: '\u0000roots' });
     const pick = await vscode.window.showQuickPick(items, {
       placeHolder: 'Which project is this prompt for? Only the folder you choose is read.',
       matchOnDescription: true,
@@ -249,42 +299,87 @@ function create(host) {
       await vscode.commands.executeCommand('workbench.action.openSettings', 'promptForge.projectRoots');
       return null;
     }
+    if (pick.dir === '\u0000ssh') return pickRemoteProject();
     if (pick.dir === '\u0000browse') {
       const sel = await vscode.window.showOpenDialog({ canSelectFolders: true, canSelectFiles: false, canSelectMany: false, openLabel: 'Attach this project' });
-      return sel && sel.length ? sel[0].fsPath : null;
+      return sel && sel.length ? { dir: sel[0].fsPath, host: null } : null;
     }
-    return pick.dir;
+    return { dir: pick.dir, host: null };
+  }
+
+  /** A host from ~/.ssh/config (or typed), then a folder on it. { dir, host } or null. */
+  async function pickRemoteProject() {
+    const ssh = resolveBin('ssh', {});
+    if (!ssh) { notice('error', 'ssh is not on your PATH. Install OpenSSH to attach a project on another machine.'); return null; }
+    const extraConfig = String(vscode.workspace.getConfiguration('remote.SSH').get('configFile', '') || '');
+    const hosts = remote.sshHosts({ extra: extraConfig ? [storeMod.expandHome(extraConfig)] : [] });
+    const items = hosts.map((h) => ({ label: `$(remote) ${h.host}`, description: [h.user, h.hostName].filter(Boolean).join('@') || undefined, host: h.host }));
+    items.push({ label: '$(edit) Type a host…', detail: 'A name from ~/.ssh/config, or user@address', host: '\u0000type' });
+    const pick = await vscode.window.showQuickPick(items, { placeHolder: 'Which machine is the project on? SSH keys or an agent are used; a password prompt cannot be answered from here.' });
+    if (!pick) return null;
+    let sshHost = pick.host;
+    if (sshHost === '\u0000type') {
+      sshHost = String(await vscode.window.showInputBox({
+        prompt: 'SSH host', placeHolder: 'mac-mini or me@192.168.1.20', ignoreFocusOut: true,
+        validateInput: (v) => (remote.validHost(String(v).trim()) ? null : 'Letters, digits, dots, dashes, underscores and @ only'),
+      }) || '').trim();
+      if (!sshHost) return null;
+    }
+    const found = await vscode.window.withProgress(
+      { location: vscode.ProgressLocation.Notification, title: `Looking for projects on ${sshHost}…`, cancellable: false },
+      () => remote.discoverRemote({ runCli, ssh, host: sshHost }),
+    );
+    if (found.error) notice('warn', `Could not list projects on ${sshHost}: ${found.error}. You can still type a path.`);
+    const dirs = found.dirs.map((d) => ({ label: `$(folder) ${d}`, dir: d }));
+    dirs.push({ label: '$(edit) Type a path…', dir: '\u0000type' });
+    const dp = await vscode.window.showQuickPick(dirs, { placeHolder: `Which folder on ${sshHost}? Only the folder you choose is read.` });
+    if (!dp) return null;
+    let dir = dp.dir;
+    if (dir === '\u0000type') {
+      dir = String(await vscode.window.showInputBox({ prompt: `Folder on ${sshHost}`, placeHolder: '~/projects/my-app', ignoreFocusOut: true }) || '').trim();
+      if (!dir) return null;
+    }
+    return { dir, host: sshHost };
   }
 
   /** One call, on attach, with the polish model. Its output is reused on every merge after. */
-  async function buildBrief(dir, label) {
+  async function buildBrief(dir, label, sshHost) {
     const cfg = projectCfg();
     let collected;
-    try { collected = project.collect(dir, { fs, maxFiles: cfg.maxFiles, maxBytes: cfg.maxBytes }); } catch (e) { return { error: e.message }; }
-    if (!collected.files.length) return { error: `Nothing readable in ${dir}. A project needs a README or a manifest to describe itself.` };
+    if (sshHost) {
+      const ssh = resolveBin('ssh', {});
+      if (!ssh) return { error: 'ssh is not on your PATH' };
+      collected = await remote.collectRemote({ runCli, ssh, host: sshHost, dir, maxFiles: cfg.maxFiles, maxBytes: cfg.maxBytes });
+      if (collected.error) return { error: collected.error };
+    } else {
+      try { collected = project.collect(dir, { fs, maxFiles: cfg.maxFiles, maxBytes: cfg.maxBytes }); } catch (e) { return { error: e.message }; }
+    }
+    const where = sshHost ? `${sshHost}:${dir}` : dir;
+    if (!collected.files.length) return { error: `Nothing readable in ${where}. A project needs a README or a manifest to describe itself.` };
     const res = await engine.call({
       role: 'polish',
-      prompt: project.buildBriefPrompt({ label, dir, collected }),
+      prompt: project.buildBriefPrompt({ label, dir: where, collected }),
       timeoutMs: ((config().engine || {}).timeoutSeconds || 240) * 1000,
     });
     if (res.error) return { error: res.error };
     const brief = project.capBrief(res.text);
     if (!brief) return { error: 'The engine returned an empty brief.' };
-    return { brief, files: collected.files, truncated: collected.truncated, call: res.call };
+    return { brief, files: collected.files, truncated: collected.truncated, call: res.call, head: collected.head || null };
   }
 
   // Building a brief is one engine call, which is seconds. Without this the plug looked dead for
   // all of them, so it got clicked again, and every click started another attach.
   const attaching = new Set();
 
-  async function attachProject(slug, dir) {
+  async function attachProject(slug, dir, sshHost = null) {
     if (!store || !slug) return;
     if (attaching.has(slug)) { notice('info', 'Still connecting to that project. One moment.'); return; }
-    const label = path.basename(dir) || dir;
+    const label = sshHost ? `${sshHost}:${path.posix.basename(dir.replace(/\/+$/, '')) || dir}` : (path.basename(dir) || dir);
+    const same = (p) => p.path === dir && (p.host || null) === (sshHost || null);
     if (!engine.selection().ok) {
       // Attaching without an engine is allowed: the folder is recorded and the brief builds later.
-      const list = (store.read(slug).projects || []).filter((p) => p.path !== dir);
-      list.push({ id: `p${list.length + 1}`, label, path: dir, brief: '', builtAt: 0, head: gitHead(dir), files: [], error: engine.selection().reason });
+      const list = (store.read(slug).projects || []).filter((p) => !same(p));
+      list.push({ id: `p${list.length + 1}`, label, path: dir, host: sshHost || undefined, brief: '', builtAt: 0, head: sshHost ? null : gitHead(dir), files: [], error: engine.selection().reason });
       store.setProjects(slug, list);
       const sess = sessions.get(slug); if (sess) sess.reread();
       notice('info', `${label} attached. Its brief will build once an engine is signed in.`);
@@ -296,25 +391,26 @@ function create(host) {
     let built;
     try {
       built = await vscode.window.withProgress(
-        { location: vscode.ProgressLocation.Notification, title: `Connecting to ${label}\u2026`, cancellable: false },
-        () => buildBrief(dir, label),
+        { location: vscode.ProgressLocation.Notification, title: `Connecting to ${label}…`, cancellable: false },
+        () => buildBrief(dir, label, sshHost),
       );
     } finally {
       attaching.delete(slug);
     }
-    const list = (store.read(slug).projects || []).filter((p) => p.path !== dir);
+    const list = (store.read(slug).projects || []).filter((p) => !same(p));
     const id = `p${Date.now().toString(36)}`;
+    const base = { id, label, path: dir, ...(sshHost ? { host: sshHost } : {}) };
     if (built.error) {
-      list.push({ id, label, path: dir, brief: '', builtAt: 0, head: gitHead(dir), files: [], error: built.error });
+      list.push({ ...base, brief: '', builtAt: 0, head: sshHost ? null : gitHead(dir), files: [], error: built.error });
       notice('error', `Could not describe ${label}: ${built.error}`);
     } else {
       list.push({
-        id, label, path: dir, brief: built.brief, builtAt: Date.now(), head: gitHead(dir),
+        ...base, brief: built.brief, builtAt: Date.now(), head: sshHost ? built.head : gitHead(dir),
         files: built.files, truncated: built.truncated,
         call: built.call ? { model: built.call.model, in: (built.call.usage || {}).input || 0, out: (built.call.usage || {}).output || 0 } : null,
         error: null,
       });
-      notice('info', `${label} attached \u2014 read ${built.files.length} file${built.files.length === 1 ? '' : 's'}.`);
+      notice('info', `${label} attached — read ${built.files.length} file${built.files.length === 1 ? '' : 's'}.`);
     }
     store.setProjects(slug, list);
     const sess = sessions.get(slug); if (sess) sess.reread();
@@ -388,6 +484,217 @@ function create(host) {
   }
 
   // ------------------------------------------------------------------------------------------
+  // Leaving the tool: variables, attached files, and sending to Claude Code
+  // ------------------------------------------------------------------------------------------
+
+  // A variable asked about once and left empty is not asked about again this session: the slot is
+  // what the person chose, and a dialog on every copy would be a tax on that choice.
+  const askedVars = new Map();
+
+  /** Ask for any {{variable}} with no value. false when the person cancelled. */
+  async function fillMissingVars(s) {
+    const { names, values } = s.variables();
+    const asked = askedVars.get(s.slug) || new Set();
+    askedVars.set(s.slug, asked);
+    const missing = names.filter((n) => !values[n] && !asked.has(n.toLowerCase()));
+    if (!missing.length) return true;
+    const next = {};
+    for (const n of missing) {
+      const v = await vscode.window.showInputBox({ prompt: `Value for {{${n}}}`, placeHolder: 'Leave empty to keep the slot as it is. Values are remembered for this prompt.', ignoreFocusOut: true });
+      if (v === undefined) return false;
+      asked.add(n.toLowerCase());
+      if (v) next[n] = v;
+    }
+    if (Object.keys(next).length) s.setVars(next);
+    return true;
+  }
+
+  /** After a copy that lists files: the files themselves, onto the clipboard, when asked. */
+  async function offerFiles(files) {
+    if (!files.length) return;
+    const choice = await vscode.window.showInformationMessage(
+      `Copied. ${files.length} attached file${files.length === 1 ? ' is' : 's are'} listed at the end with ${files.length === 1 ? 'its' : 'their'} path${files.length === 1 ? '' : 's'}. Paste the prompt, then copy the files and paste them beside it.`,
+      'Copy the files',
+    );
+    if (choice !== 'Copy the files') return;
+    const r = await clipfiles.copyFiles(files.map((f) => f.path), { runCli, resolveBin });
+    if (r.ok) notice('info', `${files.length} file${files.length === 1 ? '' : 's'} on the clipboard. Paste ${files.length === 1 ? 'it' : 'them'} into the conversation.`);
+    else notice('error', `Could not put the files on the clipboard: ${r.error}. Their paths are in the copied prompt.`);
+  }
+
+  const hasClaudeExtension = () => { try { return Boolean(vscode.extensions && vscode.extensions.getExtension(CLAUDE_EXTENSION)); } catch { return false; } };
+
+  /** Where a send can go for this prompt: its local project (or the open folder), and an SSH project if it has one. */
+  function sendPlaces(s) {
+    const projs = (store.read(s.slug).projects || []).filter((p) => !p.error);
+    const local = projs.find((p) => !p.host);
+    const far = projs.find((p) => p.host);
+    return { folder: (local && local.path) || workspaceDir(), remote: far ? { host: far.host, dir: far.path } : null };
+  }
+
+  const claudeTerminals = () => (vscode.window.terminals || []).filter((t) => /claude/i.test(t.name));
+
+  async function startTerminal({ name, cwd, command, text }) {
+    const t = vscode.window.createTerminal({ name, cwd });
+    t.show(false);
+    t.sendText(command, true);
+    // Claude's input only exists once it has booted; a paste before then goes to the shell.
+    await vscode.window.withProgress({ location: vscode.ProgressLocation.Notification, title: 'Starting Claude…', cancellable: false }, () => sleep(6000));
+    t.sendText(sendMod.pasteSequence(text), false);
+    return t;
+  }
+
+  async function deliver(item, text) {
+    switch (item.kind) {
+      case 'terminal': {
+        const t = claudeTerminals().find((x) => x.name === item.name);
+        if (!t) throw new Error(`the terminal "${item.name}" is closed`);
+        t.show(false);
+        t.sendText(sendMod.pasteSequence(text), false);
+        return;
+      }
+      case 'session':
+        await vscode.commands.executeCommand('claude-vscode.editor.open', item.id, text);
+        return;
+      case 'new-panel':
+        await vscode.commands.executeCommand('claude-vscode.editor.open', undefined, text);
+        return;
+      case 'new-terminal':
+        await startTerminal({ name: `Claude · ${path.basename(item.folder)}`, cwd: item.folder, command: 'claude', text });
+        return;
+      case 'remote':
+        await startTerminal({ name: `Claude · ${item.host}`, cwd: undefined, command: sendMod.remoteClaudeCommand(item.host, item.dir), text });
+        return;
+      default:
+        throw new Error(`nowhere to send "${item.kind}"`);
+    }
+  }
+
+  const destLabel = (d) => (d.kind === 'terminal' ? `the terminal "${d.name}"` : d.kind === 'session' ? `the conversation "${d.title || d.id}"` : d.kind === 'remote' ? `Claude on ${d.host}` : 'a new Claude Code conversation');
+
+  /**
+   * The Send button. `update` sends only what changed since the last send, to the same place, when
+   * that place still exists; a conversation that is gone gets the whole prompt instead, because a new
+   * conversation has never seen it.
+   */
+  async function sendToClaude(s, { update = false } = {}) {
+    const snap = s.snapshot();
+    const { folder, remote: far } = sendPlaces(s);
+    const hasExt = hasClaudeExtension();
+    const terminals = claudeTerminals().map((t) => ({ name: t.name }));
+    const sessionsHere = folder ? sendMod.recentSessions(folder) : [];
+    let remembered = snap.sent && snap.sent.dest;
+    // A send to a new conversation only has an id once the person pressed Enter there. Find it now.
+    if (remembered && remembered.kind === 'new-panel') {
+      const found = sendMod.findSentSession({ folder: remembered.folder, sentAt: snap.sent.ts, promptStart: remembered.promptStart });
+      remembered = found ? { kind: 'session', id: found.id, title: found.title } : null;
+    }
+    if (!(await fillMissingVars(s))) return;
+
+    if (update) {
+      const add = await s.sendNewText();
+      if (!add) { notice('info', 'Nothing has been merged since your last send.'); return; }
+      const live = remembered && sendMod.destinations({ folder, terminals, sessions: sessionsHere, hasClaudeExtension: hasExt, remembered, remote: far }).find((d) => d.last);
+      if (live) {
+        try {
+          await deliver(live, add.text);
+          await s.markSent(remembered);
+          notice('info', `What changed is in ${destLabel(remembered)}. Press Enter there to send it.${add.restyled ? ' The prompt was restyled since, so the whole prompt may read better.' : ''}`);
+          post();
+          return;
+        } catch (e) {
+          notice('warn', `Could not reach ${destLabel(remembered)}: ${e.message}. Pick where the whole prompt should go.`);
+        }
+      } else {
+        notice('info', 'Where this was sent last is gone, so the whole prompt goes to the new place.');
+      }
+    }
+
+    const items = sendMod.destinations({ folder, terminals, sessions: sessionsHere, hasClaudeExtension: hasExt, remembered, remote: far });
+    if (!items.length) { notice('error', 'There is nowhere to send this: open a folder, attach a project, or start `claude` in a terminal.'); return; }
+    const pick = await vscode.window.showQuickPick(items.map((item) => ({ label: item.label, description: item.description, item })), {
+      placeHolder: 'Send this prompt to… It lands in the input box; nothing is submitted until you press Enter there.',
+    });
+    if (!pick) return;
+    const text = await s.sendText();
+    try {
+      await deliver(pick.item, text);
+    } catch (e) {
+      notice('error', `Could not send: ${e.message}`);
+      return;
+    }
+    const { label: _l, description: _d, last: _last, index: _i, ...rest } = pick.item;
+    const dest = rest.kind === 'new-panel' ? { kind: 'new-panel', folder: rest.folder, promptStart: text.split('\n').find((l) => l.trim()) || '' } : rest;
+    await s.markSent(dest);
+    notice('info', `The prompt is in ${destLabel(pick.item)}. Press Enter there to send it.`);
+    post();
+  }
+
+  // ------------------------------------------------------------------------------------------
+  // Library sync
+  // ------------------------------------------------------------------------------------------
+  let sync = null;
+  let syncTimer = null;
+  let syncDebounce = null;
+  let gitMissing = false;
+
+  const syncCfg = () => {
+    const c = effectiveConfig().sync || {};
+    return { remote: String(c.remote || '').trim(), intervalMinutes: Number.isFinite(c.intervalMinutes) ? c.intervalMinutes : 5, auto: c.auto !== false };
+  };
+
+  function syncState() {
+    const c = syncCfg();
+    const last = sync ? sync.last() : null;
+    return {
+      remote: c.remote, enabled: Boolean(c.remote), auto: c.auto, busy: Boolean(sync && sync.busy()), gitMissing,
+      last: last ? { ok: last.ok, at: last.at, error: last.error, pulled: last.pulled, merged: last.merged.length } : null,
+    };
+  }
+
+  function stopSync() {
+    clearInterval(syncTimer);
+    clearTimeout(syncDebounce);
+    syncTimer = null;
+    sync = null;
+  }
+
+  function startSync() {
+    stopSync();
+    const c = syncCfg();
+    if (!store || !c.remote) return;
+    const git = resolveBin('git', {});
+    gitMissing = !git;
+    if (!git) { notice('warn', 'Library sync is set up, but git is not on your PATH. Install git to sync prompts between machines.'); return; }
+    sync = createSync({ dir: store.dir, runCli, git, log });
+    runSync('startup', { setup: c.remote });
+    if (c.auto && c.intervalMinutes > 0) syncTimer = setInterval(() => syncSoon('interval'), c.intervalMinutes * 60 * 1000);
+  }
+
+  function syncSoon(reason) {
+    if (!sync || !syncCfg().auto) return;
+    clearTimeout(syncDebounce);
+    // A burst of merges is one sync, a little after the last of them.
+    syncDebounce = setTimeout(() => runSync(reason), reason === 'change' ? 20000 : 500);
+  }
+
+  async function runSync(reason, { setup = null } = {}) {
+    if (!sync || disposed) return;
+    // Never pull a file out from under a merge that is about to write it.
+    if ([...sessions.values()].some((x) => x.busy())) { syncSoon(reason); return; }
+    post();
+    const r = setup && (!sync.isRepo() || (await sync.remoteUrl()) !== setup) ? await sync.setup(setup) : await sync.syncNow({ reason });
+    if (disposed) return;
+    if (r.ok && (r.pulled || r.merged.length)) {
+      for (const x of sessions.values()) x.reread();
+      if (r.merged.length) notice('info', `Synced. Both machines had changed ${r.merged.filter((p) => p.endsWith('.forge.json')).length} prompt(s); their histories were joined and nothing was dropped.`);
+    }
+    if (!r.ok && (reason === 'manual' || reason === 'setup' || reason === 'startup')) notice('error', `Library sync failed: ${r.error}`);
+    else if (r.ok && reason === 'manual') notice('info', r.pulled ? 'Synced: changes from the other machine are in.' : 'Synced: everything here is on the remote.');
+    post();
+  }
+
+  // ------------------------------------------------------------------------------------------
   // Messages from the webview (and from the cold shell's commands)
   // ------------------------------------------------------------------------------------------
 
@@ -405,6 +712,15 @@ function create(host) {
       log.error(`${m.type} failed: ${e.stack || e.message}`);
       post();
     }
+  }
+
+  /** A file the person attached, handed back to the panel as a chip on the idea being typed. */
+  function attached(saved) {
+    const p = getPanel();
+    if (!saved) { notice('error', 'That file could not be read.'); return; }
+    if (saved.error) { notice('error', saved.error); return; }
+    if (p) p.webview.postMessage({ type: 'attached', attachment: saved });
+    if (saved.secret) notice('warn', `${saved.name} looks like a key or credentials file. Its name is referenced; its contents are never sent.`);
   }
 
   async function dispatch(m) {
@@ -458,22 +774,65 @@ function create(host) {
         return;
       }
       case 'image.paste': {
-        // Saved to disk immediately and referred to by path from here on: a screenshot is hundreds
+        // Saved to disk immediately and referred to by name from here on: a screenshot is hundreds
         // of KB and must never ride along in panel state or in the sidecar JSON.
         if (!s || !m.data) return;
         const saved = store.saveImage(s.slug, { data: String(m.data), ext: String(m.ext || 'png'), name: String(m.name || '') });
-        const pp = getPanel();
-        if (pp) pp.webview.postMessage({ type: 'imageSaved', image: saved });
-        if (!saved) notice('error', 'That image could not be read.');
+        if (!saved) { notice('error', 'That image could not be read.'); return; }
+        attached(saved);
+        return;
+      }
+      case 'file.drop':
+        if (!s || !m.data) return;
+        attached(store.saveFile(s.slug, { data: String(m.data), name: String(m.name || '') }));
+        return;
+      case 'attach.pick': {
+        if (!s) { notice('info', 'Create or open a prompt first.'); return; }
+        const picked = await vscode.window.showOpenDialog({ canSelectMany: true, canSelectFiles: true, canSelectFolders: false, openLabel: 'Attach to this idea' });
+        for (const uri of picked || []) attached(store.saveFile(s.slug, { from: uri.fsPath }));
         return;
       }
       case 'image.open':
+      case 'attachment.open':
         if (m.path) await vscode.commands.executeCommand('vscode.open', vscode.Uri.file(String(m.path)));
+        return;
+      case 'typing':
+        // The person is writing an idea: start the engine process the merge will use, so its boot
+        // is over before they press Enter.
+        if (s && engineOptions().prewarm && engine.selection().ok) s.warm();
         return;
       case 'idea':
         if (!s) { notice('info', 'Create or open a prompt first.'); return; }
         if (!engine.selection().ok) { notice('error', engine.selection().reason); return; }
-        s.submitIdea(m.text, Array.isArray(m.images) ? m.images : []);
+        s.submitIdea(m.text, Array.isArray(m.attachments) ? m.attachments : Array.isArray(m.images) ? m.images : []);
+        return;
+      case 'addIdea': {
+        const target = await sessionForCommand();
+        if (!target) return;
+        if (!engine.selection().ok) { notice('error', engine.selection().reason); vscode.window.showWarningMessage(`Prompt Forge: ${engine.selection().reason}`); return; }
+        const text = m.text != null ? String(m.text) : await vscode.window.showInputBox({ prompt: `An idea for "${target.snapshot().title}"`, placeHolder: 'It is merged into the prompt when you press Enter.', ignoreFocusOut: true });
+        if (!text || !text.trim()) return;
+        target.submitIdea(text);
+        vscode.window.setStatusBarMessage(`$(check) Idea sent to ${target.snapshot().title}`, 4000);
+        return;
+      }
+      case 'addSelection': {
+        const target = await sessionForCommand();
+        if (!target) return;
+        if (!engine.selection().ok) { vscode.window.showWarningMessage(`Prompt Forge: ${engine.selection().reason}`); return; }
+        const lines = Math.max(1, Number(m.end || 1) - Number(m.start || 1) + 1);
+        const note = await vscode.window.showInputBox({
+          prompt: `What about these ${lines} line${lines === 1 ? '' : 's'} of ${m.file || 'code'}? Optional.`,
+          placeHolder: 'e.g. this should validate the email before it saves. Enter to send as it is.',
+          ignoreFocusOut: true,
+        });
+        if (note === undefined) return;
+        target.submitIdea(selectionIdea({ note, text: m.text, file: m.file, start: m.start, end: m.end, lang: m.lang }));
+        vscode.window.setStatusBarMessage(`$(check) Selection sent to ${target.snapshot().title}`, 4000);
+        return;
+      }
+      case 'idea.dismiss':
+        if (s && m.text) s.dismissIdea(String(m.text));
         return;
       case 'setTarget':
         if (s && m.target) s.setTarget(String(m.target));
@@ -487,25 +846,32 @@ function create(host) {
       }
       case 'project.pick': {
         if (!s) { notice('info', 'Create or open a prompt first.'); return; }
-        const dir = await pickProjectDir();
-        if (dir) await attachProject(s.slug, dir);
+        const pick = await pickProjectDir();
+        if (pick) await attachProject(s.slug, pick.dir, pick.host);
+        return;
+      }
+      case 'project.remote': {
+        const target = s || await sessionForCommand();
+        if (!target) return;
+        const pick = await pickRemoteProject();
+        if (pick) await attachProject(target.slug, pick.dir, pick.host);
         return;
       }
       case 'project.menu': {
         if (!s) return;
         const list = store.read(s.slug).projects || [];
-        if (!list.length) { const dir = await pickProjectDir(); if (dir) await attachProject(s.slug, dir); return; }
+        if (!list.length) { const pick = await pickProjectDir(); if (pick) await attachProject(s.slug, pick.dir, pick.host); return; }
         const items = [];
         for (const p of list) {
           const what = p.error ? `error: ${p.error}` : `${p.files.length} file(s)${p.head ? `, ${p.head}` : ''}`;
           items.push({ label: `$(eye) View the brief for ${p.label}`, description: what, act: 'view', id: p.id });
-          items.push({ label: `$(refresh) Rebuild ${p.label}'s brief`, description: p.path, act: 'refresh', id: p.id });
+          items.push({ label: `$(refresh) Rebuild ${p.label}'s brief`, description: p.host ? `${p.host}:${p.path}` : p.path, act: 'refresh', id: p.id });
           items.push({ label: `$(debug-disconnect) Disconnect ${p.label}`, act: 'detach', id: p.id });
         }
-        items.push({ label: '$(add) Connect another project\u2026', detail: 'For a prompt that genuinely spans repos', act: 'add' });
+        items.push({ label: '$(add) Connect another project…', detail: 'For a prompt that genuinely spans repos, here or on another machine', act: 'add' });
         const pick = await vscode.window.showQuickPick(items, { placeHolder: 'Project context for this prompt' });
         if (!pick) return;
-        if (pick.act === 'add') { const dir = await pickProjectDir(); if (dir) await attachProject(s.slug, dir); return; }
+        if (pick.act === 'add') { const got = await pickProjectDir(); if (got) await attachProject(s.slug, got.dir, got.host); return; }
         if (pick.act === 'detach') { detachProject(s.slug, pick.id); return; }
         await handleMessage({ type: `project.${pick.act}`, id: pick.id });
         return;
@@ -523,7 +889,7 @@ function create(host) {
       case 'project.refresh': {
         if (!s || !m.id) return;
         const p = (store.read(s.slug).projects || []).find((x) => x.id === String(m.id));
-        if (p) await attachProject(s.slug, p.path);
+        if (p) await attachProject(s.slug, p.path, p.host || null);
         return;
       }
       case 'project.view': {
@@ -532,7 +898,7 @@ function create(host) {
         if (!p) return;
         // Opened untitled rather than written to the library: the brief is a cache, not a document,
         // and a file on disk would be a second copy to keep in step with the sidecar.
-        const doc = await vscode.workspace.openTextDocument({ language: 'markdown', content: p.error ? `# ${p.label}\n\nNo brief. ${p.error}\n` : `${p.brief}\n\n---\nRead ${p.files.length} file(s):\n${p.files.map((f) => `- ${f}`).join('\n')}\n` });
+        const doc = await vscode.workspace.openTextDocument({ language: 'markdown', content: p.error ? `# ${p.label}\n\nNo brief. ${p.error}\n` : `${p.brief}\n\n---\nRead ${p.files.length} file(s)${p.host ? ` on ${p.host}` : ''}:\n${p.files.map((f) => `- ${f}`).join('\n')}\n` });
         await vscode.window.showTextDocument(doc, { preview: true });
         return;
       }
@@ -542,7 +908,7 @@ function create(host) {
       case 'polish':
         if (!s) return;
         if (!engine.selection().ok) { notice('error', engine.selection().reason); return; }
-        s.polish();
+        s.polish({ full: Boolean(m.full) });
         return;
       case 'run': {
         if (!s) { notice('info', 'Create or open a prompt first.'); return; }
@@ -579,20 +945,21 @@ function create(host) {
       case 'export': {
         if (!s) { notice('info', 'Create or open a prompt first.'); return; }
         const sc = store.read(s.slug);
+        if (!(await fillMissingVars(s))) return;
         const text = await s.copyText();
         const items = [
           { label: '$(markdown) Markdown file', detail: 'The finished prompt, as you would paste it', act: 'md' },
           { label: '$(terminal) Claude Code slash command', detail: `.claude/commands/${s.slug}.md in this workspace — then /${s.slug}`, act: 'cmd' },
           { label: '$(json) Whole prompt as JSON', detail: 'Document, every idea, versions and conflicts — the portable form', act: 'json' },
         ];
-        const pick = m.act ? { act: String(m.act) } : await vscode.window.showQuickPick(items, { placeHolder: 'Export this prompt as\u2026' });
+        const pick = m.act ? { act: String(m.act) } : await vscode.window.showQuickPick(items, { placeHolder: 'Export this prompt as…' });
         if (!pick) return;
         if (pick.act === 'cmd') {
           const ws = workspaceDir();
           if (!ws) { notice('error', 'No folder is open, so there is nowhere to put a slash command.'); return; }
           const dest = path.join(ws, '.claude', 'commands', `${s.slug}.md`);
           fs.mkdirSync(path.dirname(dest), { recursive: true });
-          fs.writeFileSync(dest, text);
+          fs.writeFileSync(dest, await s.sendText());
           notice('info', `Written to .claude/commands/${s.slug}.md. Use it with /${s.slug}.`);
           await vscode.window.showTextDocument(await vscode.workspace.openTextDocument(dest), { preview: true });
           return;
@@ -602,8 +969,8 @@ function create(host) {
         const body = pick.act === 'json'
           ? JSON.stringify({
             version: 1, title: sc.title, target: sc.target, doc: text,
-            entries: (sc.entries || []).map(({ id, ts, text: t, status, images }) => ({ id, ts, text: t, status, images: (images || []).map((i) => i.name) })),
-            conflicts: sc.conflicts || [], projects: (sc.projects || []).map(({ label, path: p }) => ({ label, path: p })),
+            entries: (sc.entries || []).map(({ id, ts, text: t, status, attachments }) => ({ id, ts, text: t, status, attachments: (attachments || []).map((a) => a.name) })),
+            conflicts: sc.conflicts || [], projects: (sc.projects || []).map(({ label, path: p, host: h }) => ({ label, path: p, ...(h ? { host: h } : {}) })),
             versions: (sc.snapshots || []).map(({ id, ts, kind, changes }) => ({ id, ts, kind, changes })),
           }, null, 2)
           : text;
@@ -626,6 +993,7 @@ function create(host) {
       }
       case 'copy': {
         if (!s) return;
+        if (!(await fillMissingVars(s))) return;
         const text = await s.copyText();
         await vscode.env.clipboard.writeText(text);
         // The button turns into a tick for a moment. A bar the eye has to travel to, to read a
@@ -635,11 +1003,26 @@ function create(host) {
         post();   // copying moves the mark, so the add-on button's state changes with it
         // Reported after the copy, never instead of it. The text is already on the clipboard; this
         // is the last cheap moment to notice a section nobody filled in.
-        const found = lintPrompt(text, { conflicts: s.snapshot().conflicts });
+        const snap = s.snapshot();
+        const found = lintPrompt(text, { conflicts: snap.conflicts });
         if (found.length) notice(found.some((f) => f.level === 'warn') ? 'warn' : 'info', `Copied. ${found.map((f) => f.text).join(' ')}`);
-        log.info(`copied ${text.length} characters for ${targets.labelOf(s.snapshot().target)}`);
+        log.info(`copied ${text.length} characters for ${targets.labelOf(snap.target)}`);
+        offerFiles(snap.files).catch((e) => log.warn(`copy files: ${e.message}`));
         return;
       }
+      case 'send':
+      case 'sendToClaude': {
+        const target = s || await sessionForCommand();
+        if (!target) return;
+        await sendToClaude(target, { update: false });
+        return;
+      }
+      case 'sendUpdate':
+        if (s) await sendToClaude(s, { update: true });
+        return;
+      case 'vars.set':
+        if (s && m.values && typeof m.values === 'object') s.setVars(m.values);
+        return;
       case 'restore': {
         if (!s) return;
         const r = await s.restore(m.snapshotId);
@@ -671,6 +1054,35 @@ function create(host) {
         return;
       case 'setProjectContext':
         if (['off', 'brief', 'brief+lookup'].includes(m.value)) { await updateSetting('projectContext', m.value); post(); }
+        return;
+      case 'setEngineOption': {
+        const allowed = {
+          'engine.mergeEffort': ['auto', 'low', 'medium', 'high'],
+          'engine.polishEffort': ['auto', 'low', 'medium', 'high', 'xhigh', 'max'],
+          'engine.mergeOutput': ['edits', 'document'],
+          'engine.prewarm': [true, false],
+        };
+        if (!allowed[m.key] || !allowed[m.key].includes(m.value)) return;
+        await updateSetting(m.key, m.value);
+        post();
+        return;
+      }
+      case 'sync.setup': {
+        const current = syncCfg().remote;
+        const url = await vscode.window.showInputBox({
+          prompt: 'A git remote for the prompt library: a private repository you own',
+          placeHolder: 'git@github.com:you/prompts.git',
+          value: current, ignoreFocusOut: true,
+        });
+        if (url === undefined) return;
+        await updateSetting('sync.remote', url.trim());
+        startSync();
+        post();
+        return;
+      }
+      case 'sync.now':
+        if (!sync) { await handleMessage({ type: 'sync.setup' }); return; }
+        await runSync('manual');
         return;
       case 'setDocEditor':
         if (m.value === 'forge' || m.value === 'office' || m.value === 'text') {
@@ -750,18 +1162,24 @@ function create(host) {
       }));
       // The kit watches sourcePath/autoReload; the settings that change behaviour are watched here.
       disposables.push(vscode.workspace.onDidChangeConfiguration((e) => {
-        if (e.affectsConfiguration('promptForge.libraryPath')) { openStore(); post(); }
+        if (e.affectsConfiguration('promptForge.libraryPath')) { openStore(); startSync(); post(); }
         if (e.affectsConfiguration('promptForge.layout') || e.affectsConfiguration('promptForge.layoutStackWidth') || e.affectsConfiguration('promptForge.layoutSplit') || e.affectsConfiguration('promptForge.railCollapsed')) post();
         if (['promptForge.engine', 'promptForge.cli', 'promptForge.compatible'].some((k) => e.affectsConfiguration(k))) {
           engine.detectAll().then(() => { if (!disposed) post(); });
         }
+        if (e.affectsConfiguration('promptForge.sync')) { startSync(); post(); }
       }));
+      // Coming back to the window is when the other machine's changes are most likely waiting.
+      if (vscode.window.onDidChangeWindowState) {
+        disposables.push(vscode.window.onDidChangeWindowState((w) => { if (w && w.focused) syncSoon('focus'); }));
+      }
       if (!store) { post(); return; }
       engine.detectAll().then((sel) => {
         if (disposed) return;
         log.info(sel.ok ? `engine: ${sel.provider}/${sel.mode} merge=${sel.mergeModel} polish=${sel.polishModel}` : `engine: ${sel.reason}`);
         post();
       });
+      startSync();
       const last = globalState.get(LAST_OPEN);
       if (last && store.exists(last)) {
         openSession(last, { reveal: false }).catch((e) => log.error(`could not reopen ${last}: ${e.message}`));
@@ -772,9 +1190,11 @@ function create(host) {
     dispose() {
       disposed = true;
       clearTimeout(repaintTimer);
+      stopSync();
       docEditors.dispose();
       for (const s of sessions.values()) s.dispose();
       sessions.clear();
+      engine.dispose();
       for (const d of disposables) { try { d.dispose(); } catch { /* already gone */ } }
     },
   };

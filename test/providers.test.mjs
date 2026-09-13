@@ -70,7 +70,7 @@ test('claude.complete cli: prompt on stdin, no tools, JSON out, model flag, subs
   const r = await p.complete({ mode: 'cli', model: 'sonnet', prompt: 'THE PROMPT', timeoutMs: 5000, cfg: cfg(), secrets: noSecrets });
   assert.equal(r.error, null);
   assert.equal(r.text, 'merged');
-  assert.deepEqual(r.usage, { input: 105, output: 20 });
+  assert.deepEqual(r.usage, { input: 105, output: 20, cacheRead: 5 });
   const call = run.calls[0];
   assert.equal(call.bin, '/bin/claude');
   assert.equal(call.stdin, 'THE PROMPT');
@@ -313,6 +313,137 @@ test('compatible.detect never echoes a query string from the base URL', async ()
   const p = compatible.create({ runCli: null, resolveBin: () => null, fetch: null, fs: fsWith([]), home: '/h' });
   const d = await p.detect({ cfg: cfg({ compatible: { baseUrl: 'https://gw.example/v1?api-key=SECRET' } }), secrets: noSecrets });
   assert.ok(!JSON.stringify(d).includes('SECRET'));
+});
+
+// ---- claude streaming, warm processes, effort, files ------------------------------------------
+const nodeFs = require('node:fs');
+const nodeOs = require('node:os');
+const nodePath = require('node:path');
+
+/** A fake openCli: records each spawn, and answers every send with the scripted stream lines. */
+function fakeOpen(lines) {
+  const spawned = [];
+  const open = ({ args, scrub }) => {
+    const dir = nodeFs.mkdtempSync(nodePath.join(nodeOs.tmpdir(), 'forge-fake-'));
+    const argv = typeof args === 'function' ? args(dir) : args;
+    const rec = { argv, scrub, dir, sent: null, killed: false, used: false };
+    spawned.push(rec);
+    return {
+      dir,
+      alive: () => !rec.used && !rec.killed,
+      kill: () => { rec.killed = true; },
+      send: async (stdin, { onLine }) => {
+        rec.used = true;
+        rec.sent = stdin;
+        rec.systemFile = nodeFs.readFileSync(argv[argv.indexOf('--system-prompt-file') + 1], 'utf8');
+        for (const l of (typeof lines === 'function' ? lines(rec) : lines)) onLine(l);
+        return { ok: true, stdout: '', stderr: '', code: 0, ms: 1, bootMs: 0 };
+      },
+    };
+  };
+  open.spawned = spawned;
+  return open;
+}
+const ev = (event) => JSON.stringify({ type: 'stream_event', event });
+const STREAM_OK = [
+  JSON.stringify({ type: 'system', subtype: 'init' }),
+  ev({ type: 'content_block_start', content_block: { type: 'thinking' } }),
+  ev({ type: 'content_block_start', content_block: { type: 'text' } }),
+  ev({ type: 'content_block_delta', delta: { type: 'text_delta', text: '{"edits":[{"section":"Requirements",' } }),
+  ev({ type: 'content_block_delta', delta: { type: 'text_delta', text: '"op":"append","text":"- x"}]}' } }),
+  JSON.stringify({ type: 'result', subtype: 'success', is_error: false, result: '{"edits":[{"section":"Requirements","op":"append","text":"- x"}]}', usage: { input_tokens: 10, output_tokens: 5, cache_read_input_tokens: 700 } }),
+];
+
+test('claude cli streams: system prompt from a file, one stream-json message with files as blocks, effort flag, progress by phase and section', async () => {
+  const open = fakeOpen(STREAM_OK);
+  const p = claude.create({ runCli: fakeRun(() => fail('legacy must not run')), openCli: open, resolveBin: () => '/bin/claude', fetch: null, fs: fsWith([]), home: '/h' });
+  const progress = [];
+  const r = await p.complete({
+    mode: 'cli', model: 'sonnet', system: 'STATIC RULES', prompt: 'THE PROMPT', effort: 'low', timeoutMs: 5000, cfg: cfg(), secrets: noSecrets,
+    blocks: [{ type: 'image', mime: 'image/png', data: 'AAA', name: 'a.png' }, { type: 'pdf', mime: 'application/pdf', data: 'BBB', name: 'b.pdf' }],
+    onProgress: (x) => progress.push(x),
+  });
+  assert.equal(r.error, null);
+  assert.match(r.text, /"edits"/);
+  assert.deepEqual(r.usage, { input: 710, output: 5, cacheRead: 700 });
+  const s = open.spawned[0];
+  const pair = (k) => s.argv[s.argv.indexOf(k) + 1];
+  assert.equal(pair('--input-format'), 'stream-json');
+  assert.equal(pair('--output-format'), 'stream-json');
+  assert.equal(pair('--effort'), 'low');
+  assert.equal(pair('--tools'), 'none');
+  assert.equal(s.systemFile, 'STATIC RULES', 'the system half goes in a file, never in argv');
+  assert.ok(!s.argv.includes('THE PROMPT') && !s.argv.includes('STATIC RULES'));
+  assert.deepEqual(s.scrub, ['ANTHROPIC_API_KEY', 'ANTHROPIC_AUTH_TOKEN'], 'subscription billing: the key variables are scrubbed');
+  const msg = JSON.parse(s.sent);
+  assert.equal(msg.type, 'user');
+  assert.deepEqual(msg.message.content.map((c) => c.type), ['image', 'document', 'text'], 'files first, then the text');
+  assert.equal(msg.message.content[1].source.media_type, 'application/pdf');
+  assert.equal(msg.message.content[2].text, 'THE PROMPT');
+  assert.ok(progress.some((x) => x.phase === 'thinking'));
+  assert.ok(progress.some((x) => x.phase === 'writing' && x.section === 'Requirements'), 'the section being written is read off the stream');
+});
+
+test('claude cli warm: a process started ahead is used by the next call of the same shape; another shape replaces it', async () => {
+  const open = fakeOpen(STREAM_OK);
+  const p = claude.create({ runCli: fakeRun(() => fail('no')), openCli: open, resolveBin: () => '/bin/claude', fetch: null, fs: fsWith([]), home: '/h' });
+  assert.equal(p.warm({ mode: 'cli', model: 'sonnet', effort: 'low', system: 'S', cfg: cfg() }), true);
+  assert.equal(p.warm({ mode: 'cli', model: 'sonnet', effort: 'low', system: 'S', cfg: cfg() }), true);
+  assert.equal(open.spawned.length, 1, 'warming twice for the same shape keeps one process');
+  assert.ok(p.isWarm());
+  const r = await p.complete({ mode: 'cli', model: 'sonnet', system: 'S', prompt: 'P', effort: 'low', timeoutMs: 5000, cfg: cfg(), secrets: noSecrets });
+  assert.equal(r.warm, true);
+  assert.equal(open.spawned.length, 1, 'the call used the warm process instead of spawning');
+  assert.ok(!p.isWarm(), 'a used process is gone');
+
+  p.warm({ mode: 'cli', model: 'sonnet', effort: 'low', system: 'S', cfg: cfg() });
+  const other = await p.complete({ mode: 'cli', model: 'sonnet', system: 'DIFFERENT', prompt: 'P', effort: 'low', timeoutMs: 5000, cfg: cfg(), secrets: noSecrets });
+  assert.equal(other.warm, false);
+  assert.equal(open.spawned[1].killed, true, 'a warm process of another shape is killed, not leaked');
+  assert.equal(p.warm({ mode: 'apiKey', model: 'm', cfg: cfg() }), false, 'nothing to warm for an API key');
+  p.dispose();
+});
+
+test('claude cli: a CLI too old to stream falls back to the one-shot JSON call, with the system half on stdin', async () => {
+  const open = () => ({ dir: null, alive: () => false, kill() {}, send: async () => ({ ok: false, stdout: '', stderr: "error: unknown option '--input-format'", code: 1, error: "unknown option '--input-format'" }) });
+  const run = fakeRun(() => ok(JSON.stringify({ result: 'legacy', usage: { input_tokens: 1, output_tokens: 1 } })));
+  const p = claude.create({ runCli: run, openCli: open, resolveBin: () => '/bin/claude', fetch: null, fs: fsWith([]), home: '/h' });
+  const r = await p.complete({ mode: 'cli', model: 'sonnet', system: 'S', prompt: 'P', effort: 'low', timeoutMs: 5000, cfg: cfg(), secrets: noSecrets });
+  assert.equal(r.text, 'legacy');
+  assert.equal(run.calls[0].stdin, 'S\n\nP');
+  assert.equal(run.calls[0].args[run.calls[0].args.indexOf('--effort') + 1], 'low');
+});
+
+test('claude apiKey: the system half is cached, effort goes where the model takes it, files become blocks', async () => {
+  const f = fakeFetch(() => [200, { content: [{ type: 'text', text: 'ok' }], usage: { input_tokens: 1, output_tokens: 1 }, stop_reason: 'end_turn' }]);
+  const p = claude.create({ runCli: null, resolveBin: () => null, fetch: f, fs: fsWith([]), home: '/h' });
+  const secrets = secretsWith({ 'promptForge.apiKey.claude': 'k' });
+  await p.complete({ mode: 'apiKey', model: 'claude-sonnet-5', system: 'S', prompt: 'P', effort: 'low', blocks: [{ type: 'pdf', mime: 'application/pdf', data: 'X', name: 'b.pdf' }], timeoutMs: 5000, cfg: cfg(), secrets });
+  const b = f.calls[0].body;
+  assert.deepEqual(b.system, [{ type: 'text', text: 'S', cache_control: { type: 'ephemeral' } }]);
+  assert.deepEqual(b.output_config, { effort: 'low' });
+  assert.deepEqual(b.messages[0].content.map((c) => c.type), ['document', 'text']);
+  await p.complete({ mode: 'apiKey', model: 'claude-haiku-4-5', system: 'S', prompt: 'P', effort: 'low', timeoutMs: 5000, cfg: cfg(), secrets });
+  assert.ok(!('output_config' in f.calls[1].body), 'Haiku 4.5 rejects effort, so it is not sent');
+});
+
+test('effort and files for the other vendors, in their own terms', async () => {
+  const g = fakeFetch(() => [200, { candidates: [{ content: { parts: [{ text: 'ok' }] } }], usageMetadata: {} }]);
+  const gp = gemini.create({ runCli: null, resolveBin: () => null, fetch: g, fs: fsWith([]), home: '/h' });
+  await gp.complete({ mode: 'apiKey', model: 'gemini-2.5-flash', system: 'S', prompt: 'P', effort: 'low', blocks: [{ type: 'image', mime: 'image/png', data: 'I', name: 'i.png' }], timeoutMs: 5000, cfg: cfg(), secrets: secretsWith({ 'promptForge.apiKey.gemini': 'g' }) });
+  assert.deepEqual(g.calls[0].body.systemInstruction, { parts: [{ text: 'S' }] });
+  assert.deepEqual(g.calls[0].body.generationConfig, { thinkingConfig: { thinkingBudget: 0 } });
+  assert.deepEqual(g.calls[0].body.contents[0].parts[0], { inlineData: { mimeType: 'image/png', data: 'I' } });
+
+  const o = fakeFetch(() => [200, { output_text: 'ok', usage: {} }]);
+  const op = openai.create({ runCli: null, resolveBin: () => null, fetch: o, fs: fsWith([]), home: '/h' });
+  await op.complete({ mode: 'apiKey', model: 'gpt-5-mini', system: 'S', prompt: 'P', effort: 'low', blocks: [{ type: 'pdf', mime: 'application/pdf', data: 'D', name: 'd.pdf' }], timeoutMs: 5000, cfg: cfg(), secrets: secretsWith({ 'promptForge.apiKey.openai': 'o' }) });
+  assert.equal(o.calls[0].body.instructions, 'S');
+  assert.deepEqual(o.calls[0].body.reasoning, { effort: 'low' });
+  assert.equal(o.calls[0].body.input[0].content[0].type, 'input_file');
+
+  assert.deepEqual(compatible.create({ fetch: null }).capabilities('apiKey'), { image: false, pdf: false });
+  assert.deepEqual(gp.capabilities('cli'), { image: false, pdf: false });
 });
 
 test('claude.complete cli: replaces the CLI default system prompt with a short one (the default costs ~9k tokens per call)', async () => {

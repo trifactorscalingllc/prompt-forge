@@ -156,4 +156,112 @@ function runCli({ bin, args = [], stdin = null, timeoutMs = 240000, env = null, 
   });
 }
 
-module.exports = { runCli, engineEnv, spawnSpec, resolveBin, pickBin, clearBinCache, HOST_VARS };
+/**
+ * A CLI started now and fed later.
+ *
+ * The Claude CLI spends about six seconds booting before it reads a byte of its input, and it
+ * spends them whether or not anyone is waiting. Started while the person is still typing, that boot
+ * is already over when they press Enter: measured 1.4-1.6 s from send to answer against 6.3-6.5 s
+ * cold, on a one-word reply.
+ *
+ * Same rules as runCli: an empty temp directory, the host variables and `scrub` dropped, a
+ * process-group kill, never a rejection. The timeout starts at send(), not at spawn, because a warm
+ * process sitting idle is not a slow call. `onLine` sees each stdout line as it arrives; lines that
+ * arrived before anyone listened are replayed to the first listener.
+ */
+function openCli({ bin, args = [], env = null, platform = process.platform, maxBytes = 8 * 1024 * 1024, scrub = [] }) {
+  const t0 = Date.now();
+  const childEnv = engineEnv({ base: env || process.env, platform, scrub });
+  let tmp = null;
+  const dead = (error) => ({
+    dir: null, startedAt: t0, alive: () => false, kill() {},
+    send: async () => ({ ok: false, stdout: '', stderr: '', code: null, error, ms: 0, bootMs: 0 }),
+  });
+  try { tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'prompt-forge-')); } catch (e) { return dead(`could not create a temp directory: ${e.message}`); }
+  const cleanup = () => { if (tmp) { try { fs.rmSync(tmp, { recursive: true, force: true }); } catch { /* best effort */ } tmp = null; } };
+
+  let child;
+  try {
+    const spec = spawnSpec({ bin, args: typeof args === 'function' ? args(tmp) : args, platform, env: childEnv });
+    child = spawn(spec.command, spec.args, { cwd: tmp, env: childEnv, stdio: ['pipe', 'pipe', 'pipe'], detached: platform !== 'win32', ...spec.options });
+  } catch (e) {
+    cleanup();
+    return dead(e.message);
+  }
+  const dir = tmp;
+
+  let out = '';
+  let err = '';
+  let buf = '';
+  let exit = null;           // { code, error } once the process is gone
+  let sentAt = 0;
+  let settled = false;
+  let timer = null;
+  let resolveSend = null;
+  let listener = null;
+  const early = [];
+
+  const emit = (line) => {
+    if (!listener) { early.push(line); return; }
+    try { listener(line); } catch { /* a listener bug must not kill the call */ }
+  };
+  const killTree = () => {
+    try {
+      if (platform === 'win32') spawnSync('taskkill', ['/T', '/F', '/PID', String(child.pid)], { timeout: 5000 });
+      else process.kill(-child.pid, 'SIGKILL');
+    } catch {
+      try { child.kill('SIGKILL'); } catch { /* already gone */ }
+    }
+  };
+  const finish = (res) => {
+    if (settled || !resolveSend) return;
+    settled = true;
+    clearTimeout(timer);
+    if (buf) { emit(buf); buf = ''; }
+    cleanup();
+    resolveSend({ stdout: out, stderr: err, code: null, ms: Date.now() - sentAt, bootMs: sentAt - t0, ...res });
+  };
+
+  child.stdout.on('data', (d) => {
+    const s = String(d);
+    out += s;
+    buf += s;
+    let i;
+    while ((i = buf.indexOf('\n')) >= 0) { const line = buf.slice(0, i); buf = buf.slice(i + 1); if (line.trim()) emit(line); }
+    if (out.length > maxBytes) { killTree(); finish({ ok: false, stdout: out.slice(0, 4096), error: `output exceeded ${maxBytes} bytes` }); }
+  });
+  child.stderr.on('data', (d) => { err += d; });
+  child.on('error', (e) => { exit = { code: null, error: e.message }; finish({ ok: false, error: e.message }); });
+  child.on('close', (code) => {
+    exit = exit || { code, error: code === 0 ? null : (err.trim().slice(0, 800) || `exit ${code}`) };
+    if (sentAt) finish({ ok: code === 0, code, error: exit.error });
+    else cleanup();
+  });
+  child.stdin.on('error', () => { /* the child closed stdin first; its exit code tells the story */ });
+
+  return {
+    dir,
+    startedAt: t0,
+    /** True while the process is up and nothing has been sent to it. */
+    alive: () => !exit && !sentAt,
+    kill() {
+      if (!sentAt) { killTree(); cleanup(); return; }
+      if (!settled) { killTree(); finish({ ok: false, error: 'cancelled' }); }
+    },
+    send(stdin, { timeoutMs = 240000, onLine = null } = {}) {
+      if (sentAt) return Promise.resolve({ ok: false, stdout: '', stderr: '', code: null, error: 'this process was already used', ms: 0, bootMs: 0 });
+      sentAt = Date.now();
+      return new Promise((resolve) => {
+        resolveSend = resolve;
+        listener = onLine;
+        for (const line of early.splice(0)) emit(line);
+        // It died while it waited (a flag an older CLI rejects, a crash): report that, not a hang.
+        if (exit) { finish({ ok: false, code: exit.code, error: exit.error || 'the process exited before it was used' }); return; }
+        timer = setTimeout(() => { killTree(); finish({ ok: false, error: `timed out after ${timeoutMs}ms` }); }, timeoutMs);
+        child.stdin.end(String(stdin == null ? '' : stdin));
+      });
+    },
+  };
+}
+
+module.exports = { runCli, openCli, engineEnv, spawnSpec, resolveBin, pickBin, clearBinCache, HOST_VARS };

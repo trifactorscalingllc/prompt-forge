@@ -151,23 +151,26 @@ test('both engine prompts carry the context, and are unchanged without one', () 
   const projects = [{ label: 'web', brief: '## Project: web\nStack: Next.js 15' }];
   const args = { doc: '# P\n', target: { label: 'Claude', family: 'claude' } };
 
-  const bare = buildMergePrompt(args);
-  const withCtx = buildMergePrompt({ ...args, projects });
+  const bare = buildMergePrompt(args).prompt;
+  const withCtx = buildMergePrompt({ ...args, projects }).prompt;
   assert.ok(!bare.includes('<project-context>'), 'no project, no block');
   assert.ok(withCtx.includes('<project-context>') && withCtx.includes('Next.js 15'));
   assert.ok(withCtx.indexOf('<project-context>') < withCtx.indexOf('<document>'), 'context comes before the document');
 
   const polishBare = buildPolishPrompt({ ...args, styleGuide: 'g' });
   const polish = buildPolishPrompt({ ...args, styleGuide: 'g', projects });
-  assert.ok(!polishBare.includes('<project-context>'));
-  assert.ok(polish.includes('<project-context>'));
-  assert.match(polish, /Do not introduce a path the document does not already imply/);
-  assert.ok(!polishBare.includes('Do not introduce a path'), 'the citing permission only exists when there is context to cite');
+  assert.ok(!polishBare.prompt.includes('<project-context>'));
+  assert.ok(polish.prompt.includes('<project-context>'));
+  assert.match(polish.system, /Do not introduce a path the document does not already imply/);
+  // The system half is the same bytes with or without a project, so the permission is worded to
+  // apply only when a <project-context> block is actually in the message.
+  assert.match(polish.system, /Where the message carries <project-context>, you may name real paths/);
+  assert.equal(polishBare.system, polish.system);
 });
 
 test('the manifest, the shell and the runtime agree about project settings', () => {
   const fs = require('node:fs');
-  const ROOT = new URL('..', import.meta.url).pathname;
+  const ROOT = require('node:url').fileURLToPath(new URL('..', import.meta.url));
   const pkg = JSON.parse(fs.readFileSync(path.join(ROOT, 'package.json'), 'utf8'));
   const props = pkg.contributes.configuration.properties;
 

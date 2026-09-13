@@ -2,6 +2,7 @@
 // Turning whatever the engine said into a validated {doc, conflicts, changes}, or a clear error.
 // Never throws: a bad engine reply is an ordinary outcome the panel shows with a Retry.
 const { stripConflictBlock } = require('../doc');
+const { applyEdits } = require('./edits');
 
 function tryParse(s) {
   try {
@@ -52,23 +53,51 @@ function coerceConflicts(raw) {
   return out;
 }
 
+/**
+ * Advice, typed so the panel can say which is which: "action" is something the prompt stays worse
+ * without, "info" is background that would help. Requirements and Context are pinned whatever the
+ * engine said, because the person reads the colour as a promise about the section.
+ */
+function suggestionKind(section, kind) {
+  const key = String(section || '').toLowerCase().replace(/[^a-z]/g, '');
+  if (key === 'requirements') return 'action';
+  if (key === 'context') return 'info';
+  return kind === 'action' ? 'action' : 'info';
+}
+
+/**
+ * { ok, doc, conflicts, changes, title, suggestions, ideas, edited } or { ok: false, error, retryWithDocument }.
+ * A reply may carry the whole document ("doc") or edits to named sections ("edits"); edits are
+ * applied to `inputDoc`. `retryWithDocument` says a second call asking for the whole document is
+ * worth making: the engine answered, but not in a form that can be placed without guessing.
+ */
 function parseEngineOutput(text, { kind = 'merge', inputDoc = '' } = {}) {
   const obj = extractJson(text);
   if (!obj) {
     const preview = String(text == null ? '' : text).trim().slice(0, 160).replace(/\s+/g, ' ');
     return { ok: false, error: `engine did not return JSON${preview ? `: ${preview}` : ''}` };
   }
-  if (typeof obj.doc !== 'string' || !obj.doc.trim()) {
-    return { ok: false, error: 'engine returned an empty document' };
+  let doc;
+  let edited = false;
+  if (Array.isArray(obj.edits) && !(typeof obj.doc === 'string' && obj.doc.trim())) {
+    const r = applyEdits(stripConflictBlock(String(inputDoc || '')), obj.edits);
+    if (!r.ok) return { ok: false, error: r.error, retryWithDocument: true };
+    doc = r.doc;
+    edited = true;
+  } else if (typeof obj.doc === 'string' && obj.doc.trim()) {
+    doc = obj.doc;
+  } else {
+    return { ok: false, error: 'engine returned an empty document', retryWithDocument: kind === 'merge' };
   }
-  let doc = stripConflictBlock(obj.doc.replace(/\r/g, ''));
+  doc = stripConflictBlock(doc.replace(/\r/g, ''));
   doc = `${doc.replace(/\n+$/, '')}\n`;
   if (kind === 'merge' && inputDoc && doc.length < 0.4 * inputDoc.length) {
-    return { ok: false, error: `engine returned a much shorter document (${doc.length} vs ${inputDoc.length} chars); refused to overwrite` };
+    return { ok: false, error: `engine returned a much shorter document (${doc.length} vs ${inputDoc.length} chars); refused to overwrite`, retryWithDocument: edited };
   }
   return {
     ok: true,
     doc,
+    edited,
     conflicts: coerceConflicts(obj.conflicts),
     changes: Array.isArray(obj.changes) ? obj.changes.map((c) => str(c)).filter(Boolean) : [],
     title: typeof obj.title === 'string' ? str(obj.title).trim() : '',
@@ -78,9 +107,20 @@ function parseEngineOutput(text, { kind = 'merge', inputDoc = '' } = {}) {
       ? obj.suggestions
         .filter((x) => x && typeof x === 'object' && String(x.text || '').trim())
         .slice(0, 3)
-        .map((x) => ({ section: str(x.section).trim().slice(0, 60), text: str(x.text).replace(/\s+/g, ' ').trim().slice(0, 400) }))
+        .map((x) => {
+          const section = str(x.section).trim().slice(0, 60);
+          return { section, kind: suggestionKind(section, x.kind), text: str(x.text).replace(/\s+/g, ' ').trim().slice(0, 400) };
+        })
+      : [],
+    ideas: Array.isArray(obj.ideas)
+      ? obj.ideas
+        .map((x) => (typeof x === 'string' ? x : x && typeof x === 'object' ? x.text : ''))
+        .map((t) => str(t).replace(/\s+/g, ' ').trim().slice(0, 300))
+        .filter(Boolean)
+        .slice(0, 3)
+        .map((t) => ({ text: t }))
       : [],
   };
 }
 
-module.exports = { extractJson, parseEngineOutput };
+module.exports = { extractJson, parseEngineOutput, suggestionKind };

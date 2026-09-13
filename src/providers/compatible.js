@@ -31,13 +31,15 @@ function create({ fetch }) {
     return ((r.json && r.json.data) || []).map((m) => ({ id: String(m.id), label: String(m.id), tier: 'other' }));
   }
 
-  async function complete({ model, prompt, timeoutMs, cfg, secrets }) {
+  async function complete({ model, system = '', prompt, timeoutMs, cfg, secrets }) {
     const url = base(cfg);
     if (!url) return { text: '', usage: null, error: 'promptForge.compatible.baseUrl is not set' };
+    const messages = [{ role: 'user', content: prompt }];
+    if (system) messages.unshift({ role: 'system', content: system });
     const r = await jsonRequest(fetch, `${url}/chat/completions`, {
       method: 'POST',
       headers: await headers(secrets),
-      body: { model, messages: [{ role: 'user', content: prompt }] },
+      body: { model, messages },
       timeoutMs,
     });
     if (!r.ok) return { text: '', usage: null, error: r.error };
@@ -52,7 +54,10 @@ function create({ fetch }) {
   return {
     id: 'compatible', label: 'OpenAI-compatible', modes: ['apiKey'],
     installUrl: null, keyUrl: null, signIn: null,
+    // A local server may or may not be serving a vision model, and asking a text model for an image
+    // is an error rather than a shrug. Files go by name here.
     detect, listModels, defaults: pickDefaults, complete,
+    capabilities: () => ({ image: false, pdf: false }),
   };
 }
 

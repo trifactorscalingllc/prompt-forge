@@ -1,5 +1,50 @@
 # Changelog
 
+## 0.13.0
+
+Faster merges, a rewrite that is shaped by code rather than by request, files that travel with ideas, and a prompt that goes straight into Claude Code.
+
+### Speed, measured rather than guessed
+
+Every number here comes from replaying the merges recorded in a real prompt library, through the real `claude` CLI, on a subscription login.
+
+- **Merges think less.** A merge is a structured edit, and 53% of its output tokens were thinking. Merges now run at `--effort low` (`promptForge.engine.mergeEffort`). Replaying 33 recorded merges at once in both modes: mean **20.6 s → 13.3 s**, median 18.3 s → 12.8 s, output tokens 1,225 → 548, and the same line overlap with the merge that had been accepted (0.704 → 0.700). Gemini and OpenAI receive the same request in their own terms; a model that does not take it is sent nothing.
+- **The engine starts while you type.** The Claude CLI spends about six seconds booting before it reads its input — `claude --version` returns in one, which is why this hid for so long. Typing an idea now starts the process the merge will use (`promptForge.engine.prewarm`), so the boot is over when Enter lands: 1.4–1.6 s from send to answer against 6.3–6.5 s cold, on the same one-word reply. An unused process is stopped after 90 seconds.
+- **A merge returns edits, not the document** (`promptForge.engine.mergeOutput`). The engine names the sections an idea touched and sends only their new text; every other section is carried over as it stands. Output grows with the change instead of the prompt, and a section the engine did not name cannot drift, because it was never re-typed. A reply whose edits cannot be placed without guessing is asked for once more as a whole document rather than failing the idea.
+- **The fixed rules are a system prompt.** The merge and polish instructions no longer mention the target, the flags or the document, so they are the same bytes on every call and ride in `--system-prompt-file` (and a cached `system` block on the API). Everything that varies is in the message, stable parts first.
+- **Keep old never calls a model.** It changes nothing in the body, so the conflict simply closes. Keep new is placed exactly, also without a call, when the incoming side reads as prompt text; a remark like "but i dont want it marketed as lead generation" still goes to the engine, which rewrites it properly instead of pasting it into a paragraph.
+
+### Rewrite
+
+- **A formatter enforces the shape.** After every merge: tags glued to text go on their own lines, an unclosed section tag is closed, bullets are `-`, blank runs collapse, and two copies of one section fold into the first. After every polish, additionally: each section takes the family's own heading (`<requirements>`, `## Requirements`, `# Task`) and the standard order, whatever shape the reply came back in. Fenced code is never touched, and the pass is idempotent. The prompts always asked for this; now it is guaranteed.
+- **Polish rewrites only what changed.** After a polish for a target, the next one sends only the sections merged since, and asks for edits to those alone. Nothing changed means no call at all; Alt+click rewrites everything regardless. Past half the document it polishes the whole thing, because a partial rewrite would cost as much and read less evenly.
+- **The panel says what the engine is doing.** The reply streams, so the status line reads *starting the engine*, *thinking*, then *writing Requirements*, with the seconds counting.
+
+### Files with ideas
+
+- **The paperclip** in the idea box attaches any file; so does dropping one on the box or pasting one. Images and PDFs reach the engine as content blocks where the provider takes them, text files inline (capped), and anything else by name with the reason. A file that looks like a key or credentials is never read, whatever was attached. This also fixes pasted screenshots on the Claude CLI: they were handed over as a path to open, with tools turned off.
+- **Copy brings the files along.** The copied prompt ends with each file's name, the idea it came with, and its path. A clipboard holds text or files, not both, so the notification after a copy offers **Copy the files** to put them on the clipboard as files, ready to paste beside the prompt (Windows and macOS built in; Linux with `xclip`).
+
+### Send to Claude Code
+
+- **Send** puts the prompt in Claude Code's input box: a terminal in this window running Claude, a recent Claude Code conversation in the project folder, a new conversation, or Claude on an SSH host. Nothing is submitted; Enter is yours. Attached files go as `@`-mentions, which Claude Code opens itself.
+- **Send update** appears after more ideas land, carrying only what changed, to the same place — the add-on copy, delivered. If that place is gone, the whole prompt goes to the new one, because a new conversation has never seen it.
+- **Send Selection as an Idea** (right-click, or Ctrl+Alt+Shift+I) sends selected code with its file and lines, and an optional note. The same key with nothing selected is **Add an Idea**. Neither pulls the panel in front of the code.
+
+### The thread and the highlights
+
+- **Conflict answers are in the thread**, in the order they happened, as yellow bubbles: which side was kept, the side that was not (struck through), and whether it was placed at once or merged by the engine.
+- **Highlights are colour-coded and labelled.** Red, *act on this*: something the prompt stays worse without. Green, *worth adding*: background that would help. Requirements is always red and Context always green. Conflicts are yellow.
+- **Ideas to take the prompt further**, in orange at the foot of the prompt: up to three concrete next ideas drawn from what the prompt already establishes. **Use** puts one in the idea box. Like suggestions, they are never part of the document.
+
+### Also
+
+- **Projects over SSH.** Attach a folder on another machine — the Mac mini — from a local window, without opening a remote one. Hosts come from `~/.ssh/config`. The listing comes back first and the deny-list runs on it here, so only the files that survived it are ever read, in batch mode (keys or an agent, never a password prompt).
+- **{{variables}}.** A `{{client}}` in the prompt stays in the document and is filled in the strip under it, or asked for once on copy. The copy, the send and a test run get the value.
+- **Git-backed library sync** (`promptForge.sync.remote`). The library commits here and pulls there, after a merge lands, on a timer, and when the window regains focus. Two machines that both changed a prompt have their ideas and versions joined — colliding ids are renumbered — and the document follows the side that changed last, with the other side's text kept as a restorable version. Two different prompts that happen to share a name are both kept.
+- The tab shows the Marketplace anvil, not the line-drawn icon.
+- Four tests that could never pass on Windows now do: three built paths from `URL.pathname`, one matched `\n` against a CRLF checkout.
+
 ## 0.12.3
 
 - **A connected plug shows it.** An accent outline returns when a project is attached, and a red one when the connection failed. This was a real bug, not a preference: `.iconbtn.ghost` sits after `.iconbtn.on` at equal specificity, so dropping the plug's box in 0.9.1 silently took its connected state with it — the state was in the DOM and invisible on screen. An outline rather than a filled box, because it sits beside a ghost gear.

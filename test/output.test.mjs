@@ -70,6 +70,25 @@ test('parseEngineOutput: polish is not subject to the shrink guard', () => {
   assert.equal(r.ok, true);
 });
 
+test('parseEngineOutput: edits are applied to the input document, and only the named section moves', () => {
+  const input = '# T\n\n## Goal\n\nA reasonably long goal statement so the shrink guard is not tripped.\n\n## Requirements\n\n- one\n';
+  const r = parseEngineOutput(JSON.stringify({ edits: [{ section: 'Requirements', op: 'append', text: '- two' }], conflicts: [], changes: ['added two'] }), { kind: 'merge', inputDoc: input });
+  assert.equal(r.ok, true);
+  assert.equal(r.edited, true);
+  assert.equal(r.doc, `${input}- two\n`);
+  assert.deepEqual(r.changes, ['added two']);
+});
+
+test('parseEngineOutput: edits that cannot be placed fail with a request for the whole document', () => {
+  const input = '# T\n\n## Notes\n\na\n\n## Notes\n\nb\n';
+  const r = parseEngineOutput(JSON.stringify({ edits: [{ section: 'Notes', op: 'append', text: 'c' }] }), { kind: 'merge', inputDoc: input });
+  assert.equal(r.ok, false);
+  assert.equal(r.retryWithDocument, true);
+  const none = parseEngineOutput(JSON.stringify({ edits: [] }), { kind: 'merge', inputDoc: DOC });
+  assert.equal(none.ok, true, 'no edits is a real answer');
+  assert.equal(none.doc, DOC);
+});
+
 test('parseEngineOutput: an empty or missing doc is an error', () => {
   assert.equal(parseEngineOutput(JSON.stringify({ doc: '' }), { kind: 'polish', inputDoc: DOC }).ok, false);
   assert.equal(parseEngineOutput(JSON.stringify({ conflicts: [] }), { kind: 'polish', inputDoc: DOC }).ok, false);

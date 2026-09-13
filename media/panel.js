@@ -140,14 +140,47 @@
       summary.classList.add('bad');
     }
 
+    renderStatus(s);
+  }
+
+  // ------------------------------------------------------------------------------------------
+  // Status: what the engine is doing, and for how long
+  //
+  // A merge used to read "merging · sonnet" for twenty seconds with nothing moving. The engine now
+  // streams, so the line says whether it is starting, thinking or writing a named section, and the
+  // seconds count up here -- no message is needed for the clock to move.
+  // ------------------------------------------------------------------------------------------
+  let statusTimer = null;
+
+  function statusText(ae) {
+    const secs = ae.startedAt ? Math.max(0, Math.round((Date.now() - ae.startedAt) / 1000)) : 0;
+    const op = ae.op === 'polish' ? 'polishing' : ae.op === 'run' ? 'running' : 'merging';
+    const p = ae.progress || {};
+    const phase = p.phase === 'thinking' ? 'thinking'
+      : p.phase === 'writing' ? (p.section ? `writing ${p.section}` : 'writing')
+        : p.phase === 'starting' ? 'starting the engine'
+          : p.phase === 'waiting' ? 'engine ready' : '';
+    return [op, ae.model, phase, `${secs}s`, ae.queued ? `${ae.queued} queued` : ''].filter(Boolean).join(' · ');
+  }
+
+  function renderStatus(s) {
     const st = $('status');
+    const a = s.active;
     const ae = a ? a.engine : null;
+    clearInterval(statusTimer);
+    statusTimer = null;
     st.textContent = '';
     st.className = 'status';
+    st.title = '';
     if (!a) return;
     if (ae.state === 'busy') {
       st.classList.add('busy');
-      st.append(el('span', 'pulse'), el('span', null, `${ae.op === 'polish' ? 'polishing' : 'merging'}${ae.model ? ` · ${ae.model}` : ''}${ae.queued ? ` · ${ae.queued} queued` : ''}`));
+      const label = el('span', null, statusText(ae));
+      st.append(el('span', 'pulse'), label);
+      if (ae.progress && ae.progress.warm) st.title = 'The engine was started while you typed, so this merge skipped its start-up.';
+      statusTimer = setInterval(() => {
+        if (latest && latest.active && latest.active.engine.state === 'busy') label.textContent = statusText(latest.active.engine);
+      }, 1000);
     } else if (ae.state === 'error') {
       st.classList.add('bad');
       st.append(el('span', null, `error: ${ae.error}`));
@@ -273,6 +306,21 @@
       }
     }
 
+    const eo = s.engineOptions || { mergeEffort: 'low', polishEffort: 'auto', prewarm: true, mergeOutput: 'edits' };
+    const option = (key) => (sel) => vscode.postMessage({ type: 'setEngineOption', key, value: sel.value });
+    row('Merge effort', 'How hard the model thinks on each Enter. Low is fastest: on 33 real merges it cut the average from 20.6 s to 13.3 s and matched what had been accepted as closely as the default. Each vendor receives it in its own terms.',
+      select([['low', 'Low (fastest)'], ['medium', 'Medium'], ['high', 'High'], ['auto', 'Provider default']], eo.mergeEffort, option('engine.mergeEffort')));
+    row('Polish effort', 'How hard the model thinks on Polish, a test run and a project brief.',
+      select([['auto', 'Provider default'], ['low', 'Low'], ['medium', 'Medium'], ['high', 'High'], ['xhigh', 'Extra high'], ['max', 'Max']], eo.polishEffort, option('engine.polishEffort')));
+    row('Merge output', eo.mergeOutput === 'edits'
+      ? 'Changed sections only. The engine sends back just the sections an idea touched, so a merge costs the change rather than the whole prompt, and a section it did not name cannot drift.'
+      : 'Whole document. The engine re-types the prompt on every merge.',
+    select([['edits', 'Changed sections only'], ['document', 'Whole document']], eo.mergeOutput, option('engine.mergeOutput')));
+    row('Start the engine while you type', eo.prewarm
+      ? 'On. The Claude CLI takes about six seconds to start; it starts while you type, so a merge begins the moment you press Enter. An unused engine is stopped after 90 seconds.'
+      : 'Off. Every merge starts the engine from cold.',
+    small(eo.prewarm ? 'Turn off' : 'Turn on', null, () => vscode.postMessage({ type: 'setEngineOption', key: 'engine.prewarm', value: !eo.prewarm })));
+
     // --- Target ---
     section('target', 'Target');
     const a = s.active;
@@ -316,7 +364,10 @@
       row('Connected project', 'Open a prompt to connect it to a project.', small('Connect\u2026', null, () => vscode.postMessage({ type: 'project.pick' })));
     } else if (!attached.length) {
       row('Connected project', 'Nothing. The engine writes \u201cyour framework\u201d and \u201cthe existing component\u201d because those are the only honest things it can say. The plug in the header connects the folder this window has open.',
-        small('Connect a project\u2026', null, () => vscode.postMessage({ type: 'project.pick' })));
+        [
+          small('Connect a project\u2026', null, () => vscode.postMessage({ type: 'project.pick' })),
+          small('Over SSH\u2026', 'A project on another machine, such as a Mac mini, read through ssh without leaving this window', () => vscode.postMessage({ type: 'project.remote' })),
+        ]);
     } else {
       for (const p of attached) {
         const when = p.builtAt ? new Date(p.builtAt).toLocaleString() : 'never';
@@ -363,6 +414,14 @@
       select([['forge', 'Prompt Forge editor (formatted, click to edit)'], ['office', 'Office Viewer, if that extension is installed'], ['text', 'Plain text editor']], s.docEditor || 'forge',
         (sel) => vscode.postMessage({ type: 'setDocEditor', value: sel.value })));
     row('Library folder', s.library || '', small('Open folder', null, () => vscode.postMessage({ type: 'openLibrary' })));
+    const sy = s.sync || {};
+    const syncDesc = sy.gitMissing ? 'git is not installed, so the library cannot sync.'
+      : !sy.enabled ? 'Off. Point the library at a private git repository and your prompts follow you between machines. When two machines both changed a prompt, their ideas and versions are merged, not overwritten.'
+        : `${sy.remote}${sy.busy ? ' — syncing…' : sy.last ? (sy.last.ok ? ` — synced ${ago(sy.last.at)}` : ` — last sync failed: ${sy.last.error}`) : ''}`;
+    row('Library sync', syncDesc, [
+      small(sy.enabled ? 'Change remote' : 'Set up', null, () => vscode.postMessage({ type: 'sync.setup' })),
+      ...(sy.enabled ? [small('Sync now', null, () => vscode.postMessage({ type: 'sync.now' }))] : []),
+    ]);
     const all = el('button', 'link small-text', 'All settings in VS Code');
     all.addEventListener('click', () => vscode.postMessage({ type: 'openSettings' }));
     body.append(all);
@@ -382,6 +441,8 @@
     const root = $('doc');
     renderTarget(s);
     renderRunTab(s);
+    renderSend(s);
+    renderVars(s);
     if (!a) { root.textContent = ''; $('doc-count').textContent = ''; return; }
     const n = (a.doc || '').length;
     $('doc-count').textContent = `${n.toLocaleString()} character${n === 1 ? '' : 's'}`;
@@ -395,6 +456,103 @@
     if (showRun && lastRun(a)) { renderRun(root, a); return; }
     root.innerHTML = renderMarkdown(a.doc || '');
     placeSuggestions(root, s);
+    placeIdeas(root, s);
+  }
+
+  // ------------------------------------------------------------------------------------------
+  // Send to Claude Code, and the update after more ideas
+  // ------------------------------------------------------------------------------------------
+  const destName = (d) => (!d ? 'where you sent it'
+    : d.kind === 'terminal' ? `the terminal "${d.name}"`
+      : d.kind === 'session' ? `the conversation "${d.title || d.id}"`
+        : d.kind === 'remote' ? `Claude on ${d.host}` : 'the Claude Code conversation you started');
+
+  function renderSend(s) {
+    const a = s.active;
+    $('send-claude').disabled = !a;
+    const btn = $('send-update');
+    const n = a && a.newSinceSend;
+    btn.hidden = !n;
+    if (!n) return;
+    $('send-update-count').textContent = String(n.added || n.removed);
+    btn.title = n.restyled
+      ? 'The prompt was restyled since you sent it, so an update would be most of it again. Send the whole prompt instead.'
+      : `Send just what changed (${n.added} new line${n.added === 1 ? '' : 's'}${n.removed ? `, ${n.removed} removed` : ''}) to ${destName(a.sent && a.sent.dest)}, as the next message in that conversation.`;
+    btn.classList.toggle('warn', Boolean(n.restyled));
+  }
+
+  $('send-claude').addEventListener('click', () => vscode.postMessage({ type: 'send' }));
+  $('send-update').addEventListener('click', () => vscode.postMessage({ type: 'sendUpdate' }));
+
+  // ------------------------------------------------------------------------------------------
+  // {{variables}}: filled here, never in the document
+  //
+  // Rebuilt only when the set of names changes, so a repaint never takes the caret out of a value
+  // being typed. Values are saved a moment after typing stops.
+  // ------------------------------------------------------------------------------------------
+  const varTimers = {};
+
+  function renderVars(s) {
+    const root = $('vars');
+    const a = s.active;
+    const names = (a && a.vars && a.vars.names) || [];
+    const hide = !names.length || showRun;
+    root.hidden = hide;
+    if (hide) { root.textContent = ''; delete root.dataset.key; return; }
+    const values = a.vars.values || {};
+    const key = names.join('\u0001');
+    if (root.dataset.key === key) {
+      for (const input of root.querySelectorAll('input')) {
+        if (document.activeElement !== input) input.value = values[input.dataset.name] || '';
+      }
+      return;
+    }
+    root.dataset.key = key;
+    root.textContent = '';
+    const label = el('span', 'vars-label', 'Fill in');
+    label.title = 'Slots in the prompt. The document keeps {{name}}; the copy, the send and a test run get the value.';
+    root.append(label);
+    for (const n of names) {
+      const wrap = el('label', 'var');
+      const input = el('input', 'var-input');
+      input.type = 'text';
+      input.value = values[n] || '';
+      input.placeholder = 'value';
+      input.dataset.name = n;
+      input.addEventListener('input', () => {
+        clearTimeout(varTimers[n]);
+        varTimers[n] = setTimeout(() => vscode.postMessage({ type: 'vars.set', values: { [n]: input.value } }), 400);
+      });
+      wrap.append(el('span', 'var-name', `{{${n}}}`), input);
+      root.append(wrap);
+    }
+  }
+
+  // ------------------------------------------------------------------------------------------
+  // Ideas to take the prompt further: orange, at the foot of the prompt, never in it
+  // ------------------------------------------------------------------------------------------
+  function placeIdeas(root, s) {
+    const list = (s.active && s.active.ideas) || [];
+    if (!list.length || s.suggestions === false) return;
+    const box = el('div', 'ideas-box');
+    box.append(el('div', 'ideas-title', 'Ideas to take this prompt further'));
+    for (const it of list) {
+      const card = el('div', 'idea-card');
+      const use = el('button', 'ic-use', 'Use');
+      use.title = 'Put this in the idea box, to send as it is or change first.';
+      use.addEventListener('click', () => {
+        idea.value = idea.value.trim() ? `${idea.value.trim()}\n${it.text}` : it.text;
+        idea.focus();
+        save();
+        vscode.postMessage({ type: 'idea.dismiss', text: it.text });
+      });
+      const x = el('button', 'sg-x', '×');
+      x.title = 'Dismiss. It will not come back for this prompt.';
+      x.addEventListener('click', () => vscode.postMessage({ type: 'idea.dismiss', text: it.text }));
+      card.append(el('span', 'ic-text', it.text), use, x);
+      box.append(card);
+    }
+    root.append(box);
   }
 
   // ------------------------------------------------------------------------------------------
@@ -473,9 +631,13 @@
     }
   }
 
+  // Colour says whose move it is: red is something the prompt stays worse without, green is
+  // background that would help. Conflicts are yellow and ideas orange, so no two kinds share a colour.
   function suggestionCard(sg) {
-    const card = el('div', 'suggestion');
+    const kind = sg.kind === 'action' ? 'action' : 'info';
+    const card = el('div', `suggestion ${kind}`);
     const body = el('div', 'sg-body');
+    body.append(el('span', 'sg-kind', kind === 'action' ? 'Act on this' : 'Worth adding'));
     if (sg.section) body.append(el('span', 'sg-where', sg.section));
     body.append(el('span', 'sg-text', sg.text));
     const x = el('button', 'sg-x', '\u00d7');
@@ -501,7 +663,9 @@
     root.hidden = !list.length;
     root.textContent = '';
     if (!list.length) return;
-    root.append(el('div', 'csec-title', `${list.length} open conflict${list.length === 1 ? '' : 's'}. Nothing was assumed; pick a side or edit the document.`));
+    const title = el('div', 'csec-title');
+    title.append(el('span', 'rtag', 'Conflict'), document.createTextNode(` ${list.length} open conflict${list.length === 1 ? '' : 's'}. Nothing was assumed; pick a side or edit the document. Your answer shows in the thread.`));
+    root.append(title);
     for (const c of list) {
       const row = el('div', 'conflict');
       row.append(el('div', 'cwhere', `${c.id} · ${c.section || 'unplaced'}`));
@@ -590,7 +754,8 @@
       root.append(vl);
     }
 
-    if (!a.entries.length && !versionsOpen) {
+    const resolved = a.resolved || [];
+    if (!a.entries.length && !resolved.length && !versionsOpen) {
       const ph = el('div', 'placeholder');
       ph.append(el('h3', null, 'Your ideas go here.'), el('p', null, 'Type one below and press Enter. Rough is fine: each idea is merged into the prompt on the right, never pasted in as a bullet.'));
       // Offered here rather than on the + button: this is where someone is when a starting shape
@@ -604,9 +769,13 @@
       root.append(ph);
       return;
     }
-    if (!a.entries.length) return;
+    if (!a.entries.length && !resolved.length) return;
     const log = el('div', 'log');
-    for (const e of a.entries) {
+    // Ideas and the answers to the conflicts they raised, in the order they happened.
+    const timeline = [...a.entries.map((e) => ({ ts: e.ts, e })), ...resolved.map((r) => ({ ts: r.ts, r }))].sort((x, y) => x.ts - y.ts);
+    for (const item of timeline) {
+      if (item.r) { log.append(resolutionMsg(item.r)); continue; }
+      const e = item.e;
       const msg = el('div', `msg ${e.status}`);
       msg.dataset.id = e.id;
       const bubble = el('div', 'bubble');
@@ -629,16 +798,10 @@
         setTimeout(() => ta.focus(), 0);
       } else {
         bubble.append(el('div', 'mtext', e.text));
-        if (e.images && e.images.length) {
+        const files = e.attachments || e.images || [];
+        if (files.length) {
           const row = el('div', 'mimgs');
-          for (const im of e.images) {
-            const chip = el('span', 'imgchip');
-            const open = el('button', 'imgname', im.name);
-            open.title = im.path;
-            open.addEventListener('click', () => vscode.postMessage({ type: 'image.open', path: im.path }));
-            chip.append(open);
-            row.append(chip);
-          }
+          for (const f of files) row.append(fileChip(f, null));
           bubble.append(row);
         }
       }
@@ -684,6 +847,43 @@
     }
     root.append(log);
     root.scrollTop = root.scrollHeight;
+  }
+
+  /** A conflict the person answered, in the thread beside the ideas, in the conflict's yellow. */
+  function resolutionMsg(r) {
+    const msg = el('div', 'msg resolution');
+    const bubble = el('div', 'bubble');
+    const head = el('div', 'rhead');
+    head.append(el('span', 'rtag', 'Conflict'), el('span', 'rwhere', `${r.id}${r.section ? ` · ${r.section}` : ''}`));
+    const kept = r.keep === 'new' ? r.incoming : r.existing;
+    const dropped = r.keep === 'new' ? r.existing : r.incoming;
+    bubble.append(head, el('div', 'mtext', `You kept the ${r.keep === 'new' ? 'new' : 'existing'} side: ${kept}`));
+    if (dropped) {
+      const d = el('div', 'rdropped', dropped);
+      d.title = 'The side you did not keep';
+      bubble.append(d);
+    }
+    msg.append(bubble, el('div', 'mmeta', `${ago(r.ts)} · ${r.by === 'local' ? 'placed at once, no engine call' : 'merged by the engine'}`));
+    return msg;
+  }
+
+  /** One attached file: its kind, its name (click to open), its size, and a remove button while drafting. */
+  function fileChip(f, onRemove) {
+    const chip = el('span', 'imgchip');
+    const tag = f.kind === 'image' ? 'IMG' : f.kind === 'pdf' ? 'PDF' : f.kind === 'text' ? 'TXT' : 'FILE';
+    const open = el('button', 'imgname', f.name);
+    open.title = `${f.path}\nClick to open it.`;
+    open.addEventListener('click', () => vscode.postMessage({ type: 'attachment.open', path: f.path }));
+    chip.append(el('span', 'kindtag', tag), open);
+    if (f.bytes) chip.append(el('span', 'imgsize', f.bytes >= 1048576 ? `${(f.bytes / 1048576).toFixed(1)} MB` : `${Math.max(1, Math.round(f.bytes / 1024))} KB`));
+    if (f.secret) { chip.classList.add('secret'); chip.title = 'Looks like a key or credentials file: only its name is ever sent.'; }
+    if (onRemove) {
+      const x = el('button', 'imgx', '×');
+      x.title = 'Remove from this idea. The file stays in the library.';
+      x.addEventListener('click', onRemove);
+      chip.append(x);
+    }
+    return chip;
   }
 
   function renderUsage(s) {
@@ -837,7 +1037,7 @@
     idea.placeholder = s.bootError ? 'The prompt library cannot be opened. See the message above.'
       : !s.active ? 'Create or open a prompt first.'
       : !s.engine.selected ? 'Sign in to an engine (click the engine line above) to start merging ideas.'
-        : 'Type an idea and press Enter. Shift+Enter for a new line.';
+        : 'Type an idea and press Enter. Shift+Enter for a new line. Paste, drop or clip a file to attach it.';
   }
 
   // ------------------------------------------------------------------------------------------
@@ -850,61 +1050,85 @@
   // path. Nothing base64 stays in the page, in the panel state, or in the sidecar: a screenshot is
   // hundreds of KB and the sidecar is rewritten constantly.
   // ------------------------------------------------------------------------------------------
-  let pending = [];   // images attached to the idea being typed
+  // Any file, three ways in: the paperclip (a real path, picked in VS Code's own dialog), a paste,
+  // or a drop onto the idea box. Pasted and dropped bytes are posted once, written to disk by the
+  // extension, and come back as a chip naming the file; nothing base64 stays in the page.
+  let pending = [];   // files attached to the idea being typed
+  const MAX_UPLOAD = 25 * 1024 * 1024;
 
   function renderPending() {
     const root = $('attached');
     root.textContent = '';
     root.hidden = !pending.length;
-    for (const im of pending) {
-      const chip = el('span', 'imgchip');
-      const open = el('button', 'imgname', im.name);
-      open.title = `${im.path}\nClick to open it.`;
-      open.addEventListener('click', () => vscode.postMessage({ type: 'image.open', path: im.path }));
-      const x = el('button', 'imgx', '\u00d7');
-      x.title = 'Remove from this idea. The file stays in the library.';
-      x.addEventListener('click', () => { pending = pending.filter((p) => p.id !== im.id); renderPending(); });
-      chip.append(open, el('span', 'imgsize', `${Math.max(1, Math.round(im.bytes / 1024))} KB`), x);
-      root.append(chip);
+    for (const f of pending) {
+      root.append(fileChip(f, () => { pending = pending.filter((p) => p.id !== f.id); renderPending(); }));
     }
   }
 
+  function upload(file, { pasted = false } = {}) {
+    if (!file) return;
+    if (file.size > MAX_UPLOAD) { showNotice('error', `${file.name || 'That file'} is over 25 MB; attachments are capped there.`); return; }
+    const reader = new FileReader();
+    reader.onload = () => {
+      const url = String(reader.result || '');
+      const comma = url.indexOf(',');
+      if (comma < 0) return;
+      const data = url.slice(comma + 1);
+      // A screenshot from the clipboard has no real name; it goes where screenshots always went.
+      if (pasted && file.type.startsWith('image/')) {
+        vscode.postMessage({ type: 'image.paste', data, ext: (file.type.split('/')[1] || 'png').replace('jpeg', 'jpg'), name: file.name || '' });
+      } else {
+        vscode.postMessage({ type: 'file.drop', data, name: file.name || 'attachment' });
+      }
+    };
+    reader.readAsDataURL(file);
+  }
+
   idea.addEventListener('paste', (e) => {
-    const items = [...((e.clipboardData && e.clipboardData.items) || [])].filter((i) => i.type.startsWith('image/'));
-    if (!items.length) return;
+    const files = [...((e.clipboardData && e.clipboardData.items) || [])].filter((i) => i.kind === 'file').map((i) => i.getAsFile()).filter(Boolean);
+    if (!files.length) return;
     e.preventDefault();
-    for (const it of items) {
-      const file = it.getAsFile();
-      if (!file) continue;
-      const reader = new FileReader();
-      reader.onload = () => {
-        const url = String(reader.result || '');
-        const comma = url.indexOf(',');
-        if (comma < 0) return;
-        vscode.postMessage({
-          type: 'image.paste',
-          data: url.slice(comma + 1),
-          ext: (it.type.split('/')[1] || 'png').replace('jpeg', 'jpg'),
-          name: file.name || '',
-        });
-      };
-      reader.readAsDataURL(file);
-    }
+    for (const f of files) upload(f, { pasted: true });
   });
+
+  const composeBox = $('compose-box');
+  for (const ev of ['dragenter', 'dragover']) {
+    composeBox.addEventListener(ev, (e) => {
+      if (!e.dataTransfer || ![...e.dataTransfer.types].includes('Files')) return;
+      e.preventDefault();
+      composeBox.classList.add('dragover');
+    });
+  }
+  composeBox.addEventListener('dragleave', () => composeBox.classList.remove('dragover'));
+  composeBox.addEventListener('drop', (e) => {
+    composeBox.classList.remove('dragover');
+    const files = [...((e.dataTransfer && e.dataTransfer.files) || [])];
+    if (!files.length) return;
+    e.preventDefault();
+    for (const f of files) upload(f);
+  });
+  $('attach').addEventListener('click', () => vscode.postMessage({ type: 'attach.pick' }));
 
   idea.addEventListener('keydown', (e) => {
     if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) {
       e.preventDefault();
       const text = idea.value.trim();
       if (!text) return;
-      vscode.postMessage({ type: 'idea', text, images: pending });
+      vscode.postMessage({ type: 'idea', text, attachments: pending });
       idea.value = '';
       pending = [];
       renderPending();
       save();
     }
   });
-  idea.addEventListener('input', save);
+  // Typing an idea is the moment to start the engine the merge will use. Throttled: the extension
+  // keeps one warm process and refreshes it, so once every fifteen seconds is plenty.
+  let lastTyping = 0;
+  idea.addEventListener('input', () => {
+    save();
+    const now = Date.now();
+    if (idea.value.trim() && now - lastTyping > 15000) { lastTyping = now; vscode.postMessage({ type: 'typing' }); }
+  });
   $('new').addEventListener('click', () => vscode.postMessage({ type: 'newPrompt' }));
   // Rename: click the title, type, Enter. Escape puts the old name back.
   const titleEl = $('title');
@@ -938,7 +1162,8 @@
     e.preventDefault();
     vscode.postMessage({ type: 'openUrl', url: a.getAttribute('href') });
   });
-  $('polish').addEventListener('click', () => vscode.postMessage({ type: 'polish' }));
+  // Alt+click is the way past "nothing has changed since the last polish".
+  $('polish').addEventListener('click', (e) => vscode.postMessage({ type: 'polish', full: Boolean(e.altKey) }));
   $('copy').addEventListener('click', () => vscode.postMessage({ type: 'copy' }));
   // ------------------------------------------------------------------------------------------
   // Target: "for <model>" on the Prompt head, where "for" is the divider and the model is the
@@ -1081,7 +1306,8 @@
     else if (m.type === 'copied') flashCopied();
     else if (m.type === 'copiedNew') flashCopiedNew();
     else if (m.type === 'compare') { compared = { id: m.id, diff: m.diff }; openVersion = m.id; if (latest) render(latest); }
-    else if (m.type === 'imageSaved' && m.image) { pending.push(m.image); renderPending(); }
+    else if ((m.type === 'attached' && m.attachment) || (m.type === 'imageSaved' && m.image)) { pending.push(m.attachment || m.image); renderPending(); }
+    else if (m.type === 'progress' && latest && latest.active && latest.active.slug === m.slug) { latest.active.engine = m.engine; renderStatus(latest); }
     else if (m.type === 'focus') idea.focus();
   });
   vscode.postMessage({ type: 'ready' });
