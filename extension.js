@@ -148,12 +148,6 @@ function send(m) {
   if (rt) rt.handleMessage(m).catch((e) => log.error(`${m.type} failed: ${e.stack || e.message}`));
 }
 
-/** For commands used from an editor: act without pulling the panel in front of the code. */
-function quiet(m) {
-  const rt = hot.current();
-  if (rt) rt.handleMessage(m).catch((e) => log.error(`${m.type} failed: ${e.stack || e.message}`));
-}
-
 /** The selection is read here, before anything can move focus away from the editor it is in. */
 function selectionMessage() {
   const ed = vscode.window.activeTextEditor;
@@ -219,13 +213,15 @@ function activate(context) {
     vscode.commands.registerCommand('promptForge.attachProject', () => send({ type: 'project.pick' })),
     vscode.commands.registerCommand('promptForge.newFromTemplate', () => send({ type: 'newFromTemplate' })),
     vscode.commands.registerCommand('promptForge.export', () => send({ type: 'export' })),
-    vscode.commands.registerCommand('promptForge.addIdea', () => quiet({ type: 'addIdea' })),
-    vscode.commands.registerCommand('promptForge.addSelection', () => quiet(selectionMessage())),
+    // Every command that asks something opens the panel: the questions are asked there, not in VS Code's
+    // box at the top of the window. The selection is read before the panel can take focus.
+    vscode.commands.registerCommand('promptForge.addIdea', () => send({ type: 'addIdea' })),
+    vscode.commands.registerCommand('promptForge.addSelection', () => send(selectionMessage())),
     // Opens the panel: where to send is chosen in its own menu, not in a picker at the top of the window.
     vscode.commands.registerCommand('promptForge.sendToClaude', () => send({ type: 'sendToClaude' })),
     vscode.commands.registerCommand('promptForge.attachRemoteProject', () => send({ type: 'project.remote' })),
-    vscode.commands.registerCommand('promptForge.syncNow', () => quiet({ type: 'sync.now' })),
-    vscode.commands.registerCommand('promptForge.setUpSync', () => quiet({ type: 'sync.setup' })),
+    vscode.commands.registerCommand('promptForge.syncNow', () => send({ type: 'sync.now' })),
+    vscode.commands.registerCommand('promptForge.setUpSync', () => send({ type: 'sync.setup' })),
   );
   // NOTE: the kit registers `promptForge.reload` and its own configuration watcher for
   // sourcePath / autoReload. Anything else that must react to a settings change belongs in the

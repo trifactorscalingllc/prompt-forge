@@ -108,6 +108,7 @@ function html({ vscode, webview, mediaRoots, stamp }) {
   </main>
 </div>
 <script nonce="${nonce}" src="${asset('md.js')}"></script>
+<div id="ui-layer" class="ui-layer" hidden></div>
 <script nonce="${nonce}" src="${asset('panel.js')}"></script>
 </body>
 </html>`;

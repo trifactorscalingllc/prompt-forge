@@ -227,6 +227,27 @@ test('Send is chosen in the panel\'s own floating list, like the model picker, n
   assert.ok(/'promptForge\.sendToClaude', \(\) => send\(/.test(shellSrc), 'the command opens the panel, where the menu is');
 });
 
+test('everything the extension asks is asked inside the panel: no VS Code pickers, input boxes, pop-ups or progress toasts', () => {
+  const runtime = fs.readFileSync(path.join(ROOT, 'src/runtime.js'), 'utf8');
+  for (const api of ['showQuickPick', 'showInputBox', 'showWarningMessage', 'showInformationMessage', 'showErrorMessage', 'withProgress', 'setStatusBarMessage', 'createQuickPick', 'createInputBox']) {
+    assert.ok(!new RegExp(`window\\.${api}\\(`).test(runtime), `the runtime never calls window.${api}`);
+  }
+  assert.ok(/const uiPick = /.test(runtime) && /const uiAsk = /.test(runtime) && /const uiConfirm = /.test(runtime));
+  assert.ok(/m\.type === 'ui\.reply'/.test(runtime), 'answers come back from the panel');
+  assert.ok(/for \(const \{ msg \} of uiPending\.values\(\)\) p\.webview\.postMessage\(msg\)/.test(runtime), 'a question asked before the panel loaded is shown once it is ready');
+  assert.ok(/case 'copyFiles'/.test(runtime) && /message: \{ type: 'copyFiles' \}/.test(runtime), 'Copy the files is a button on the notice bar');
+  const panel = fs.readFileSync(path.join(ROOT, 'media/panel.js'), 'utf8');
+  assert.ok(/function uiOpen/.test(panel) && /function uiRender/.test(panel));
+  assert.ok(/type: 'ui\.reply', id: m\.id/.test(panel));
+  assert.ok(/!uiSeen\.has\(m\.id\)/.test(panel), 'a replayed question is never shown twice');
+  assert.ok(!/window\.prompt\(/.test(panel), 'no browser prompt either');
+  assert.ok(!/type: 'openSettings', query: 'promptForge\.(tokenBudget|projectRoots)'/.test(panel), 'budget and roots are edited in the panel');
+  const view = fs.readFileSync(path.join(ROOT, 'src/view.js'), 'utf8');
+  assert.ok(/id="ui-layer" class="ui-layer" hidden/.test(view));
+  const shellSrc = fs.readFileSync(path.join(ROOT, 'extension.js'), 'utf8');
+  assert.ok(!/quiet\(/.test(shellSrc), 'every command opens the panel, where its questions are');
+});
+
 test('settings adapt to the width they are given, in both directions', () => {
   const css = fs.readFileSync(path.join(ROOT, 'media/panel.css'), 'utf8');
   // Narrow: the rail wraps to a strip. Mid: it narrows first rather than holding its width while

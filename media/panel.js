@@ -291,16 +291,19 @@
         const desc = r.querySelector('.sdesc') || r.appendChild(el('div', 'sdesc'));
         const describe = (v) => { desc.textContent = `${blurbs.roles[role] || ''} ${v}: ${blurbFor(v)}`; };
         describe(resolved);
+        const choose = (v) => {
+          describe(v === 'auto' ? cur.defaults[role] : v);
+          vscode.postMessage({ type: 'engine.select', provider: cur.id, [key]: v === 'auto' ? 'auto' : v });
+        };
         const sel = select(opts, current, (sl) => {
-          let v = sl.value;
-          if (v === '__custom') {
-            v = (window.prompt(`Model id for ${role} on ${cur.label}:`, custom || '') || '').trim();
+          if (sl.value !== '__custom') { choose(sl.value); return; }
+          uiOpen({ kind: 'ask', title: `Model id for ${role} on ${cur.label}`, detail: 'Any id the provider accepts, passed through unchanged.', value: custom || '', placeholder: 'e.g. claude-sonnet-5', okLabel: 'Use this model' }, (typed) => {
+            const v = String(typed || '').trim();
             if (!v) { sl.value = current; describe(resolved); return; }
             customModels[`${cur.id}.${role}`] = v;
             save();
-          }
-          describe(v === 'auto' ? cur.defaults[role] : v);
-          vscode.postMessage({ type: 'engine.select', provider: cur.id, [key]: v === 'auto' ? 'auto' : v });
+            choose(v);
+          });
         });
         const c = el('div', 'sctl'); c.append(sel); r.append(c);
       }
@@ -354,12 +357,12 @@
       row('Per-idea search', 'Before each merge the attached project is searched for the words in your idea, and at most three excerpts are attached with their paths. A search, not an embedding: a bad match is visibly a bad match, and finding nothing is a normal, silent outcome. Costs a filesystem scan on every Enter.');
     }
     row('Token budget', budgetDesc(s),
-      small('Set a budget', 'Opens promptForge.tokenBudget', () => vscode.postMessage({ type: 'openSettings', query: 'promptForge.tokenBudget' })));
+      small('Set a budget', null, () => vscode.postMessage({ type: 'budget.set' })));
     row('Folders to list projects from',
       proj.roots.length
         ? `${proj.roots.join(', ')} \u2014 names and paths only. Nothing in these folders is read unless you attach one of them.`
         : 'Empty. The picker offers the folder this window has open, and Browse. Add roots so you never hunt for a path.',
-      small('Edit roots', 'Opens promptForge.projectRoots', () => vscode.postMessage({ type: 'openSettings', query: 'promptForge.projectRoots' })));
+      small('Edit roots', null, () => vscode.postMessage({ type: 'roots.edit' })));
     if (!s.active) {
       row('Connected project', 'Open a prompt to connect it to a project.', small('Connect\u2026', null, () => vscode.postMessage({ type: 'project.pick' })));
     } else if (!attached.length) {
@@ -1359,20 +1362,225 @@
   }
 
   let noticeTimer = null;
-  function showNotice(level, text, sticky = false) {
+  /** `action` ({ label, message }) adds a button that posts `message`; a notice with one stays up longer. */
+  function showNotice(level, text, sticky = false, action = null) {
     const n = $('notice');
     n.textContent = text;
     n.className = `notice ${level}`;
+    if (action && action.label && action.message) {
+      const b = el('button', 'btn small notice-act', action.label);
+      b.addEventListener('click', () => { n.hidden = true; vscode.postMessage(action.message); });
+      n.append(b);
+    }
     n.hidden = false;
     clearTimeout(noticeTimer);
-    if (!sticky) noticeTimer = setTimeout(() => { n.hidden = true; }, level === 'error' ? 12000 : 5000);
+    if (!sticky) noticeTimer = setTimeout(() => { n.hidden = true; }, action ? 20000 : level === 'error' ? 12000 : 5000);
   }
+
+  // ------------------------------------------------------------------------------------------
+  // In-panel dialogs: pick, ask, confirm
+  //
+  // Everything the extension needs to ask is asked here, in the floating style of the model picker,
+  // never in VS Code's box at the top of the window or a pop-up in the corner. A pick is a list with
+  // an icon, a label and a line of description per row (and a filter when the list is long); an ask
+  // is one field with OK and Cancel; a confirm is a sentence and two buttons. One shows at a time;
+  // any others wait their turn. Escape, Cancel and a click outside all answer "cancelled".
+  // ------------------------------------------------------------------------------------------
+  const UI_ICON = (() => {
+    const svg = (d) => `<svg viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${d}</svg>`;
+    return {
+      root: svg('<path d="M1.8 4.2h4.4l1.4 1.5h6.6v7.1H1.8z"/><path d="M8 8.2v2.6M6.7 9.5h2.6"/>'),
+      folder: svg('<path d="M1.8 4.2h4.4l1.4 1.5h6.6v7.1H1.8z"/>'),
+      open: svg('<path d="M1.8 12.8V4.2h4.4l1.4 1.5h5.2v1.8"/><path d="M1.8 12.8 3.6 7.5h10.6l-1.8 5.3z"/>'),
+      remote: svg('<rect x="1.8" y="2.5" width="12.4" height="8" rx="1.2"/><path d="M5.5 13.5h5M8 10.5v3"/>'),
+      add: svg('<path d="M8 3v10M3 8h10"/>'),
+      edit: svg('<path d="M11.3 2.2 13.8 4.7 5.6 12.9 2.6 13.4l.5-3z"/>'),
+      eye: svg('<path d="M1.5 8s2.4-4.3 6.5-4.3S14.5 8 14.5 8 12.1 12.3 8 12.3 1.5 8 1.5 8z"/><circle cx="8" cy="8" r="1.9"/>'),
+      refresh: svg('<path d="M13.2 8a5.2 5.2 0 1 1-1.5-3.7"/><path d="M13.5 2.4v2.9h-2.9"/>'),
+      disconnect: svg('<path d="M6 1.5v3.5M10 1.5v3.5M4 5h8v2.8a4 4 0 0 1-8 0zM8 11.8v2.7"/><path d="m2 14 12-12"/>'),
+      key: svg('<circle cx="5.3" cy="10.7" r="2.8"/><path d="m7.3 8.7 6.2-6.2M11.3 4.7l1.6 1.6M9.6 6.4l1.3 1.3"/>'),
+      link: svg('<path d="M6.7 9.3a2.8 2.8 0 0 0 4 0l2.2-2.2a2.8 2.8 0 0 0-4-4L8 4"/><path d="M9.3 6.7a2.8 2.8 0 0 0-4 0L3.1 8.9a2.8 2.8 0 0 0 4 4L8 12"/>'),
+      engine: svg('<circle cx="8" cy="8" r="2.3"/><path d="M8 1.8v2M8 12.2v2M1.8 8h2M12.2 8h2M3.6 3.6 5 5M11 11l1.4 1.4M3.6 12.4 5 11M11 5l1.4-1.4"/>'),
+      template: svg('<rect x="2.5" y="1.8" width="11" height="12.4" rx="1.2"/><path d="M5 5h6M5 8h6M5 11h3.5"/>'),
+      doc: svg('<path d="M3.5 1.8h6l3 3v9.4h-9z"/><path d="M9.5 1.8v3h3"/>'),
+      terminal: svg('<rect x="1.8" y="2.8" width="12.4" height="10.4" rx="1.4"/><path d="m4.6 6.2 2 1.8-2 1.8M8.2 10h3.2"/>'),
+      json: svg('<path d="M5.5 2.5c-1.8 0-1.8 1.2-1.8 2.4s-.6 2.1-1.7 3.1c1.1 1 1.7 1.9 1.7 3.1s0 2.4 1.8 2.4M10.5 2.5c1.8 0 1.8 1.2 1.8 2.4s.6 2.1 1.7 3.1c-1.1 1-1.7 1.9-1.7 3.1s0 2.4-1.8 2.4"/>'),
+      trash: svg('<path d="M2.8 4.3h10.4M6.2 4.3V2.6h3.6v1.7M4.2 4.3l.7 9.1h6.2l.7-9.1"/>'),
+    };
+  })();
+
+  const uiQueue = [];
+  let uiCurrent = null;
+  const uiSeen = new Set();
+
+  /** Show one dialog; `done(value)` gets the answer, null (false for a confirm) when cancelled. */
+  function uiOpen(spec, done) {
+    uiQueue.push({ spec, done });
+    if (!uiCurrent) uiNext();
+  }
+
+  function uiNext() {
+    const next = uiQueue.shift();
+    if (!next) return;
+    uiCurrent = next;
+    uiRender(next.spec);
+  }
+
+  function uiClose(value) {
+    const cur = uiCurrent;
+    if (!cur) return;
+    uiCurrent = null;
+    const layer = $('ui-layer');
+    layer.hidden = true;
+    layer.textContent = '';
+    try { cur.done(value); } finally { uiNext(); }
+  }
+
+  const uiCancelValue = () => (uiCurrent && uiCurrent.spec.kind === 'confirm' ? false : null);
+
+  /** Under its anchor when that is on screen, otherwise centred near the top of the panel. */
+  function uiPlace(card, anchorId) {
+    const a = anchorId ? $(anchorId) : null;
+    const w = card.offsetWidth;
+    if (a && a.offsetParent !== null) {
+      const r = a.getBoundingClientRect();
+      card.style.top = `${Math.max(8, Math.min(r.bottom + 4, window.innerHeight - card.offsetHeight - 8))}px`;
+      card.style.left = `${Math.max(8, Math.min(r.right - w, window.innerWidth - w - 8))}px`;
+    } else {
+      card.style.top = '56px';
+      card.style.left = `${Math.max(8, Math.round((window.innerWidth - w) / 2))}px`;
+    }
+  }
+
+  function uiButtons(card, buttons) {
+    const row = el('div', 'ui-actions');
+    for (const b of buttons) row.append(b);
+    card.append(row);
+  }
+
+  function uiRender(spec) {
+    closeTargetMenu();
+    closeSendMenu();
+    const layer = $('ui-layer');
+    layer.textContent = '';
+    const card = el('div', `ui-card ${spec.kind}`);
+    card.setAttribute('role', 'dialog');
+    card.setAttribute('aria-modal', 'true');
+    if (spec.title) card.append(el('div', 'ui-title', spec.title));
+    if (spec.detail) card.append(el('div', 'ui-detail', spec.detail));
+    const cancel = el('button', 'btn small', 'Cancel');
+    cancel.addEventListener('click', () => uiClose(uiCancelValue()));
+    let focus = cancel;
+
+    if (spec.kind === 'pick') {
+      const items = Array.isArray(spec.items) ? spec.items : [];
+      const list = el('div', 'ui-list');
+      list.setAttribute('role', 'listbox');
+      let filter = null;
+      if (spec.filter || items.length > 7) {
+        filter = el('input', 'ui-input');
+        filter.type = 'text';
+        filter.placeholder = 'Type to filter';
+        filter.spellcheck = false;
+        card.append(filter);
+      }
+      const draw = (q) => {
+        list.textContent = '';
+        const needle = String(q || '').toLowerCase();
+        const shown = items.filter((it) => !needle || `${it.label} ${it.description || ''} ${it.detail || ''}`.toLowerCase().includes(needle));
+        if (!shown.length) list.append(el('div', 'fnote', items.length ? 'Nothing matches.' : 'Nothing to choose from.'));
+        for (const it of shown) {
+          const row = el('button', 'fitem');
+          row.setAttribute('role', 'option');
+          const mark = el('span', 'fitem-mark');
+          if (UI_ICON[it.icon]) mark.innerHTML = UI_ICON[it.icon];   // constants above, never data
+          const text = el('span', 'fitem-text');
+          text.append(el('span', 'fitem-label', it.label));
+          if (it.description) text.append(el('span', 'fitem-desc', it.description));
+          if (it.detail) text.append(el('span', 'fitem-desc mono', it.detail));
+          row.append(mark, text);
+          row.addEventListener('click', () => uiClose(it.value));
+          list.append(row);
+        }
+      };
+      draw('');
+      card.append(list);
+      if (filter) {
+        filter.addEventListener('input', () => draw(filter.value));
+        filter.addEventListener('keydown', (e) => {
+          const first = list.querySelector('.fitem');
+          if (e.key === 'Enter' && first) { e.preventDefault(); first.click(); }
+          if (e.key === 'ArrowDown' && first) { e.preventDefault(); first.focus(); }
+        });
+      }
+      uiButtons(card, [cancel]);
+      focus = filter || list.querySelector('.fitem') || cancel;
+    } else if (spec.kind === 'ask') {
+      const input = el('input', 'ui-input');
+      input.type = spec.password ? 'password' : 'text';
+      input.value = spec.value || '';
+      input.placeholder = spec.placeholder || '';
+      input.spellcheck = false;
+      input.autocomplete = 'off';
+      const err = el('div', 'ui-error');
+      err.hidden = true;
+      const ok = el('button', 'btn small primary', spec.okLabel || 'OK');
+      const submit = () => {
+        const v = input.value.trim();
+        if (!v && !spec.allowEmpty) { err.textContent = 'This needs a value.'; err.hidden = false; return; }
+        if (v && spec.pattern) {
+          let re = null;
+          try { re = new RegExp(spec.pattern); } catch { re = null; }
+          if (re && !re.test(v)) { err.textContent = spec.patternMessage || 'That is not in the expected form.'; err.hidden = false; return; }
+        }
+        uiClose(v);
+      };
+      ok.addEventListener('click', submit);
+      input.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); submit(); } });
+      card.append(input, err);
+      uiButtons(card, [cancel, ok]);
+      focus = input;
+    } else {
+      if (spec.text) card.append(el('div', 'ui-detail', spec.text));
+      const ok = el('button', `btn small ${spec.danger ? 'danger' : 'primary'}`, spec.okLabel || 'OK');
+      ok.addEventListener('click', () => uiClose(true));
+      uiButtons(card, [cancel, ok]);
+      focus = cancel;   // the safe answer is the default one
+    }
+
+    layer.append(card);
+    layer.hidden = false;
+    uiPlace(card, spec.anchor);
+    focus.focus();
+    if (focus.select && spec.kind === 'ask') focus.select();
+  }
+
+  // A click on the dimmed area outside the card is Cancel.
+  $('ui-layer').addEventListener('mousedown', (e) => { if (e.target === $('ui-layer')) uiClose(uiCancelValue()); });
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && uiCurrent) { e.preventDefault(); e.stopPropagation(); uiClose(uiCancelValue()); return; }
+    // Arrow keys move through the rows of whichever list has focus: a dialog, the model or the send list.
+    if (e.key !== 'ArrowDown' && e.key !== 'ArrowUp') return;
+    const box = e.target && e.target.closest && e.target.closest('.floating, .ui-card');
+    if (!box) return;
+    const rows = [...box.querySelectorAll('.fitem')];
+    if (!rows.length) return;
+    e.preventDefault();
+    const i = rows.indexOf(document.activeElement);
+    rows[(i + (e.key === 'ArrowDown' ? 1 : -1) + rows.length) % rows.length].focus();
+  }, true);
 
   window.addEventListener('message', (e) => {
     const m = e.data;
     if (!m) return;
     if (m.type === 'state') { connecting = false; render(m.data); }
-    else if (m.type === 'notice') showNotice(m.level || 'info', m.text || '');
+    else if (m.type === 'notice') showNotice(m.level || 'info', m.text || '', false, m.action || null);
+    // A question from the extension, answered in the panel. An id already shown (a replay after the
+    // panel loaded) is ignored.
+    else if (m.type === 'ui.open' && m.id && !uiSeen.has(m.id)) {
+      uiSeen.add(m.id);
+      uiOpen(m, (value) => vscode.postMessage({ type: 'ui.reply', id: m.id, value }));
+    }
     else if (m.type === 'copied') flashCopied();
     else if (m.type === 'copiedNew') flashCopiedNew();
     else if (m.type === 'compare') { compared = { id: m.id, diff: m.diff }; openVersion = m.id; if (latest) render(latest); }
@@ -1381,7 +1589,17 @@
     // The Send menu's contents: fills a menu already open, or opens it when the extension asks
     // (the command palette, or a Send update whose last place is gone).
     else if (m.type === 'sendMenu' && (m.open || !$('send-menu').hidden)) { openSendMenu(m); if (m.open) vscode.postMessage({ type: 'sendMenu.shown' }); }
-    else if (m.type === 'focus') idea.focus();
+    else if (m.type === 'focus') { if (!m.once || !uiSeen.has(m.once)) { idea.focus(); } if (m.once) { uiSeen.add(m.once); vscode.postMessage({ type: 'once.done', once: m.once }); } }
+    // A selection sent from an editor: into the idea box, the cursor on a blank line above it for a note.
+    else if (m.type === 'draft' && m.text && !(m.once && uiSeen.has(m.once))) {
+      if (m.once) { uiSeen.add(m.once); vscode.postMessage({ type: 'once.done', once: m.once }); }
+      const had = idea.value.replace(/\s+$/, '');
+      idea.value = had ? `${had}\n\n${m.text}` : `\n\n${m.text}`;
+      idea.focus();
+      const at = had ? had.length + 1 : 0;
+      idea.setSelectionRange(at, at);
+      save();
+    }
   });
   vscode.postMessage({ type: 'ready' });
 }());

@@ -412,6 +412,26 @@ html, body { height: 100%; overflow: hidden; max-width: 100%; }
 .fnote { padding: 6px 8px 3px; font-size: 0.82em; line-height: 1.4; color: var(--vscode-descriptionForeground); }
 .fnote.warn { color: var(--vscode-editorWarning-foreground, #e0b341); }
 
+/* In-panel dialogs: the floating list's look, as a card over a light dim, so every question the
+   extension asks stays inside the panel. */
+.ui-layer { position: fixed; inset: 0; z-index: 60; background: rgba(0, 0, 0, 0.28); }
+.ui-card { position: fixed; width: min(520px, calc(100vw - 24px)); max-height: min(70vh, 560px); display: flex; flex-direction: column; gap: 8px;
+  padding: 10px; border: 1px solid var(--vscode-menu-border, var(--vscode-panel-border)); border-radius: 6px;
+  background: var(--vscode-menu-background, var(--vscode-editorWidget-background)); box-shadow: 0 6px 24px rgba(0, 0, 0, 0.45); }
+.ui-card.confirm { width: min(420px, calc(100vw - 24px)); }
+.ui-title { font-weight: 600; line-height: 1.4; overflow-wrap: anywhere; }
+.ui-detail { font-size: 0.9em; line-height: 1.45; color: var(--vscode-descriptionForeground); overflow-wrap: anywhere; }
+.ui-list { flex: 1; min-height: 0; overflow: auto; display: flex; flex-direction: column; gap: 1px; }
+.ui-input { width: 100%; font: inherit; color: var(--vscode-input-foreground); background: var(--vscode-input-background);
+  border: 1px solid var(--vscode-input-border, transparent); border-radius: 3px; padding: 4px 7px; }
+.ui-input:focus { outline: 1px solid var(--accent); }
+.ui-error { font-size: 0.85em; color: var(--vscode-errorForeground); }
+.ui-actions { display: flex; justify-content: flex-end; gap: 6px; }
+.btn.danger { background: var(--vscode-inputValidation-errorBorder, #be1100); color: #fff; }
+.btn.danger:hover { filter: brightness(1.1); }
+.fitem-desc.mono { font-family: var(--vscode-editor-font-family); font-size: 0.8em; overflow-wrap: anywhere; }
+.notice .notice-act { margin-left: 8px; }
+
 #send-update-count { font-size: 0.8em; font-variant-numeric: tabular-nums; }
 .iconbtn.addon#send-update { color: var(--vscode-charts-purple, #b180d7); }
 

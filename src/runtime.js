@@ -82,6 +82,8 @@ function create(host) {
     for (const k of ['remote', 'intervalMinutes', 'auto']) if (overrides.has(`sync.${k}`)) sync[k] = overrides.get(`sync.${k}`);
     const proj = { ...(c.project || {}) };
     if (overrides.has('projectContext')) proj.context = overrides.get('projectContext');
+    if (overrides.has('projectRoots')) proj.roots = overrides.get('projectRoots');
+    if (overrides.has('tokenBudget')) proj.tokenBudget = overrides.get('tokenBudget');
     return { ...c, engine: engineCfg, sync, project: proj, suggestions: setting('suggestions', c.suggestions) };
   }
 
@@ -176,10 +178,53 @@ function create(host) {
     repaintTimer = setTimeout(() => { if (!disposed) post(); }, 300);
   }
 
-  function notice(level, text) {
+  /** A line in the panel's notice bar, with an optional button: { label, message } posts `message` back. */
+  function notice(level, text, action = null) {
     const p = getPanel();
-    if (p) p.webview.postMessage({ type: 'notice', level, text });
+    if (p) p.webview.postMessage({ type: 'notice', level, text, action });
     if (level === 'error') log.error(text); else if (level === 'warn') log.warn(text); else log.info(text);
+  }
+
+  // ------------------------------------------------------------------------------------------
+  // In-panel dialogs
+  //
+  // Every choice and every typed answer happens inside the Prompt Forge panel, in the floating style
+  // of the model picker -- never in VS Code's box at the top of the window or a toast in the corner.
+  // The runtime asks, the panel draws, and the answer comes back as `ui.reply`. A question asked
+  // before the panel has loaded is replayed when it reports `ready`; the panel ignores an id it has
+  // already shown, so a replay can never show one twice.
+  // ------------------------------------------------------------------------------------------
+  let uiSeq = 0;
+  const uiPending = new Map();   // id -> { resolve, msg }
+  const onceQueue = new Map();   // once -> msg, for messages the panel must act on exactly once
+
+  const panelNow = () => getPanel() || (ensurePanel ? ensurePanel() : null);
+
+  function ui(kind, opts) {
+    return new Promise((resolve) => {
+      uiSeq += 1;
+      const id = `ui${Date.now().toString(36)}${uiSeq}`;
+      const msg = { type: 'ui.open', id, kind, ...opts };
+      uiPending.set(id, { resolve, msg });
+      const p = panelNow();
+      if (p) p.webview.postMessage(msg);
+    });
+  }
+  /** The `value` of one of `items` ({ value, label, description?, detail?, icon? }), or null. */
+  const uiPick = (opts) => ui('pick', opts);
+  /** The text typed, or null when cancelled. `pattern` is a regex source; `allowEmpty` accepts ''. */
+  const uiAsk = (opts) => ui('ask', opts);
+  /** true only when the person confirmed. */
+  const uiConfirm = async (opts) => (await ui('confirm', opts)) === true;
+
+  /** A message the panel acts on once, even when it is still loading (a draft, a focus). */
+  function panelOnce(msg) {
+    uiSeq += 1;
+    const once = `once${Date.now().toString(36)}${uiSeq}`;
+    const full = { ...msg, once };
+    onceQueue.set(once, full);
+    const p = panelNow();
+    if (p) p.webview.postMessage(full);
   }
 
   // ------------------------------------------------------------------------------------------
@@ -232,10 +277,8 @@ function create(host) {
 
   const providerById = (id) => providers.find((p) => p.id === id) || null;
 
-  async function pickProvider(placeHolder, filter = () => true) {
-    const items = providers.filter(filter).map((p) => ({ label: p.label, id: p.id }));
-    const pick = await vscode.window.showQuickPick(items, { placeHolder });
-    return pick ? pick.id : null;
+  async function pickProvider(title, filter = () => true) {
+    return uiPick({ title, items: providers.filter(filter).map((p) => ({ value: p.id, label: p.label, icon: 'engine' })) });
   }
 
   // ------------------------------------------------------------------------------------------
@@ -282,29 +325,30 @@ function create(host) {
     const cfg = projectCfg();
     const ws = workspaceDir();
     const items = [];
-    if (ws) items.push({ label: `$(root-folder) ${path.basename(ws)}`, description: ws, detail: 'The folder this window has open', dir: ws });
+    if (ws) items.push({ value: ws, label: path.basename(ws), description: 'The folder this window has open', detail: ws, icon: 'root' });
     for (const p of project.discover(cfg.roots, { fs, home: os.homedir() })) {
       if (ws && p.path === ws) continue;
-      items.push({ label: `$(folder) ${p.label}`, description: p.path, dir: p.path });
+      items.push({ value: p.path, label: p.label, detail: p.path, icon: 'folder' });
     }
-    items.push({ label: '$(folder-opened) Browse…', detail: 'Pick any folder', dir: '\u0000browse' });
-    items.push({ label: '$(remote) A project on another machine, over SSH…', detail: 'A Mac mini, a server: anything in ~/.ssh/config. Nothing leaves this window.', dir: '\u0000ssh' });
-    if (!cfg.roots.length) items.push({ label: '$(gear) Add folders to list projects from…', detail: 'Sets promptForge.projectRoots, so you never hunt for a path again', dir: '\u0000roots' });
-    const pick = await vscode.window.showQuickPick(items, {
-      placeHolder: 'Which project is this prompt for? Only the folder you choose is read.',
-      matchOnDescription: true,
-    });
-    if (!pick) return null;
-    if (pick.dir === '\u0000roots') {
-      await vscode.commands.executeCommand('workbench.action.openSettings', 'promptForge.projectRoots');
-      return null;
+    items.push({ value: '\u0000browse', label: 'Browse…', description: 'Pick any folder', icon: 'open' });
+    items.push({ value: '\u0000ssh', label: 'A project on another machine, over SSH…', description: 'A Mac mini, a server: anything in ~/.ssh/config', icon: 'remote' });
+    items.push({ value: '\u0000roots', label: 'Add a folder to list projects from…', description: 'Its projects show up in this list from then on', icon: 'add' });
+    const choice = await uiPick({ title: 'Which project is this prompt for? Only the folder you choose is read.', items, filter: items.length > 7, anchor: 'connect' });
+    if (!choice) return null;
+    if (choice === '\u0000roots') {
+      // The operating system's folder dialog is the one window that is not the panel: there is no
+      // other way to point at a folder that is not already listed.
+      const sel = await vscode.window.showOpenDialog({ canSelectFolders: true, canSelectFiles: false, canSelectMany: false, openLabel: 'List projects from this folder' });
+      if (!sel || !sel.length) return null;
+      await updateSetting('projectRoots', [...new Set([...cfg.roots, sel[0].fsPath])]);
+      return pickProjectDir();
     }
-    if (pick.dir === '\u0000ssh') return pickRemoteProject();
-    if (pick.dir === '\u0000browse') {
+    if (choice === '\u0000ssh') return pickRemoteProject();
+    if (choice === '\u0000browse') {
       const sel = await vscode.window.showOpenDialog({ canSelectFolders: true, canSelectFiles: false, canSelectMany: false, openLabel: 'Attach this project' });
       return sel && sel.length ? { dir: sel[0].fsPath, host: null } : null;
     }
-    return { dir: pick.dir, host: null };
+    return { dir: choice, host: null };
   }
 
   /** A host from ~/.ssh/config (or typed), then a folder on it. { dir, host } or null. */
@@ -313,30 +357,25 @@ function create(host) {
     if (!ssh) { notice('error', 'ssh is not on your PATH. Install OpenSSH to attach a project on another machine.'); return null; }
     const extraConfig = String(vscode.workspace.getConfiguration('remote.SSH').get('configFile', '') || '');
     const hosts = remote.sshHosts({ extra: extraConfig ? [storeMod.expandHome(extraConfig)] : [] });
-    const items = hosts.map((h) => ({ label: `$(remote) ${h.host}`, description: [h.user, h.hostName].filter(Boolean).join('@') || undefined, host: h.host }));
-    items.push({ label: '$(edit) Type a host…', detail: 'A name from ~/.ssh/config, or user@address', host: '\u0000type' });
-    const pick = await vscode.window.showQuickPick(items, { placeHolder: 'Which machine is the project on? SSH keys or an agent are used; a password prompt cannot be answered from here.' });
-    if (!pick) return null;
-    let sshHost = pick.host;
+    const items = hosts.map((h) => ({ value: h.host, label: h.host, description: [h.user, h.hostName].filter(Boolean).join('@'), icon: 'remote' }));
+    items.push({ value: '\u0000type', label: 'Type a host…', description: 'A name from ~/.ssh/config, or user@address', icon: 'edit' });
+    const choice = await uiPick({ title: 'Which machine is the project on?', detail: 'SSH keys or an agent are used; a password prompt cannot be answered from here.', items, filter: items.length > 7, anchor: 'connect' });
+    if (!choice) return null;
+    let sshHost = choice;
     if (sshHost === '\u0000type') {
-      sshHost = String(await vscode.window.showInputBox({
-        prompt: 'SSH host', placeHolder: 'mac-mini or me@192.168.1.20', ignoreFocusOut: true,
-        validateInput: (v) => (remote.validHost(String(v).trim()) ? null : 'Letters, digits, dots, dashes, underscores and @ only'),
-      }) || '').trim();
-      if (!sshHost) return null;
+      sshHost = String(await uiAsk({ title: 'SSH host', placeholder: 'mac-mini or me@192.168.1.20', pattern: '^[A-Za-z0-9._@-]{1,253}$', patternMessage: 'Letters, digits, dots, dashes, underscores and @ only', okLabel: 'Connect' }) || '').trim();
+      if (!sshHost || !remote.validHost(sshHost)) return null;
     }
-    const found = await vscode.window.withProgress(
-      { location: vscode.ProgressLocation.Notification, title: `Looking for projects on ${sshHost}…`, cancellable: false },
-      () => remote.discoverRemote({ runCli, ssh, host: sshHost }),
-    );
+    notice('info', `Looking for projects on ${sshHost}…`);
+    const found = await remote.discoverRemote({ runCli, ssh, host: sshHost });
     if (found.error) notice('warn', `Could not list projects on ${sshHost}: ${found.error}. You can still type a path.`);
-    const dirs = found.dirs.map((d) => ({ label: `$(folder) ${d}`, dir: d }));
-    dirs.push({ label: '$(edit) Type a path…', dir: '\u0000type' });
-    const dp = await vscode.window.showQuickPick(dirs, { placeHolder: `Which folder on ${sshHost}? Only the folder you choose is read.` });
+    const dirs = found.dirs.map((d) => ({ value: d, label: d, icon: 'folder' }));
+    dirs.push({ value: '\u0000type', label: 'Type a path…', icon: 'edit' });
+    const dp = await uiPick({ title: `Which folder on ${sshHost}? Only the folder you choose is read.`, items: dirs, filter: dirs.length > 7, anchor: 'connect' });
     if (!dp) return null;
-    let dir = dp.dir;
+    let dir = dp;
     if (dir === '\u0000type') {
-      dir = String(await vscode.window.showInputBox({ prompt: `Folder on ${sshHost}`, placeHolder: '~/projects/my-app', ignoreFocusOut: true }) || '').trim();
+      dir = String(await uiAsk({ title: `Folder on ${sshHost}`, placeholder: '~/projects/my-app', okLabel: 'Attach' }) || '').trim();
       if (!dir) return null;
     }
     return { dir, host: sshHost };
@@ -388,12 +427,10 @@ function create(host) {
     }
     attaching.add(slug);
     post();   // the panel has to show it started before the call, not after it finishes
+    notice('info', `Connecting to ${label}… one engine call to describe it.`);
     let built;
     try {
-      built = await vscode.window.withProgress(
-        { location: vscode.ProgressLocation.Notification, title: `Connecting to ${label}…`, cancellable: false },
-        () => buildBrief(dir, label, sshHost),
-      );
+      built = await buildBrief(dir, label, sshHost);
     } finally {
       attaching.delete(slug);
     }
@@ -430,9 +467,16 @@ function create(host) {
     if (mode === 'apiKey' || !p.signIn) return setKey(id);
     const det = engine.detections().find((d) => d.id === id);
     if (!det || !det.cli.found) {
-      const choice = await vscode.window.showInformationMessage(`The ${p.label} CLI is not on your PATH. Install it, then sign in.`, 'Open install page', 'Use an API key instead');
-      if (choice === 'Open install page' && p.installUrl) await vscode.env.openExternal(vscode.Uri.parse(p.installUrl));
-      if (choice === 'Use an API key instead') await setKey(id);
+      const choice = await uiPick({
+        title: `The ${p.label} CLI is not on your PATH.`,
+        detail: 'Install it and sign in, or use an API key instead.',
+        items: [
+          ...(p.installUrl ? [{ value: 'install', label: 'Open the install page', description: p.installUrl, icon: 'link' }] : []),
+          { value: 'key', label: 'Use an API key instead', description: 'Stored in your OS keychain, never in settings', icon: 'key' },
+        ],
+      });
+      if (choice === 'install' && p.installUrl) await vscode.env.openExternal(vscode.Uri.parse(p.installUrl));
+      if (choice === 'key') await setKey(id);
       return;
     }
     const cmd = [det.cli.path || p.signIn.cli.command, ...p.signIn.cli.args].map((a) => (/\s/.test(a) ? `"${a}"` : a)).join(' ');
@@ -445,9 +489,10 @@ function create(host) {
   async function setKey(id) {
     const p = providerById(id);
     if (!p) return;
-    const value = await vscode.window.showInputBox({
-      prompt: `API key for ${p.label}${p.keyUrl ? ` (get one at ${p.keyUrl})` : ''}`,
-      password: true, ignoreFocusOut: true, placeHolder: 'pasted here, stored in your OS keychain, never in settings',
+    const value = await uiAsk({
+      title: `API key for ${p.label}`,
+      detail: `${p.keyUrl ? `Get one at ${p.keyUrl}. ` : ''}It is stored in your OS keychain, never in settings, logs or files.`,
+      placeholder: 'Paste the key', password: true, okLabel: 'Store key',
     });
     if (value == null) return;
     const trimmed = value.trim();
@@ -500,8 +545,8 @@ function create(host) {
     if (!missing.length) return true;
     const next = {};
     for (const n of missing) {
-      const v = await vscode.window.showInputBox({ prompt: `Value for {{${n}}}`, placeHolder: 'Leave empty to keep the slot as it is. Values are remembered for this prompt.', ignoreFocusOut: true });
-      if (v === undefined) return false;
+      const v = await uiAsk({ title: `Value for {{${n}}}`, detail: 'Leave it empty to keep the slot as it is. Values are remembered for this prompt and can be changed under it.', placeholder: n, allowEmpty: true, okLabel: 'Use this' });
+      if (v === null) return false;
       asked.add(n.toLowerCase());
       if (v) next[n] = v;
     }
@@ -509,14 +554,14 @@ function create(host) {
     return true;
   }
 
-  /** After a copy that lists files: the files themselves, onto the clipboard, when asked. */
-  async function offerFiles(files) {
+  /** After a copy that lists files: a button on the panel's notice bar puts the files on the clipboard. */
+  function offerFiles(files) {
     if (!files.length) return;
-    const choice = await vscode.window.showInformationMessage(
-      `Copied. ${files.length} attached file${files.length === 1 ? ' is' : 's are'} listed at the end with ${files.length === 1 ? 'its' : 'their'} path${files.length === 1 ? '' : 's'}. Paste the prompt, then copy the files and paste them beside it.`,
-      'Copy the files',
-    );
-    if (choice !== 'Copy the files') return;
+    notice('info', `Copied. ${files.length} attached file${files.length === 1 ? ' is' : 's are'} listed at the end. Paste the prompt, then copy the files and paste them beside it.`, { label: 'Copy the files', message: { type: 'copyFiles' } });
+  }
+
+  async function copyFilesNow(files) {
+    if (!files.length) { notice('info', 'This prompt has no attached files.'); return; }
     const r = await clipfiles.copyFiles(files.map((f) => f.path), { runCli, resolveBin });
     if (r.ok) notice('info', `${files.length} file${files.length === 1 ? '' : 's'} on the clipboard. Paste ${files.length === 1 ? 'it' : 'them'} into the conversation.`);
     else notice('error', `Could not put the files on the clipboard: ${r.error}. Their paths are in the copied prompt.`);
@@ -539,7 +584,8 @@ function create(host) {
     t.show(false);
     t.sendText(command, true);
     // Claude's input only exists once it has booted; a paste before then goes to the shell.
-    await vscode.window.withProgress({ location: vscode.ProgressLocation.Notification, title: 'Starting Claude…', cancellable: false }, () => sleep(6000));
+    notice('info', 'Starting Claude in the terminal. The prompt is pasted in as soon as it is ready.');
+    await sleep(6000);
     t.sendText(sendMod.pasteSequence(text), false);
     return t;
   }
@@ -733,6 +779,13 @@ function create(host) {
 
   async function handleMessage(m) {
     if (!m || typeof m !== 'object' || !m.type) return;
+    // An answer to an in-panel dialog. Handled before anything else: the flow that asked is waiting.
+    if (m.type === 'ui.reply') {
+      const waiting = uiPending.get(String(m.id));
+      if (waiting) { uiPending.delete(String(m.id)); waiting.resolve(m.value === undefined ? null : m.value); }
+      return;
+    }
+    if (m.type === 'once.done') { onceQueue.delete(String(m.once)); return; }
     if (!store && m.type !== 'ready') {
       notice('error', bootError ? `Prompt Forge cannot open its library folder: ${bootError}` : 'Prompt Forge is still starting.');
       return;
@@ -759,10 +812,17 @@ function create(host) {
   async function dispatch(m) {
     const s = active();
     switch (m.type) {
-      case 'ready':
+      case 'ready': {
         post();
         if (pendingSendMenu && s) postSendMenu(s, { open: true });
+        // Anything asked of a panel that was still loading is shown now.
+        const p = getPanel();
+        if (p) {
+          for (const msg of onceQueue.values()) p.webview.postMessage(msg);
+          for (const { msg } of uiPending.values()) p.webview.postMessage(msg);
+        }
         return;
+      }
       case 'panelOpened':
         post();
         return;
@@ -772,12 +832,11 @@ function create(host) {
       case 'newFromTemplate': {
         // Deliberately NOT on the + button: creating a prompt stayed one click, and a picker in
         // front of it would tax every new prompt to serve the first one.
-        const items = templates.TEMPLATES.map((t) => ({ label: t.label, detail: t.blurb, id: t.id }));
-        const pick = m.id
-          ? { id: String(m.id) }
-          : await vscode.window.showQuickPick(items, { placeHolder: 'Start from which shape? Each one is real text with the unknowns in [brackets].' });
-        if (!pick) return;
-        const t = templates.byId(pick.id);
+        const choice = m.id
+          ? String(m.id)
+          : await uiPick({ title: 'Start from which shape?', detail: 'Each one is real text with the unknowns in [brackets].', items: templates.TEMPLATES.map((t) => ({ value: t.id, label: t.label, description: t.blurb, icon: 'template' })) });
+        if (!choice) return;
+        const t = templates.byId(choice);
         if (!t) return;
         const { slug: ts } = store.create(t.label, { body: templates.seedFrom(t.id, t.label) });
         await openSession(ts);
@@ -798,8 +857,8 @@ function create(host) {
       case 'deletePrompt': {
         const item = store.list().find((x) => x.slug === m.slug);
         if (!item) return;
-        const ok = await vscode.window.showWarningMessage(`Delete "${item.title}"? It moves to the library's .trash folder.`, { modal: true }, 'Delete');
-        if (ok !== 'Delete') return;
+        const ok = await uiConfirm({ title: `Delete "${item.title}"?`, text: "It moves to the library's .trash folder, where it can be recovered.", okLabel: 'Delete', danger: true });
+        if (!ok) return;
         const sess = sessions.get(m.slug);
         if (sess) { sess.dispose(); sessions.delete(m.slug); }
         store.remove(m.slug);
@@ -843,26 +902,22 @@ function create(host) {
       case 'addIdea': {
         const target = await sessionForCommand();
         if (!target) return;
-        if (!engine.selection().ok) { notice('error', engine.selection().reason); vscode.window.showWarningMessage(`Prompt Forge: ${engine.selection().reason}`); return; }
-        const text = m.text != null ? String(m.text) : await vscode.window.showInputBox({ prompt: `An idea for "${target.snapshot().title}"`, placeHolder: 'It is merged into the prompt when you press Enter.', ignoreFocusOut: true });
-        if (!text || !text.trim()) return;
-        target.submitIdea(text);
-        vscode.window.setStatusBarMessage(`$(check) Idea sent to ${target.snapshot().title}`, 4000);
+        if (m.text != null && String(m.text).trim()) {
+          if (!engine.selection().ok) { notice('error', engine.selection().reason); return; }
+          target.submitIdea(String(m.text));
+          return;
+        }
+        // Ideas are typed in the idea box: the panel comes forward with the cursor in it.
+        panelOnce({ type: 'focus', target: 'idea' });
+        if (!engine.selection().ok) notice('error', engine.selection().reason);
         return;
       }
       case 'addSelection': {
         const target = await sessionForCommand();
         if (!target) return;
-        if (!engine.selection().ok) { vscode.window.showWarningMessage(`Prompt Forge: ${engine.selection().reason}`); return; }
-        const lines = Math.max(1, Number(m.end || 1) - Number(m.start || 1) + 1);
-        const note = await vscode.window.showInputBox({
-          prompt: `What about these ${lines} line${lines === 1 ? '' : 's'} of ${m.file || 'code'}? Optional.`,
-          placeHolder: 'e.g. this should validate the email before it saves. Enter to send as it is.',
-          ignoreFocusOut: true,
-        });
-        if (note === undefined) return;
-        target.submitIdea(selectionIdea({ note, text: m.text, file: m.file, start: m.start, end: m.end, lang: m.lang }));
-        vscode.window.setStatusBarMessage(`$(check) Selection sent to ${target.snapshot().title}`, 4000);
+        // Into the idea box, with the cursor above the code so a note can go first; Enter sends it.
+        panelOnce({ type: 'draft', text: selectionIdea({ note: '', text: m.text, file: m.file, start: m.start, end: m.end, lang: m.lang }) });
+        if (!engine.selection().ok) notice('error', engine.selection().reason);
         return;
       }
       case 'idea.dismiss':
@@ -898,16 +953,18 @@ function create(host) {
         const items = [];
         for (const p of list) {
           const what = p.error ? `error: ${p.error}` : `${p.files.length} file(s)${p.head ? `, ${p.head}` : ''}`;
-          items.push({ label: `$(eye) View the brief for ${p.label}`, description: what, act: 'view', id: p.id });
-          items.push({ label: `$(refresh) Rebuild ${p.label}'s brief`, description: p.host ? `${p.host}:${p.path}` : p.path, act: 'refresh', id: p.id });
-          items.push({ label: `$(debug-disconnect) Disconnect ${p.label}`, act: 'detach', id: p.id });
+          items.push({ value: `view:${p.id}`, label: `View the brief for ${p.label}`, description: what, icon: 'eye' });
+          items.push({ value: `refresh:${p.id}`, label: `Rebuild ${p.label}'s brief`, description: p.host ? `${p.host}:${p.path}` : p.path, icon: 'refresh' });
+          items.push({ value: `detach:${p.id}`, label: `Disconnect ${p.label}`, icon: 'disconnect' });
         }
-        items.push({ label: '$(add) Connect another project…', detail: 'For a prompt that genuinely spans repos, here or on another machine', act: 'add' });
-        const pick = await vscode.window.showQuickPick(items, { placeHolder: 'Project context for this prompt' });
-        if (!pick) return;
-        if (pick.act === 'add') { const got = await pickProjectDir(); if (got) await attachProject(s.slug, got.dir, got.host); return; }
-        if (pick.act === 'detach') { detachProject(s.slug, pick.id); return; }
-        await handleMessage({ type: `project.${pick.act}`, id: pick.id });
+        items.push({ value: 'add:', label: 'Connect another project…', description: 'For a prompt that genuinely spans repos, here or on another machine', icon: 'add' });
+        const choice = await uiPick({ title: 'Project context for this prompt', items, anchor: 'connect' });
+        if (!choice) return;
+        const act = choice.slice(0, choice.indexOf(':'));
+        const pid = choice.slice(choice.indexOf(':') + 1);
+        if (act === 'add') { const got = await pickProjectDir(); if (got) await attachProject(s.slug, got.dir, got.host); return; }
+        if (act === 'detach') { detachProject(s.slug, pid); return; }
+        if (act === 'view' || act === 'refresh') await handleMessage({ type: `project.${act}`, id: pid });
         return;
       }
       case 'suggestion.dismiss':
@@ -979,15 +1036,18 @@ function create(host) {
       case 'export': {
         if (!s) { notice('info', 'Create or open a prompt first.'); return; }
         const sc = store.read(s.slug);
+        const act = m.act ? String(m.act) : await uiPick({
+          title: 'Export this prompt as…',
+          items: [
+            { value: 'md', label: 'Markdown file', description: 'The finished prompt, as you would paste it', icon: 'doc' },
+            { value: 'cmd', label: 'Claude Code slash command', description: `.claude/commands/${s.slug}.md in this workspace, then /${s.slug}`, icon: 'terminal' },
+            { value: 'json', label: 'Whole prompt as JSON', description: 'Document, every idea, versions and conflicts: the portable form', icon: 'json' },
+          ],
+        });
+        if (!act) return;
         if (!(await fillMissingVars(s))) return;
         const text = await s.copyText();
-        const items = [
-          { label: '$(markdown) Markdown file', detail: 'The finished prompt, as you would paste it', act: 'md' },
-          { label: '$(terminal) Claude Code slash command', detail: `.claude/commands/${s.slug}.md in this workspace — then /${s.slug}`, act: 'cmd' },
-          { label: '$(json) Whole prompt as JSON', detail: 'Document, every idea, versions and conflicts — the portable form', act: 'json' },
-        ];
-        const pick = m.act ? { act: String(m.act) } : await vscode.window.showQuickPick(items, { placeHolder: 'Export this prompt as…' });
-        if (!pick) return;
+        const pick = { act };
         if (pick.act === 'cmd') {
           const ws = workspaceDir();
           if (!ws) { notice('error', 'No folder is open, so there is nowhere to put a slash command.'); return; }
@@ -1041,7 +1101,43 @@ function create(host) {
         const found = lintPrompt(text, { conflicts: snap.conflicts });
         if (found.length) notice(found.some((f) => f.level === 'warn') ? 'warn' : 'info', `Copied. ${found.map((f) => f.text).join(' ')}`);
         log.info(`copied ${text.length} characters for ${targets.labelOf(snap.target)}`);
-        offerFiles(snap.files).catch((e) => log.warn(`copy files: ${e.message}`));
+        offerFiles(snap.files);
+        return;
+      }
+      case 'copyFiles':
+        if (s) await copyFilesNow(s.snapshot().files);
+        return;
+      case 'roots.edit': {
+        const roots = projectCfg().roots;
+        const choice = await uiPick({
+          title: 'Folders projects are listed from',
+          detail: 'Names and paths only: nothing in these folders is read until you attach one of their projects.',
+          items: [
+            ...roots.map((r) => ({ value: `remove:${r}`, label: r, description: 'Stop listing projects from here', icon: 'trash' })),
+            { value: 'add:', label: 'Add a folder…', icon: 'add' },
+          ],
+        });
+        if (!choice) return;
+        if (choice === 'add:') {
+          const sel = await vscode.window.showOpenDialog({ canSelectFolders: true, canSelectFiles: false, canSelectMany: false, openLabel: 'List projects from this folder' });
+          if (!sel || !sel.length) return;
+          await updateSetting('projectRoots', [...new Set([...roots, sel[0].fsPath])]);
+        } else {
+          await updateSetting('projectRoots', roots.filter((r) => r !== choice.slice('remove:'.length)));
+        }
+        post();
+        return;
+      }
+      case 'budget.set': {
+        const current = projectCfg().tokenBudget;
+        const v = await uiAsk({
+          title: 'Token budget for one prompt',
+          detail: 'The footer turns amber once a prompt has used this many tokens in total. Empty or 0 turns it off. Tokens rather than money: a CLI login draws on a plan.',
+          value: current ? String(current) : '', placeholder: 'e.g. 200000', pattern: '^\\d{1,9}$', patternMessage: 'A whole number of tokens', allowEmpty: true, okLabel: 'Save',
+        });
+        if (v === null) return;
+        await updateSetting('tokenBudget', v ? Number(v) : 0);
+        post();
         return;
       }
       case 'send.options':
@@ -1112,12 +1208,12 @@ function create(host) {
       }
       case 'sync.setup': {
         const current = syncCfg().remote;
-        const url = await vscode.window.showInputBox({
-          prompt: 'A git remote for the prompt library: a private repository you own',
-          placeHolder: 'git@github.com:you/prompts.git',
-          value: current, ignoreFocusOut: true,
+        const url = await uiAsk({
+          title: 'A git remote for the prompt library',
+          detail: 'A private repository you own. git must be installed, with credentials that work without a prompt. Leave it empty to turn sync off.',
+          placeholder: 'git@github.com:you/prompts.git', value: current, allowEmpty: true, okLabel: 'Save',
         });
-        if (url === undefined) return;
+        if (url === null) return;
         await updateSetting('sync.remote', url.trim());
         startSync();
         post();
@@ -1232,6 +1328,9 @@ function create(host) {
     },
     dispose() {
       disposed = true;
+      // A flow waiting on a dialog ends as if it was cancelled, rather than hanging on a dead runtime.
+      for (const { resolve } of uiPending.values()) resolve(null);
+      uiPending.clear();
       clearTimeout(repaintTimer);
       stopSync();
       docEditors.dispose();

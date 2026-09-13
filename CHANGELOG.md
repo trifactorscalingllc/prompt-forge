@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.13.2
+
+Everything Prompt Forge asks, it now asks inside its own panel.
+
+- **One dialog style for every question**, drawn in the panel in the look of the model picker: a list with an icon and a line of description per row (with a filter when it is long), a single field with OK and Cancel, or a sentence with two buttons. Escape, Cancel and a click outside all cancel; the arrow keys move through any list, including the model and Send lists.
+- Moved in from VS Code's box at the top of the window: choosing a project, the SSH host and folder, the project menu, the template picker, the export format, the engine to sign in to, an API key, `{{variable}}` values on copy, and the sync remote.
+- Moved in from VS Code's pop-ups: the delete confirmation, "the CLI is not installed", and **Copy the files**, which is now a button on the panel's notice bar. The progress toasts for connecting a project, listing a host's projects and starting Claude are notices in the panel.
+- The Settings page's **Edit roots** and **Set a budget** are edited in the panel instead of opening VS Code's settings, and a custom model id is typed in a panel dialog rather than the browser's prompt.
+- **Add an Idea** and **Send Selection as an Idea** open the panel with the cursor in the idea box; a selection lands there as a code block with a blank line above it for a note, and Enter sends it. There is no separate note box any more.
+- Every command that asks something opens the panel first, and a question asked while the panel is still loading is shown as soon as it is ready.
+- What still opens outside the panel, because nothing else can do the job: the operating system's file and folder dialog, documents opened in an editor tab (a brief, a run, an export), and the sign-in terminal.
+
 ## 0.13.1
 
 - **Send opens its list in the panel.** Where the prompt goes is now a floating list under the Send button — the same box, rows and behaviour as the model picker — instead of a picker at the top of the VS Code window. Each place has its own icon (a terminal, a conversation, a new one, Claude on an SSH host), the place you sent to last is marked, and the list says when a `{{variable}}` has no value or files will go along as @-mentions. It opens at once and fills as the terminals and conversations are found; Escape, a click outside and a resize close it.
