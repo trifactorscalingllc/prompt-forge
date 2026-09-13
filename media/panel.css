@@ -405,6 +405,13 @@ html, body { height: 100%; overflow: hidden; max-width: 100%; }
 .var-input { width: 20ch; max-width: 40vw; font: inherit; color: var(--vscode-input-foreground); background: var(--vscode-input-background); border: 1px solid var(--vscode-input-border, transparent); border-radius: 3px; padding: 1px 5px; }
 .var-input:focus { outline: 1px solid var(--accent); }
 
+/* The Send menu is the target list's twin: same floating box, same rows, plus a line saying what
+   happens and any note about unfilled slots or files. */
+.send-menu { min-width: 290px; }
+.fhead { padding: 3px 8px 7px; margin-bottom: 3px; font-size: 0.82em; line-height: 1.4; color: var(--vscode-descriptionForeground); border-bottom: 1px solid var(--vscode-menu-separatorBackground, var(--vscode-panel-border)); }
+.fnote { padding: 6px 8px 3px; font-size: 0.82em; line-height: 1.4; color: var(--vscode-descriptionForeground); }
+.fnote.warn { color: var(--vscode-editorWarning-foreground, #e0b341); }
+
 #send-update-count { font-size: 0.8em; font-variant-numeric: tabular-nums; }
 .iconbtn.addon#send-update { color: var(--vscode-charts-purple, #b180d7); }
 

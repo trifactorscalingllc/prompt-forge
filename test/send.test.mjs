@@ -66,6 +66,8 @@ test('destinations: the remembered place first when it still exists, then live t
   const d = send.destinations(opts);
   assert.deepEqual(d.map((x) => x.kind), ['session', 'terminal', 'new-panel', 'remote']);
   assert.equal(d[0].last, true);
+  assert.equal(d[0].description, 'Where you sent it last');
+  assert.ok(d.every((x) => x.label && !/\$\(/.test(x.label)), 'plain labels: the panel draws its own icons, codicon syntax would show as text');
   assert.equal(d.filter((x) => x.kind === 'session').length, 1, 'the remembered one is not listed twice');
   const gone = send.destinations({ ...opts, remembered: { kind: 'terminal', name: 'closed' } });
   assert.ok(!gone.some((x) => x.last), 'a closed terminal is not offered as last');

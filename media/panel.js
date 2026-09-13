@@ -481,8 +481,77 @@
     btn.classList.toggle('warn', Boolean(n.restyled));
   }
 
-  $('send-claude').addEventListener('click', () => vscode.postMessage({ type: 'send' }));
   $('send-update').addEventListener('click', () => vscode.postMessage({ type: 'sendUpdate' }));
+
+  // ------------------------------------------------------------------------------------------
+  // Send to: the same floating list as the model picker, anchored under the Send button. Where the
+  // prompt goes is chosen here, in the panel; nothing opens a picker at the top of the window.
+  // It opens at once with "Looking for Claude…" and fills when the extension has listed the
+  // terminals and conversations, so the click never feels dead.
+  // ------------------------------------------------------------------------------------------
+  const SEND_MARK = {
+    terminal: '<svg viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="1.8" y="2.8" width="12.4" height="10.4" rx="1.4"/><path d="m4.6 6.2 2 1.8-2 1.8M8.2 10h3.2"/></svg>',
+    session: '<svg viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2.5 3h11v7.5H8l-3.2 2.7v-2.7H2.5z"/></svg>',
+    'new-panel': '<svg viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" aria-hidden="true"><path d="M8 3v10M3 8h10"/></svg>',
+    'new-terminal': '<svg viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" aria-hidden="true"><path d="M8 3v10M3 8h10"/></svg>',
+    remote: '<svg viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="1.8" y="2.5" width="12.4" height="8" rx="1.2"/><path d="M5.5 13.5h5M8 10.5v3"/></svg>',
+    last: '<svg viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2.8 8a5.2 5.2 0 1 0 1.5-3.7"/><path d="M2.5 2.4v2.9h2.9"/><path d="M8 5.3V8l1.8 1.2"/></svg>',
+  };
+
+  function closeSendMenu() {
+    $('send-menu').hidden = true;
+    $('send-claude').setAttribute('aria-expanded', 'false');
+  }
+
+  function openSendMenu(data) {
+    closeTargetMenu();
+    const menu = $('send-menu');
+    menu.textContent = '';
+    menu.append(el('div', 'fhead', 'Send to Claude Code. It lands in the input box; nothing is sent until you press Enter there.'));
+    if (!data) {
+      menu.append(el('div', 'fnote', 'Looking for Claude…'));
+    } else if (!data.items || !data.items.length) {
+      menu.append(el('div', 'fnote', 'Nowhere to send yet: open a folder, attach a project, or start claude in a terminal.'));
+    } else {
+      for (const it of data.items) {
+        const item = el('button', `fitem${it.last ? ' on' : ''}`);
+        item.setAttribute('role', 'option');
+        const mark = el('span', 'fitem-mark');
+        mark.innerHTML = SEND_MARK[it.last ? 'last' : it.kind] || SEND_MARK.terminal;   // a constant above, never data
+        const text = el('span', 'fitem-text');
+        text.append(el('span', 'fitem-label', it.label));
+        if (it.description) text.append(el('span', 'fitem-desc', it.description));
+        item.append(mark, text);
+        item.addEventListener('click', () => { closeSendMenu(); vscode.postMessage({ type: 'send', dest: it }); });
+        menu.append(item);
+      }
+    }
+    if (data && data.unfilled && data.unfilled.length) {
+      menu.append(el('div', 'fnote warn', `No value yet for ${data.unfilled.map((n) => `{{${n}}}`).join(', ')}. Fill it in under the prompt, or it goes as a slot.`));
+    }
+    if (data && data.files) menu.append(el('div', 'fnote', `${data.files} attached file${data.files === 1 ? ' goes' : 's go'} along as @-mentions.`));
+    menu.hidden = false;
+    $('send-claude').setAttribute('aria-expanded', 'true');
+    // Anchored under the button and right-aligned to it, since the button sits at the right edge.
+    const r = $('send-claude').getBoundingClientRect();
+    menu.style.top = `${r.bottom + 4}px`;
+    const w = menu.offsetWidth;
+    menu.style.left = `${Math.max(8, Math.min(r.right - w, window.innerWidth - w - 8))}px`;
+    const first = menu.querySelector('.fitem.on') || menu.querySelector('.fitem');
+    if (first) first.focus();
+  }
+
+  $('send-claude').addEventListener('click', (e) => {
+    e.stopPropagation();
+    if (!$('send-menu').hidden) { closeSendMenu(); return; }
+    openSendMenu(null);
+    vscode.postMessage({ type: 'send.options' });
+  });
+  document.addEventListener('click', (e) => {
+    if (!$('send-menu').hidden && !$('send-menu').contains(e.target)) closeSendMenu();
+  });
+  document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && !$('send-menu').hidden) { closeSendMenu(); $('send-claude').focus(); } });
+  window.addEventListener('resize', closeSendMenu);
 
   // ------------------------------------------------------------------------------------------
   // {{variables}}: filled here, never in the document
@@ -1211,6 +1280,7 @@
   function openTargetMenu() {
     const s = latest;
     if (!s || !s.active) return;
+    closeSendMenu();
     const menu = $('target-menu');
     const blurbs = (s.blurbs && s.blurbs.targets) || {};
     menu.textContent = '';
@@ -1308,6 +1378,9 @@
     else if (m.type === 'compare') { compared = { id: m.id, diff: m.diff }; openVersion = m.id; if (latest) render(latest); }
     else if ((m.type === 'attached' && m.attachment) || (m.type === 'imageSaved' && m.image)) { pending.push(m.attachment || m.image); renderPending(); }
     else if (m.type === 'progress' && latest && latest.active && latest.active.slug === m.slug) { latest.active.engine = m.engine; renderStatus(latest); }
+    // The Send menu's contents: fills a menu already open, or opens it when the extension asks
+    // (the command palette, or a Send update whose last place is gone).
+    else if (m.type === 'sendMenu' && (m.open || !$('send-menu').hidden)) { openSendMenu(m); if (m.open) vscode.postMessage({ type: 'sendMenu.shown' }); }
     else if (m.type === 'focus') idea.focus();
   });
   vscode.postMessage({ type: 'ready' });

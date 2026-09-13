@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.13.1
+
+- **Send opens its list in the panel.** Where the prompt goes is now a floating list under the Send button — the same box, rows and behaviour as the model picker — instead of a picker at the top of the VS Code window. Each place has its own icon (a terminal, a conversation, a new one, Claude on an SSH host), the place you sent to last is marked, and the list says when a `{{variable}}` has no value or files will go along as @-mentions. It opens at once and fills as the terminals and conversations are found; Escape, a click outside and a resize close it.
+- *Prompt Forge: Send This Prompt to Claude Code* opens the panel with the same list, and **Send update** opens it too when the place it was sent to last is gone.
+- Sending no longer stops to ask for missing `{{variable}}` values in an input box at the top of the window; the list says which are unfilled, and they go as slots unless filled in under the prompt.
+- The chosen place is matched against what is open at the moment of sending, so a terminal closed while the list was up is refused rather than typed into.
+
 ## 0.13.0
 
 Faster merges, a rewrite that is shaped by code rather than by request, files that travel with ideas, and a prompt that goes straight into Claude Code.

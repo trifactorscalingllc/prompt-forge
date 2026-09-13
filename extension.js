@@ -221,7 +221,8 @@ function activate(context) {
     vscode.commands.registerCommand('promptForge.export', () => send({ type: 'export' })),
     vscode.commands.registerCommand('promptForge.addIdea', () => quiet({ type: 'addIdea' })),
     vscode.commands.registerCommand('promptForge.addSelection', () => quiet(selectionMessage())),
-    vscode.commands.registerCommand('promptForge.sendToClaude', () => quiet({ type: 'sendToClaude' })),
+    // Opens the panel: where to send is chosen in its own menu, not in a picker at the top of the window.
+    vscode.commands.registerCommand('promptForge.sendToClaude', () => send({ type: 'sendToClaude' })),
     vscode.commands.registerCommand('promptForge.attachRemoteProject', () => send({ type: 'project.remote' })),
     vscode.commands.registerCommand('promptForge.syncNow', () => quiet({ type: 'sync.now' })),
     vscode.commands.registerCommand('promptForge.setUpSync', () => quiet({ type: 'sync.setup' })),

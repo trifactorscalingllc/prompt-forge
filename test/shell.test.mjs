@@ -208,6 +208,25 @@ test('the target reads as "for <model>" on the Prompt head, and is a floating li
   assert.ok(/#idea::placeholder \{[^}]*opacity: 0\.5/.test(css), 'the in-box brief is the quietest thing on the panel');
 });
 
+test('Send is chosen in the panel\'s own floating list, like the model picker, never in a picker at the top of the window', () => {
+  const view = fs.readFileSync(path.join(ROOT, 'src/view.js'), 'utf8');
+  assert.ok(/id="send-menu" class="floating/.test(view), 'the same floating box the target list uses');
+  assert.ok(/id="send-claude"[^>]*aria-haspopup="listbox"/.test(view));
+  const panel = fs.readFileSync(path.join(ROOT, 'media/panel.js'), 'utf8');
+  assert.ok(/function openSendMenu/.test(panel) && /function closeSendMenu/.test(panel));
+  assert.ok(/type: 'send', dest: it/.test(panel), 'a row sends the chosen place back');
+  assert.ok(/!\$\('send-menu'\)\.contains\(e\.target\)/.test(panel), 'a click outside closes it');
+  assert.ok(/window\.addEventListener\('resize', closeSendMenu\)/.test(panel), 'a resize closes it');
+  assert.ok(/e\.key === 'Escape' && !\$\('send-menu'\)\.hidden/.test(panel), 'Escape closes it');
+  const runtime = fs.readFileSync(path.join(ROOT, 'src/runtime.js'), 'utf8');
+  const sendSection = runtime.slice(runtime.indexOf('function sendPlan'), runtime.indexOf('// Library sync'));
+  assert.ok(sendSection.length > 0 && !/showQuickPick/.test(sendSection), 'no VS Code quick pick on the send path');
+  assert.ok(/case 'send\.options'/.test(runtime) && /postSendMenu\(/.test(runtime));
+  assert.ok(/\.find\(\(i\) => sameDest\(i, dest\)\)/.test(runtime), 'the choice is matched against the live list, not trusted as sent');
+  const shellSrc = fs.readFileSync(path.join(ROOT, 'extension.js'), 'utf8');
+  assert.ok(/'promptForge\.sendToClaude', \(\) => send\(/.test(shellSrc), 'the command opens the panel, where the menu is');
+});
+
 test('settings adapt to the width they are given, in both directions', () => {
   const css = fs.readFileSync(path.join(ROOT, 'media/panel.css'), 'utf8');
   // Narrow: the rail wraps to a strip. Mid: it narrows first rather than holding its width while

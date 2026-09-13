@@ -117,22 +117,24 @@ function destinations({ folder = null, terminals = [], sessions = [], hasClaudeE
     const live = remembered.kind === 'terminal' ? terminals.some((t) => t.name === remembered.name)
       : remembered.kind === 'session' ? sessions.some((s) => s.id === remembered.id)
         : remembered.kind === 'remote';
-    if (live) out.push({ ...remembered, last: true, label: `$(history) Where you sent it last: ${remembered.label || remembered.name || remembered.title || remembered.host}` });
+    const where = remembered.kind === 'terminal' ? `The terminal "${remembered.name}"` : remembered.kind === 'session' ? (remembered.title || 'The Claude Code conversation') : `Claude on ${remembered.host}`;
+    if (live) out.push({ ...remembered, last: true, label: where, description: 'Where you sent it last' });
   }
+  // Plain labels: the panel draws its own icon for each kind.
   terminals.forEach((t, index) => {
-    const item = { kind: 'terminal', name: t.name, index, label: `$(terminal) Paste into the terminal "${t.name}"`, description: 'Claude is running there' };
+    const item = { kind: 'terminal', name: t.name, index, label: `The terminal "${t.name}"`, description: 'Claude is running there' };
     if (!out.some((o) => same(o, item))) out.push(item);
   });
   for (const s of sessions) {
-    const item = { kind: 'session', id: s.id, title: s.title, mtime: s.mtime, label: `$(comment-discussion) ${s.title || s.id}`, description: `Claude Code conversation · ${ago(s.mtime)}` };
+    const item = { kind: 'session', id: s.id, title: s.title, mtime: s.mtime, label: s.title || s.id, description: `Claude Code conversation · ${ago(s.mtime)}` };
     if (hasClaudeExtension && !out.some((o) => same(o, item))) out.push(item);
   }
   if (folder) {
     out.push(hasClaudeExtension
-      ? { kind: 'new-panel', folder, label: '$(add) New Claude Code conversation', description: path.basename(folder) }
-      : { kind: 'new-terminal', folder, label: '$(add) New terminal running claude', description: path.basename(folder) });
+      ? { kind: 'new-panel', folder, label: 'New Claude Code conversation', description: path.basename(folder) }
+      : { kind: 'new-terminal', folder, label: 'New terminal running claude', description: path.basename(folder) });
   }
-  if (remote) out.push({ kind: 'remote', host: remote.host, dir: remote.dir, label: `$(remote) Claude on ${remote.host}`, description: remote.dir });
+  if (remote) out.push({ kind: 'remote', host: remote.host, dir: remote.dir, label: `Claude on ${remote.host}`, description: remote.dir });
   return out;
 }
 

@@ -572,15 +572,19 @@ function create(host) {
 
   const destLabel = (d) => (d.kind === 'terminal' ? `the terminal "${d.name}"` : d.kind === 'session' ? `the conversation "${d.title || d.id}"` : d.kind === 'remote' ? `Claude on ${d.host}` : 'a new Claude Code conversation');
 
-  /**
-   * The Send button. `update` sends only what changed since the last send, to the same place, when
-   * that place still exists; a conversation that is gone gets the whole prompt instead, because a new
-   * conversation has never seen it.
-   */
-  async function sendToClaude(s, { update = false } = {}) {
+  // ------------------------------------------------------------------------------------------
+  // Send: where the prompt can go is listed in the panel's own floating menu, under the Send
+  // button, like the model picker. Nothing here opens a picker at the top of the window; the runtime
+  // only works out the choices and delivers the one the panel sends back.
+  // ------------------------------------------------------------------------------------------
+
+  // The command palette can ask for the menu before the panel has loaded; it is shown on `ready`.
+  let pendingSendMenu = false;
+
+  /** The destinations, worked out fresh: what is open now is what can be offered. */
+  function sendPlan(s) {
     const snap = s.snapshot();
     const { folder, remote: far } = sendPlaces(s);
-    const hasExt = hasClaudeExtension();
     const terminals = claudeTerminals().map((t) => ({ name: t.name }));
     const sessionsHere = folder ? sendMod.recentSessions(folder) : [];
     let remembered = snap.sent && snap.sent.dest;
@@ -589,45 +593,74 @@ function create(host) {
       const found = sendMod.findSentSession({ folder: remembered.folder, sentAt: snap.sent.ts, promptStart: remembered.promptStart });
       remembered = found ? { kind: 'session', id: found.id, title: found.title } : null;
     }
-    if (!(await fillMissingVars(s))) return;
+    const items = sendMod.destinations({ folder, terminals, sessions: sessionsHere, hasClaudeExtension: hasClaudeExtension(), remembered, remote: far });
+    return { snap, items, remembered };
+  }
 
-    if (update) {
-      const add = await s.sendNewText();
-      if (!add) { notice('info', 'Nothing has been merged since your last send.'); return; }
-      const live = remembered && sendMod.destinations({ folder, terminals, sessions: sessionsHere, hasClaudeExtension: hasExt, remembered, remote: far }).find((d) => d.last);
-      if (live) {
-        try {
-          await deliver(live, add.text);
-          await s.markSent(remembered);
-          notice('info', `What changed is in ${destLabel(remembered)}. Press Enter there to send it.${add.restyled ? ' The prompt was restyled since, so the whole prompt may read better.' : ''}`);
-          post();
-          return;
-        } catch (e) {
-          notice('warn', `Could not reach ${destLabel(remembered)}: ${e.message}. Pick where the whole prompt should go.`);
-        }
-      } else {
-        notice('info', 'Where this was sent last is gone, so the whole prompt goes to the new place.');
-      }
-    }
+  const sameDest = (a, b) => Boolean(a && b && a.kind === b.kind && (
+    a.kind === 'terminal' ? a.name === b.name
+      : a.kind === 'session' ? a.id === b.id
+        : a.kind === 'remote' ? a.host === b.host && a.dir === b.dir
+          : a.folder === b.folder));
 
-    const items = sendMod.destinations({ folder, terminals, sessions: sessionsHere, hasClaudeExtension: hasExt, remembered, remote: far });
-    if (!items.length) { notice('error', 'There is nowhere to send this: open a folder, attach a project, or start `claude` in a terminal.'); return; }
-    const pick = await vscode.window.showQuickPick(items.map((item) => ({ label: item.label, description: item.description, item })), {
-      placeHolder: 'Send this prompt to… It lands in the input box; nothing is submitted until you press Enter there.',
+  /** The menu's contents, as plain data. The panel draws the icons; nothing here can become a command. */
+  function postSendMenu(s, extra = {}) {
+    const p = getPanel();
+    if (!p || !s) return;
+    const { snap, items } = sendPlan(s);
+    const { names, values } = s.variables();
+    p.webview.postMessage({
+      type: 'sendMenu',
+      items: items.map(({ kind, label, description, last, name, id, title, folder, host, dir }) => ({ kind, label, description, last: Boolean(last), name, id, title, folder, host, dir })),
+      unfilled: names.filter((n) => !values[n]),
+      files: snap.files.length,
+      ...extra,
     });
-    if (!pick) return;
+  }
+
+  /** Deliver the whole prompt to the place the person picked in the panel. */
+  async function sendTo(s, dest) {
+    // The choice is matched against the list as it is now, never trusted as sent: a terminal closed
+    // while the menu was open is not somewhere to type into.
+    const item = sendPlan(s).items.find((i) => sameDest(i, dest));
+    if (!item) { notice('warn', 'That place is no longer there. Pick another.'); postSendMenu(s, { open: true }); return; }
     const text = await s.sendText();
     try {
-      await deliver(pick.item, text);
+      await deliver(item, text);
     } catch (e) {
       notice('error', `Could not send: ${e.message}`);
       return;
     }
-    const { label: _l, description: _d, last: _last, index: _i, ...rest } = pick.item;
-    const dest = rest.kind === 'new-panel' ? { kind: 'new-panel', folder: rest.folder, promptStart: text.split('\n').find((l) => l.trim()) || '' } : rest;
-    await s.markSent(dest);
-    notice('info', `The prompt is in ${destLabel(pick.item)}. Press Enter there to send it.`);
+    const { label: _l, description: _d, last: _last, index: _i, ...rest } = item;
+    const record = rest.kind === 'new-panel' ? { kind: 'new-panel', folder: rest.folder, promptStart: text.split('\n').find((l) => l.trim()) || '' } : rest;
+    await s.markSent(record);
+    notice('info', `The prompt is in ${destLabel(item)}. Press Enter there to send it.`);
     post();
+  }
+
+  /**
+   * Send update: only what changed since the last send, to the same place, when that place still
+   * exists. When it is gone the menu opens instead, because a new conversation needs the whole prompt.
+   */
+  async function sendUpdate(s) {
+    const { items, remembered } = sendPlan(s);
+    const add = await s.sendNewText();
+    if (!add) { notice('info', 'Nothing has been merged since your last send.'); return; }
+    const live = remembered && items.find((d) => d.last);
+    if (live) {
+      try {
+        await deliver(live, add.text);
+        await s.markSent(remembered);
+        notice('info', `What changed is in ${destLabel(remembered)}. Press Enter there to send it.${add.restyled ? ' The prompt was restyled since, so the whole prompt may read better.' : ''}`);
+        post();
+        return;
+      } catch (e) {
+        notice('warn', `Could not reach ${destLabel(remembered)}: ${e.message}. Pick where the whole prompt should go.`);
+      }
+    } else {
+      notice('info', 'Where this was sent last is gone. Pick where the whole prompt should go.');
+    }
+    postSendMenu(s, { open: true });
   }
 
   // ------------------------------------------------------------------------------------------
@@ -728,6 +761,7 @@ function create(host) {
     switch (m.type) {
       case 'ready':
         post();
+        if (pendingSendMenu && s) postSendMenu(s, { open: true });
         return;
       case 'panelOpened':
         post();
@@ -1010,15 +1044,24 @@ function create(host) {
         offerFiles(snap.files).catch((e) => log.warn(`copy files: ${e.message}`));
         return;
       }
+      case 'send.options':
+        if (s) postSendMenu(s, { open: Boolean(m.open) });
+        return;
+      case 'sendMenu.shown':
+        pendingSendMenu = false;
+        return;
       case 'send':
       case 'sendToClaude': {
         const target = s || await sessionForCommand();
         if (!target) return;
-        await sendToClaude(target, { update: false });
+        if (m.dest && typeof m.dest === 'object') { await sendTo(target, m.dest); return; }
+        // From the command palette: the panel's own menu opens, as it does from the button.
+        pendingSendMenu = true;
+        postSendMenu(target, { open: true });
         return;
       }
       case 'sendUpdate':
-        if (s) await sendToClaude(s, { update: true });
+        if (s) await sendUpdate(s);
         return;
       case 'vars.set':
         if (s && m.values && typeof m.values === 'object') s.setVars(m.values);
