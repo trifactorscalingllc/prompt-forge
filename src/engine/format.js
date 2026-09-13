@@ -146,6 +146,16 @@ function reshape(s, family) {
   return { kind: 'md', name: S.HEADING.exec(heading)[2], level, heading, body: demoteHeadings(s.body, family, level), close: null };
 }
 
+// What a model writes into a section it has nothing for. Whole lines only, and deliberately narrow:
+// "None of the emails may exceed 120 words" is a requirement, not filler, and must survive.
+const FILLER = /^(?:[-*]\s+)?(?:none(?:\s+(?:provided|given|specified|recorded|listed|identified))?|n\/a|tbd|not\s+(?:yet\s+)?(?:specified|provided|recorded|given|defined|decided)|no\s+\w+(?:\s+\w+)?\s+(?:provided|given|specified|recorded|listed))(?:\s+(?:in|for)\s+(?:the\s+)?(?:working\s+)?document)?(?:\s+(?:yet|so\s+far))?\s*\.?$/i;
+
+/** A recognised section with nothing real in it: empty, or only lines like "None provided." Pure. */
+function isEmptySection(s) {
+  if (s.kind === 'loose' || !S.canonicalOf(s.name)) return false;
+  return S.trimBlank(s.body).map((l) => l.trim()).filter(Boolean).every((l) => FILLER.test(l));
+}
+
 /** The standard order. A section with no standard place keeps the one it had after its neighbour. */
 function order(sections) {
   let last = -1;
@@ -169,9 +179,12 @@ function formatDoc(doc, { family = null } = {}) {
   const st = S.parse(lines.join('\n'));
   st.sections = mergeDuplicates(st.sections);
   if (family && FAMILIES.includes(family) && st.sections.some((s) => s.kind !== 'loose')) {
-    st.sections = order(st.sections.map((s) => reshape(s, family)));
+    // A polish that padded the shape with empty sections is corrected here: a section with no material
+    // is left out, as the merge leaves it out. Only in polish mode -- an empty heading the person typed
+    // is theirs.
+    st.sections = order(st.sections.filter((s) => !isEmptySection(s)).map((s) => reshape(s, family)));
   }
   return S.serialize(st);
 }
 
-module.exports = { formatDoc, tidyLines, repairTags, SECTION_TAGS };
+module.exports = { formatDoc, tidyLines, repairTags, isEmptySection, SECTION_TAGS, FILLER };

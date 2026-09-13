@@ -5,7 +5,7 @@ Gemini responds best to a prompt that reads like a brief: a short system-style f
 ## Shape
 
 1. **Framing paragraph** (no heading). Two or three sentences: what the model is acting as, what the task is, and what "done" means. This is the system-instruction voice: direct, present tense.
-2. Then these markdown headings, in this order, each followed by its content:
+2. Then these markdown headings, in this order, each followed by its content. Include only the sections the document has material for; a section with nothing in it is left out, never filled with "None provided" or "Not yet specified".
 
 ## Goal
 The single outcome. One paragraph or one bullet.

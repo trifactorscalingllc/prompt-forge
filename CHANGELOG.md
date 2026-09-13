@@ -1,5 +1,31 @@
 # Changelog
 
+## 0.14.0
+
+Two people signed in to the same Claude account can work in one prompt library at the same time.
+
+- **Share a library live.** The people button in the header shares this window's library and puts an invite on the clipboard: a link that joins in one click, and the account to sign in to. Whoever opens it sees the whole library as it changes — each idea as it is sent, conflict answers, polish, model changes, hand edits, and the engine at work — within about a second, and can do any of it themselves. A prompt created on either side appears on the other, and a deleted one goes from both.
+- **One window merges.** Everyone's ideas go into the sharing window's queue and run on its engine, so two ideas sent at once become one merge, never two versions of the document. Each idea in the thread says who sent it, and the prompts list shows who has which prompt open.
+- **Edits made at the same moment are joined, not overwritten.** A hand edit made against an older copy is merged section by section with whatever changed in between. When both people changed the same section, the later edit wins and the other wording is kept in the versions list.
+- **The account decides who may join.** The invite names the Claude account the sharing window is signed in to. A window signed in to a different account is refused, before it connects and again on every request.
+- **No server.** The two windows connect directly, on the same network or over a tailnet such as Tailscale; nothing passes through anyone else. Every message is encrypted with AES-256-GCM under a key only the invite carries, a request without it gets no answer, and a request captured and sent again is refused. **Stop sharing** makes the invite useless.
+- Sharing and joining pick up again after a reload. Leaving a library removes its copy from the computer. In someone else's library, connecting projects, test runs and library sync happen in their window.
+- The first time sharing starts, Windows or macOS may ask whether VS Code may accept incoming connections; allow it on private networks. Sharing uses port 47830, or the next free one.
+- New command: *Prompt Forge: Share or Join a Live Library*.
+
+### Smoother panel
+
+- Collapsing the Prompts list fades its contents out before the rail narrows, and showing it widens the rail before they fade back in, so nothing jumps.
+- Settings fade in over the work and fade away again instead of swapping in a single frame. Both motions are off when the system asks for reduced motion.
+
+## 0.13.3
+
+- **A polished prompt reads like a document again.** Claude prompts keep their `<goal>`, `<context>` … tags in the file, where Claude reads them, but the panel and the document view now show each tag as a section heading ("Output format" for `<output_format>`) and hide the closing tags, instead of printing raw tag lines.
+- **Polish no longer pads.** It was adding every standard section, filling the empty ones with "None provided." or "Not yet specified". The instruction now says to leave out a section with nothing in it, and a polish that does it anyway has those sections removed before the document is written. A real line such as "None of the emails may exceed 120 words." is kept.
+- **The title survives a polish.** A polish that dropped the `# Title` line or reworded it gets the prompt's own title back on the first line.
+- **Titles are complete phrases.** A proposed title is asked to be a grammatical noun phrase, and a five-word cut never leaves it ending on "for", "with a", "and" and the like.
+- **Changing the model rewrites the advice too.** Switching the target (say, from Claude Fable 5.1 to Claude Opus 5) clears the suggestions and ideas written for the old model at once. The re-polish that follows names the new model wherever the document named the old one, and writes new suggestions and ideas for it.
+
 ## 0.13.2
 
 Everything Prompt Forge asks, it now asks inside its own panel.

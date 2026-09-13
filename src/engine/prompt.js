@@ -90,7 +90,7 @@ Also return "suggestions": up to three objects {"section": "<section name>", "ki
 Also return "ideas": up to three objects {"text": "<one sentence>"}, each a concrete way to take this prompt further that its own context makes natural — an angle, a case or a deliverable the person has not asked for yet — phrased so it could be sent as their next idea ("Add a follow-up email for leads who open but never reply"). Draw only on what the document establishes; no generic advice. Nothing worth proposing is an empty array. Ideas are advice only and must never appear in the document.`;
 
 const TITLE = `
-Also return "title": a name for this prompt of AT MOST FIVE WORDS, describing what the finished prompt is for. Name the subject, not the act of asking: "Collapsible prompt sidebar", not "Oh idea" or "User wants changes". No trailing punctuation, no quotes.`;
+Also return "title": a name for this prompt of AT MOST FIVE WORDS, describing what the finished prompt is for. Name the subject, not the act of asking: "Collapsible prompt sidebar", not "Oh idea" or "User wants changes". It must be a complete, grammatical noun phrase in sentence case, spelled correctly, and not a sentence cut short: "Cold email sequence for plumbers", never "Emails that book calls for". No trailing punctuation, no quotes.`;
 
 /**
  * { system, prompt } for one merge.
@@ -151,13 +151,13 @@ ${suggest ? SUGGEST : ''}${needsTitle ? TITLE : ''}
 
 /** The static half of a polish: the rules and the family's style guide. */
 function polishSystem(family, styleGuide) {
-  return `You are the polish engine inside Prompt Forge. Rewrite the working document in the message into the final prompt for the target model it names, following the style guide below exactly. Change form, not substance: every goal, requirement, constraint, example and open question must survive with the same meaning. Add nothing the document does not say; drop nothing it does.
+  return `You are the polish engine inside Prompt Forge. Rewrite the working document in the message into the final prompt for the target model it names, following the style guide below exactly. Change form, not substance: every goal, requirement, constraint, example and open question must survive with the same meaning. Add nothing the document does not say; drop nothing it does. The document's first line is the prompt's title, a "# " heading: keep it as the first line, word for word, above any opening sentence the style guide asks for.
 
 Where the message carries <project-context>, you may name real paths and files from it where the document already refers to them vaguely; that is a change of form, not substance. Do not introduce a path the document does not already imply.
 
 Open conflicts are unresolved contradictions. Do not resolve them and do not mention them in the body.
 
-The person will keep adding ideas after this, so the result must stay a document the merge engine can extend: keep sections that map to ${SECTIONS.join(', ')}, named and formatted as the style guide says. Put any XML or HTML tag on its own line with a blank line before and after it; the document is read in a formatted editor, which shows a tag on its own line as structure and an inline one as literal text mid-sentence. Keep any {{variable}} exactly as written, and keep every reference to an attached file by its file name.
+The person will keep adding ideas after this, so the result must stay a document the merge engine can extend: every section maps to one of ${SECTIONS.join(', ')}, named and formatted as the style guide says. Keep only the sections the document has material for. Never add a section to make the shape look complete, and never write placeholder text such as "None provided", "Not yet specified" or "No examples yet": a section with nothing in it is left out, not filled. Put any XML or HTML tag on its own line with a blank line before and after it; the document is read in a formatted editor, which shows a tag on its own line as structure and an inline one as literal text mid-sentence. Keep any {{variable}} exactly as written, and keep every reference to an attached file by its file name.
 
 <style-guide family="${family}">
 ${block(styleGuide)}</style-guide>
@@ -166,6 +166,7 @@ Output: one JSON object and nothing else. No code fence, no commentary before or
 When the message carries <rewrite-only>, rewrite only the sections it lists and return {"edits": [{"section": "<the name as it appears in the document>", "op": "replace", "text": "<the section's complete new content, without its heading or tags>"}], "changes": ["one short line per change you made"]}. Every other section is already polished and stays as it is.
 Otherwise return {"doc": "<the complete document as one JSON string>", "changes": ["one short line per change you made"]}.
 "doc" and "text" are JSON strings with newlines escaped as \\n. "changes" must be an array.
+When the message asks for suggestions or ideas, add those keys to the same object, exactly as it describes.
 `;
 }
 
@@ -173,11 +174,16 @@ Otherwise return {"doc": "<the complete document as one JSON string>", "changes"
  * { system, prompt } for one polish. `only` lists the section names to rewrite; empty means the
  * whole document.
  */
-function buildPolishPrompt({ doc, conflicts = [], target, styleGuide, projects = [], only = [] }) {
+function buildPolishPrompt({ doc, conflicts = [], target, styleGuide, projects = [], only = [], suggest = false, previousTarget = null }) {
   const label = (target && target.label) || 'the target model';
   const family = (target && target.family) || 'claude';
   const rewrite = only.length
     ? `\n<rewrite-only>\n${only.map((n) => `- ${n}`).join('\n')}\n</rewrite-only>\nThese sections changed since the document was last polished for ${label}. Rewrite them in the style guide's shape and leave every other section exactly as it is.\n`
+    : '';
+  // Switching the target is the moment a document that names its model goes stale: say which name to replace.
+  const prev = previousTarget && previousTarget.label && previousTarget.label !== label ? previousTarget.label : null;
+  const retarget = prev
+    ? `\nThis prompt was written for ${prev} and is now for ${label}. Wherever the document names ${prev} as the model it is written for, name ${label} instead.\n`
     : '';
   const prompt = `${contextBlock(projects)}<target-model>${label}</target-model>
 
@@ -187,7 +193,7 @@ ${block(doc)}</document>
 <open-conflicts>
 ${JSON.stringify(conflicts, null, 2)}
 </open-conflicts>
-${rewrite}`;
+${rewrite}${retarget}${suggest ? `${SUGGEST}\n` : ''}`;
   return { system: polishSystem(family, styleGuide), prompt };
 }
 

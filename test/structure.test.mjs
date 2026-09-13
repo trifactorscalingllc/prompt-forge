@@ -6,7 +6,7 @@ import { createRequire } from 'node:module';
 const require = createRequire(import.meta.url);
 const S = require('../src/engine/sections.js');
 const { applyEdits } = require('../src/engine/edits.js');
-const { formatDoc } = require('../src/engine/format.js');
+const { formatDoc, FILLER } = require('../src/engine/format.js');
 
 const MD = '# Title\n\nOpening line.\n\n## Goal\n\nShip it.\n\n## Requirements\n\n- one\n- two\n\n### Detail\n\nnested\n\n## Output format\n\nJSON.\n';
 const XML = '# T\n\nDo the job.\n\n<goal>\n\nShip it.\n\n</goal>\n\n<examples>\n\n<example>\nA\n</example>\n\n</examples>\n';
@@ -118,6 +118,14 @@ test('polish for GPT and Gemini: the guide\'s own headings, whatever shape the r
   const src = '# T\n\n<output_format>\n\nJSON.\n\n</output_format>\n\n<goal>\n\nG.\n\n</goal>\n';
   assert.equal(formatDoc(src, { family: 'gpt' }), '# T\n\n# Task\n\nG.\n\n# Output format\n\nJSON.\n');
   assert.equal(formatDoc(src, { family: 'gemini' }), '# T\n\n## Goal\n\nG.\n\n## Output format\n\nJSON.\n');
+});
+
+test('polish mode leaves out a section with nothing in it, and never takes a real line for filler', () => {
+  const src = '# T\n\n## Goal\n\nShip it.\n\n## Constraints\n\n- None recorded in the working document yet.\n\n## Output format\n\nNot yet specified in the working document.\n\n## Examples\n\n## Requirements\n\n- None of the emails may exceed 120 words.\n';
+  assert.equal(formatDoc(src, { family: 'gemini' }), '# T\n\n## Goal\n\nShip it.\n\n## Requirements\n\n- None of the emails may exceed 120 words.\n');
+  assert.ok(formatDoc(src).includes('## Constraints'), 'merge mode keeps what the person has, empty or not');
+  for (const f of ['None provided.', '- None recorded in the working document yet.', 'Not yet specified in the working document.', 'No examples provided yet.', 'N/A', 'TBD', 'None.']) assert.ok(FILLER.test(f), `filler: ${f}`);
+  for (const real of ['None of the emails may exceed 120 words.', 'No emails over 120 words.', 'Not for enterprise buyers.', 'None of these apply to trials.']) assert.ok(!FILLER.test(real), `real: ${real}`);
 });
 
 test('fenced code is never touched', () => {

@@ -171,8 +171,12 @@ h2 { font-size: 1.1em; margin: 0 0 6px; }
 .doc li { margin: 2px 0; }
 .doc code { font-family: var(--vscode-editor-font-family); font-size: 0.92em; background: var(--vscode-textCodeBlock-background); padding: 0 3px; border-radius: 3px; }
 .doc pre { background: var(--vscode-textCodeBlock-background); padding: 8px; border-radius: 4px; overflow: auto; }
-.doc .xtag { font-family: var(--vscode-editor-font-family); font-size: 0.9em; color: var(--vscode-descriptionForeground); margin: 8px 0 2px; }
-.doc .xtag + .xtag { margin-top: 2px; }
+/* A tagged section reads as its heading (<goal> is "Goal"); a closing tag is structure for the model
+   and nothing for a reader, so it is not drawn. A tag inside a section (<example>) is a small label. */
+.doc h2.xsec { font-size: 1.05em; margin: 12px 0 4px; }
+.doc .xtag { font-size: 0.9em; color: var(--vscode-descriptionForeground); margin: 8px 0 2px; }
+.doc .xtag.xsub { font-weight: 600; }
+.doc .xtag.xclose { display: none; }
 .doc a { color: var(--vscode-textLink-foreground); }
 .doc blockquote { margin: 6px 0; padding-left: 10px; border-left: 3px solid var(--vscode-panel-border); color: var(--vscode-descriptionForeground); }
 .doc hr { border: none; border-top: 1px solid var(--vscode-panel-border); margin: 10px 0; }
@@ -446,4 +450,30 @@ html, body { height: 100%; overflow: hidden; max-width: 100%; }
   /* Stacked, the rail is already a horizontal strip, so collapsing takes its height, not its width. */
   #app.rail-collapsed #rail { width: auto; padding: 2px var(--gap); }
   #app.rail-collapsed .rail-head { justify-content: flex-start; }
+}
+
+/* Live: who else is in the library, as an initial on each prompt they have open. */
+.pmeta { display: inline-flex; align-items: center; gap: 6px; }
+.pwho { display: inline-flex; gap: 2px; }
+.pdot { width: 15px; height: 15px; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center;
+  font-size: 0.72em; font-weight: 700; line-height: 1; background: var(--vscode-charts-blue, #4aa3ff); color: #fff; }
+.pdot.host { background: var(--vscode-charts-purple, #b180d7); }
+#live-name { max-width: 20ch; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 0.92em; }
+#live-name:empty { display: none; }
+.live-invite { font-size: 0.9em; }
+
+/* Motion. Collapsing the rail fades its contents first and then narrows it; expanding widens it and
+   then fades them back, so nothing reflows while it can be seen. Settings and the work fade across.
+   Short enough to read as a response, and off when the system asks for reduced motion. */
+#rail { transition: width 180ms ease, padding 180ms ease; }
+.rail-title, .new-label, #prompts, #open-library { transition: opacity 110ms ease; }
+#app.rail-fading .rail-title, #app.rail-fading .new-label, #app.rail-fading #prompts, #app.rail-fading #open-library { opacity: 0; pointer-events: none; }
+.rail-head { white-space: nowrap; min-width: 0; }
+.view-in { animation: view-in 170ms ease-out both; }
+.view-out { animation: view-out 120ms ease-in both; pointer-events: none; }
+@keyframes view-in { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+@keyframes view-out { from { opacity: 1; transform: none; } to { opacity: 0; transform: translateY(4px); } }
+@media (prefers-reduced-motion: reduce) {
+  #rail, .rail-title, .new-label, #prompts, #open-library { transition: none; }
+  .view-in, .view-out { animation: none; }
 }

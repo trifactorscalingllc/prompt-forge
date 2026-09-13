@@ -336,6 +336,38 @@ test('the cold shell and the hot entry parse', () => {
   }
 });
 
+test('a live library: an invite link opens through the cold shell, the header has a people button, and a joined window sends what changes a prompt to the sharer', () => {
+  const shellSrc = fs.readFileSync(path.join(ROOT, 'extension.js'), 'utf8');
+  assert.ok(/registerUriHandler/.test(shellSrc) && /type: 'live\.join'/.test(shellSrc), 'an invite link joins');
+  const whole = fs.readFileSync(path.join(ROOT, 'src/view.js'), 'utf8');
+  const view = whole.slice(0, whole.indexOf('The built-in document editor'));
+  const head = view.slice(view.indexOf('<div class="head-actions">'), view.indexOf('</div>', view.indexOf('<div class="head-actions">')));
+  assert.ok(/id="live" class="iconbtn ghost named"/.test(head), 'the people button is a ghost button in the header');
+  const runtime = fs.readFileSync(path.join(ROOT, 'src/runtime.js'), 'utf8');
+  assert.ok(/if \(live\.isGuest\(\) && await guestDispatch\(m, s\)\) return;/.test(runtime), 'checked before any local handler runs');
+  const guest = runtime.slice(runtime.indexOf('async function guestDispatch'), runtime.indexOf('// Messages from the webview'));
+  for (const t of ['idea', 'editIdea', 'retry', 'resolve', 'polish', 'setTarget', 'rename', 'restore', 'vars.set', 'newPrompt', 'newFromTemplate', 'deletePrompt', 'image.paste', 'file.drop', 'attach.pick', 'run']) {
+    assert.ok(guest.includes(`case '${t}'`), `${t} goes to the sharer`);
+  }
+  assert.ok(!/store\.create\(|\.submitIdea\(|engine\.call\(/.test(guest), 'a joined window never creates, merges or calls the engine itself');
+  assert.ok(/readOnly: guest/.test(runtime), 'its sessions are read-only');
+  const panel = fs.readFileSync(path.join(ROOT, 'media/panel.js'), 'utf8');
+  assert.ok(/type: 'live\.menu'/.test(panel));
+  assert.ok(/e\.by && !/.test(panel), 'the thread says who sent an idea');
+});
+
+test('the rail and settings move instead of jumping, and not at all under reduced motion', () => {
+  const css = fs.readFileSync(path.join(ROOT, 'media/panel.css'), 'utf8');
+  assert.ok(/#rail \{ transition: width/.test(css));
+  assert.ok(/#app\.rail-fading/.test(css), 'the contents fade before the rail narrows');
+  assert.ok(/@keyframes view-in/.test(css) && /@keyframes view-out/.test(css));
+  assert.ok(/@media \(prefers-reduced-motion: reduce\)/.test(css));
+  const panel = fs.readFileSync(path.join(ROOT, 'media/panel.js'), 'utf8');
+  assert.ok(/function animateRail/.test(panel) && /function setEngineOpen/.test(panel));
+  assert.ok(!/engineOpen = !engineOpen; save\(\); if \(latest\) render\(latest\);/.test(panel), 'every toggle goes through the transition');
+  assert.ok(/prefers-reduced-motion: reduce/.test(panel), 'the script honours it too');
+});
+
 test('the vsix excludes tests, CI and the workspace marker', () => {
   const ignore = fs.readFileSync(path.join(ROOT, '.vscodeignore'), 'utf8');
   for (const p of ['test/**', '.github/**', '.no-doe']) assert.ok(ignore.includes(p), p);

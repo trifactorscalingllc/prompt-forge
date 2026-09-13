@@ -10,9 +10,16 @@ function nextBatch(ops) {
     let i = 0;
     let last = first;
     let full = false;
-    while (i < ops.length && ops[i].kind === 'polish') { last = ops[i]; full = full || Boolean(ops[i].full); i++; }
+    let from = null;
+    while (i < ops.length && ops[i].kind === 'polish') {
+      last = ops[i];
+      full = full || Boolean(ops[i].full);
+      // Several target switches in a row: the document was last written for the FIRST one's old target.
+      if (!from && ops[i].from) from = ops[i].from;
+      i++;
+    }
     // Collapsing must not lose a request to rewrite everything: any one of them asked, so the batch does.
-    return { batch: { ...last, ...(full ? { full: true } : {}) }, rest: ops.slice(i) };
+    return { batch: { ...last, ...(full ? { full: true } : {}), ...(from ? { from } : {}) }, rest: ops.slice(i) };
   }
   const entryIds = [];
   const resolutions = [];

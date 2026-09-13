@@ -310,6 +310,68 @@ test('setTarget runs a full polish with the family guide; polishing again with n
   assert.equal(calls.length, 2, 'Alt+click rewrites it all again');
 });
 
+test('a joined window reads the sharer’s prompt and never writes it: a pending idea stays pending, nothing runs, and copy marks are its own', async () => {
+  const { s, slug, docio } = setup(echoReply);
+  s.appendEntry(slug, 'being merged in the other window');
+  const before = fs.readFileSync(s.sidecarPath(slug), 'utf8');
+  const ro = createSession({
+    slug, store: s, docio, log: silent, cfg: () => ({ engine: {} }), settleMs: 0, readOnly: true,
+    engine: { call: async () => { throw new Error('a joined window never calls the engine'); } },
+  });
+  await ro.load();
+  assert.equal(ro.snapshot().entries[0].status, 'pending', 'not marked interrupted: it is being merged elsewhere');
+  await ro.copyText();
+  assert.ok(ro.snapshot().copied, 'the copy mark is kept in this window');
+  ro.polish();
+  await ro.idle();
+  assert.equal(fs.readFileSync(s.sidecarPath(slug), 'utf8'), before, 'nothing was written to the shared copy');
+});
+
+test('switching the target clears the old target\'s advice at once, and the polish writes new advice for the new one', async () => {
+  const polishCall = { provider: 'fake', mode: 'cli', model: 'best', role: 'polish', ms: 1 };
+  const { s, slug, session, calls } = setup((req) => {
+    if (req.role === 'merge') {
+      const r = mergeReply(req, 'Ship it.');
+      const o = JSON.parse(r.text);
+      o.suggestions = [{ section: 'Output format', text: 'Say what Claude Fable 5.1 should return.' }];
+      return { ...r, text: JSON.stringify(o) };
+    }
+    return { text: JSON.stringify({ doc: docOf(req.prompt), changes: [], suggestions: [{ section: 'Output format', text: 'Say what Claude Opus 5 should return.' }], ideas: [{ text: 'Add an example.' }] }), usage: null, error: null, call: polishCall };
+  });
+  await session.load();
+  session.submitIdea('ship it');
+  await session.idle();
+  assert.match(s.read(slug).suggestions[0].text, /Fable/);
+  session.setTarget('opus-5');
+  assert.deepEqual(s.read(slug).suggestions, [], 'the old advice goes the moment the target changes');
+  await session.idle();
+  const polish = calls[calls.length - 1];
+  assert.equal(polish.role, 'polish');
+  assert.ok(polish.prompt.includes('This prompt was written for Claude Fable 5.1 and is now for Claude Opus 5.'));
+  assert.ok(polish.prompt.includes('"suggestions"'));
+  assert.match(s.read(slug).suggestions[0].text, /Opus 5/, 'and the new advice is for the new model');
+  assert.deepEqual(s.read(slug).ideas, [{ text: 'Add an example.' }]);
+  session.setTarget('opus-5');
+  await session.idle();
+  assert.equal(calls.length, 2, 'choosing the target it already has does nothing');
+});
+
+test('a polish that drops the title gets it back, and sections padded with "None provided" are left out', async () => {
+  const { session, docio, docPath } = setup((req) => {
+    if (req.role === 'merge') return mergeReply(req, 'Ship it.');
+    return { text: JSON.stringify({ doc: 'Do the job well.\n\n<goal>\n\nShip it.\n\n</goal>\n\n<examples>\n\nNone provided.\n\n</examples>\n', changes: [] }), usage: null, error: null, call: { provider: 'fake', mode: 'cli', model: 'best', role: 'polish', ms: 1 } };
+  });
+  await session.load();
+  session.submitIdea('ship it');
+  await session.idle();
+  session.polish({ full: true });
+  await session.idle();
+  const doc = await docio.readDoc(docPath);
+  assert.ok(doc.startsWith('# T\n\nDo the job well.'), 'the title is back on the first line');
+  assert.ok(doc.includes('<goal>\n\nShip it.\n\n</goal>'));
+  assert.ok(!doc.includes('None provided') && !doc.includes('<examples>'), 'an empty section is not a section');
+});
+
 test('after a merge, Polish rewrites only the sections that changed, and the formatter gives them the family shape', async () => {
   const { session, calls, docs, docPath, docio } = setup((req) => {
     if (req.role === 'merge') return mergeReply(req, 'Also ship docs.');

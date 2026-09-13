@@ -100,6 +100,17 @@ Nothing is read until you attach a folder. `.env*`, keys, credentials, anything 
 
 **A project on another machine** — a Mac mini, a server — attaches from a local window without opening a remote one: *Prompt Forge: Attach a Project over SSH*, or *Over SSH…* in the picker. Hosts come from `~/.ssh/config`. The folder is listed first and the same deny-list runs on that listing on this machine, so only the files that survive it are read. SSH runs in batch mode: it needs a key or an agent, and never waits on a password prompt.
 
+## Working live with someone
+
+Two people signed in to the same Claude account can work in one library at the same time. Click the people button in the header, then **Share this library live**. The invite goes on your clipboard: a link that joins in one click, and the account to sign in to. Whoever opens it sees your whole library as it changes — each idea as it is sent, conflict answers, polish, model changes, hand edits, and the engine at work — within about a second, and can do any of it. A prompt created on either side appears on the other. Each idea in the thread says who sent it, and the prompts list shows who has which prompt open.
+
+- **One window merges.** Everyone's ideas go into the sharing window's queue and run on its engine, so two ideas sent at once become one merge, never two versions of the document.
+- **Edits made at the same moment are joined.** A hand edit is merged section by section with whatever changed in between. When both people changed the same section, the later edit wins and the other wording is kept in the versions list.
+- **The account decides who may join.** A window signed in to a different Claude account is refused, before it connects and again on every request.
+- **No server.** The windows connect directly, on the same network or over a tailnet such as Tailscale. Every message is encrypted (AES-256-GCM) under a key only the invite carries; anything without it gets no answer. **Stop sharing** makes the invite useless.
+
+Sharing uses port 47830, or the next free one. The first time, Windows or macOS may ask whether VS Code may accept connections; allow it on private networks. Sharing and joining resume after a reload, and leaving a library removes its copy from your computer. In someone else's library, connecting projects, test runs and library sync happen in their window.
+
 ## The library on more than one machine
 
 The library is a folder of plain text files, so pointing `promptForge.libraryPath` at a synced folder (iCloud, Dropbox, Syncthing) works with no further setup:
@@ -139,7 +150,7 @@ Prompts live in `~/.prompt-forge/prompts/` (setting `promptForge.libraryPath`): 
 
 ## Privacy
 
-No telemetry. Prompts go only to the provider you chose, through its CLI or its API. Keys never leave SecretStorage. Nothing is sent anywhere else.
+No telemetry. Prompts go only to the provider you chose, through its CLI or its API — and, when you share a library live, encrypted to the windows you invited. Keys never leave SecretStorage. Nothing is sent anywhere else.
 
 ## Status of each engine mode
 

@@ -57,8 +57,11 @@ hr { border: none; border-top: 1px solid var(--vscode-panel-border); margin: 14p
 table { border-collapse: collapse; margin: 8px 0; display: block; overflow-x: auto; max-width: 100%; }
 th, td { border: 1px solid var(--vscode-panel-border); padding: 4px 10px; text-align: left; }
 th { background: var(--vscode-sideBar-background); font-weight: 600; }
-.xtag { font-family: var(--vscode-editor-font-family); font-size: 0.9em; color: var(--vscode-descriptionForeground); margin: 10px 0 2px; }
-.xtag + .xtag { margin-top: 2px; }
+/* Tagged sections read as headings, as in the panel; Source shows the tags themselves. */
+.xtag { font-size: 0.9em; color: var(--vscode-descriptionForeground); margin: 10px 0 2px; }
+.xtag.xsub { font-weight: 600; }
+.xtag.xclose { display: none; }
+.blk[data-kind="xtag"]:has(.xclose) { display: none; }
 
 /* editing in place */
 .blkedit {

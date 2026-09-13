@@ -28,6 +28,10 @@ const { createSync } = require('./sync');
 const { lintPrompt } = require('./lint');
 const { diffSections } = require('./addendum');
 const templates = require('./templates');
+const { createLive } = require('./live');
+const { createHostCommands } = require('./live/commands');
+const { slugOfRel } = require('./live/files');
+const { LIMITS } = require('./attachments');
 
 const LAST_OPEN = 'promptForge.lastOpen';
 const CLAUDE_EXTENSION = 'anthropic.claude-code';
@@ -97,6 +101,25 @@ function create(host) {
   const providers = createProviders({ runCli, openCli, resolveBin, fetch: globalThis.fetch, fs, home: os.homedir() });
   const engine = createEngine({ providers, config: effectiveConfig, secrets, log });
 
+  // A live library (src/live): this window shares its library, or has joined someone else's. What a
+  // joined window asks for arrives here as a command and runs on the same sessions the panel uses.
+  const hostCommands = createHostCommands({
+    getStore: () => store,
+    ensureSession: (slug) => ensureSession(slug),
+    removePrompt: (slug) => removePrompt(slug),
+    engineSelection: () => engine.selection(),
+    docio,
+    keepBodies: () => { const n = (config() || {}).keepVersionBodies; return Number.isFinite(n) ? n : 20; },
+    post: () => post(),
+  });
+  const live = createLive({
+    log, secrets, globalState,
+    accountOf: () => engineAccount(),
+    onCommand: (who, cmd, args, bytes) => hostCommands.run(who, cmd, args, bytes),
+    onEvent: (e) => onLiveEvent(e),
+    writeDoc: (abs, text, rel) => mirrorWrite(abs, text, rel),
+  });
+
   // The defaults are repeated rather than read from the manifest for the same reason: an extension
   // host running an older manifest hands back nothing at all for a setting it does not know.
   const LAYOUT = { mode: 'auto', stackWidth: 620, split: 52, railCollapsed: false };
@@ -122,10 +145,14 @@ function create(host) {
       return { bootError, library: config().libraryPath, prompts: [], active: null, engine: engine.state(), targets: targets.TARGETS, docEditor: setting('docEditor', config().docEditor), layout: layoutState(), engineCfg: config().engine || {} };
     }
     const session = activeSlug ? sessions.get(activeSlug) : null;
+    const snap = session ? session.snapshot() : null;
+    // In a joined library the engine runs in the sharer's window, so what it is doing comes from there.
+    if (snap && live.isGuest()) { const remote = live.engineFor(snap.slug); if (remote) snap.engine = remote; }
     return {
       library: store.dir,
       prompts: store.list(),
-      active: session ? session.snapshot() : null,
+      active: snap,
+      live: live.state(),
       engine: engine.state(),
       targets: targets.TARGETS,
       docEditor: setting('docEditor', config().docEditor),
@@ -173,9 +200,9 @@ function create(host) {
   }
 
   let repaintTimer = null;
-  function repaintSoon() {
+  function repaintSoon(ms = 300) {
     clearTimeout(repaintTimer);
-    repaintTimer = setTimeout(() => { if (!disposed) post(); }, 300);
+    repaintTimer = setTimeout(() => { if (!disposed) post(); }, ms);
   }
 
   /** A line in the panel's notice bar, with an optional button: { label, message } posts `message` back. */
@@ -231,12 +258,20 @@ function create(host) {
   // Sessions
   // ------------------------------------------------------------------------------------------
 
-  async function openSession(slug, { reveal = false } = {}) {
-    let s = sessions.get(slug);
-    if (!s) {
-      s = createSession({
-        slug, store, docio, engine, cfg: effectiveConfig, log,
+  const opening = new Map();
+
+  /** A prompt's session, loaded once, without making it the prompt the panel shows. */
+  function ensureSession(slug) {
+    if (sessions.has(slug)) return Promise.resolve(sessions.get(slug));
+    if (opening.has(slug)) return opening.get(slug);
+    const loading = (async () => {
+      const guest = live.isGuest();
+      const lib = store;
+      const s = createSession({
+        slug, store, docio, engine, cfg: effectiveConfig, log, readOnly: guest,
         publish: (why) => {
+          // Everyone in a shared library sees each prompt's engine at work, not only the one open here.
+          if (live.isHost()) live.engine(slug, s.progress());
           if (why === 'progress') { postProgress(slug); return; }
           if (why.startsWith('notice:')) notice('info', why.slice('notice:'.length));
           if (why === 'landed') syncSoon('change');
@@ -244,13 +279,43 @@ function create(host) {
         },
       });
       await s.load();
+      // Joined or left a live library while this was opening: it belongs to a library no longer shown.
+      if (store !== lib || disposed) { s.dispose(); throw new Error('The library changed while that prompt was opening.'); }
+      if (guest) {
+        const raw = await docio.readDoc(store.docPath(slug));
+        liveDoc(slug).base = docm.stripConflictBlock(raw == null ? '' : raw);
+      }
       sessions.set(slug, s);
-    }
+      return s;
+    })();
+    opening.set(slug, loading);
+    loading.then(() => opening.delete(slug), () => opening.delete(slug));
+    return loading;
+  }
+
+  async function openSession(slug, { reveal = false } = {}) {
+    const s = await ensureSession(slug);
+    if (!sessions.has(slug)) return s;
     activeSlug = slug;
-    await globalState.update(LAST_OPEN, slug);
+    // The last prompt reopened on start is one from this window's own library, never a joined one.
+    if (!live.isGuest()) await globalState.update(LAST_OPEN, slug);
+    live.view(slug);
     post();
     if (reveal) await openDoc();
     return s;
+  }
+
+  /** Delete a prompt: to the library's trash, its session closed. */
+  async function removePrompt(slug) {
+    const sess = sessions.get(slug);
+    if (sess) { sess.dispose(); sessions.delete(slug); }
+    store.remove(slug);
+    if (activeSlug === slug) {
+      activeSlug = null;
+      if (!live.isGuest()) await globalState.update(LAST_OPEN, undefined);
+      live.view(null);
+    }
+    post();
   }
 
   const active = () => (activeSlug ? sessions.get(activeSlug) : null);
@@ -265,6 +330,10 @@ function create(host) {
   async function sessionForCommand() {
     if (!store) return null;
     if (active()) return active();
+    if (live.isGuest()) {
+      const first = store.list()[0];
+      return first ? openSession(first.slug) : null;
+    }
     const last = globalState.get(LAST_OPEN);
     if (last && store.exists(last)) return openSession(last);
     const { slug } = store.create('Untitled');
@@ -550,7 +619,15 @@ function create(host) {
       asked.add(n.toLowerCase());
       if (v) next[n] = v;
     }
-    if (Object.keys(next).length) s.setVars(next);
+    if (Object.keys(next).length) {
+      if (live.isGuest()) {
+        store.setVars(s.slug, next);
+        s.reread();
+        await liveAsk('setVars', { slug: s.slug, values: next });
+      } else {
+        s.setVars(next);
+      }
+    }
     return true;
   }
 
@@ -774,6 +851,420 @@ function create(host) {
   }
 
   // ------------------------------------------------------------------------------------------
+  // Live library
+  //
+  // Sharing starts a small server in this window (src/live/host.js). Joining keeps a copy of the
+  // sharer's library (src/live/guest.js) and switches the panel to it. In a joined window, everything
+  // that changes a prompt is sent to the sharer (guestDispatch below), and everything that only reads
+  // it or takes it elsewhere -- copy, send, export, compare -- runs here, on the copy.
+  // ------------------------------------------------------------------------------------------
+
+  /** The account this window's engine is signed in to. A live library is shared by account. */
+  function engineAccount() {
+    const st = engine.state();
+    const list = st.providers || [];
+    const signedIn = (p) => Boolean(p && p.cli && p.cli.loggedIn && p.cli.account);
+    const sel = st.selected ? list.find((p) => p.id === st.selected.provider) : null;
+    if (signedIn(sel)) return sel.cli.account;
+    const any = list.find(signedIn);
+    return any ? any.cli.account : null;
+  }
+
+  /** Show another library: a joined one's copy (`dir`), or this window's own again (null). */
+  async function switchLibrary(dir) {
+    for (const x of sessions.values()) x.dispose();
+    sessions.clear();
+    for (const d of liveDocs.values()) clearTimeout(d.timer);
+    liveDocs.clear();
+    activeSlug = null;
+    if (dir) {
+      stopSync();
+      try { store = storeMod.open(dir); bootError = null; } catch (e) { notice('error', `Could not open the copy of the live library: ${e.message}`); }
+      post();
+      return;
+    }
+    store = null;
+    openStore();
+    startSync();
+    const last = globalState.get(LAST_OPEN);
+    if (store && last && store.exists(last)) {
+      try { await openSession(last); return; } catch (e) { log.warn(`could not reopen ${last}: ${e.message}`); }
+    }
+    post();
+  }
+
+  let liveSynced = false;
+
+  function onLiveEvent(e) {
+    if (disposed) return;
+    switch (e.type) {
+      case 'library':
+        liveSynced = false;
+        switchLibrary(e.dir).catch((err) => log.error(`live: ${err.stack || err.message}`));
+        return;
+      case 'files': {
+        if (!live.isGuest() || !store) return;
+        const touched = new Set([...(e.changed || []), ...(e.removed || [])].map(slugOfRel).filter(Boolean));
+        for (const slug of touched) {
+          const sess = sessions.get(slug);
+          if (!sess) continue;
+          if (store.read(slug)) { sess.reread(); continue; }
+          sess.dispose();
+          sessions.delete(slug);
+          if (activeSlug === slug) { activeSlug = null; notice('info', 'That prompt was deleted in the live library.'); }
+        }
+        repaintSoon(30);
+        return;
+      }
+      case 'synced':
+        if (!liveSynced && store) {
+          liveSynced = true;
+          // Joining opens whatever the sharer has open, so it shows the work rather than a list.
+          if (!activeSlug) {
+            const hostView = (live.state().people.find((p) => p.role === 'host') || {}).slug;
+            const pick = hostView && store.exists(hostView) ? hostView : (store.list()[0] || {}).slug;
+            if (pick) { openSession(pick).catch((err) => log.warn(`live: ${err.message}`)); return; }
+          }
+        }
+        post();
+        return;
+      case 'engine': {
+        if (e.slug !== activeSlug) return;
+        const p = getPanel();
+        if (p) p.webview.postMessage({ type: 'progress', slug: e.slug, engine: e.engine });
+        if (!e.engine || e.engine.state !== 'busy') repaintSoon(30);
+        return;
+      }
+      case 'refused':
+        notice('error', e.error);
+        return;
+      case 'notice':
+        notice(e.level || 'info', e.text);
+        return;
+      default:
+        repaintSoon(30);   // presence, status
+    }
+  }
+
+  // A document open in an editor in a joined window. What is typed there goes to the sharer; what the
+  // sharer's copy becomes goes into the editor; and neither is written over the other while it is
+  // still on its way. `base` is the sharer's text the editor last had, which an edit is made against.
+  const liveDocs = new Map();   // slug -> { base, pending, dirty, again, deferred, timer }
+  function liveDoc(slug) {
+    if (!liveDocs.has(slug)) liveDocs.set(slug, { base: null, pending: false, dirty: false, again: false, deferred: false, timer: null });
+    return liveDocs.get(slug);
+  }
+
+  /** The copy's writer, for a document: through the editor when it is open, so the editor sees it. */
+  async function mirrorWrite(abs, text, rel) {
+    if (!live.isGuest() || !store) return false;
+    const slug = rel.slice(0, -'.md'.length);
+    const d = liveDoc(slug);
+    if (!docio.isOpen(abs)) { d.base = docm.stripConflictBlock(text); return false; }
+    if (d.pending || d.dirty) { d.deferred = true; return true; }
+    d.base = docm.stripConflictBlock(text);
+    await docio.writeDoc(abs, text);
+    return true;
+  }
+
+  function mirrorSlugOf(fsPath) {
+    if (!live.isGuest() || !store) return null;
+    const name = path.basename(fsPath);
+    if (!/\.md$/i.test(name) || !docio.same(path.dirname(fsPath), store.dir)) return null;
+    const slug = name.slice(0, -3);
+    return sessions.has(slug) ? slug : null;
+  }
+
+  function guestDocChanged(slug) {
+    const d = liveDoc(slug);
+    d.dirty = true;
+    clearTimeout(d.timer);
+    d.timer = setTimeout(() => { sendGuestDoc(slug).catch((e) => log.warn(`live: ${e.message}`)); }, 300);
+  }
+
+  async function sendGuestDoc(slug) {
+    const d = liveDoc(slug);
+    if (d.pending) { d.again = true; return; }
+    if (!live.isGuest() || !store) return;
+    const abs = store.docPath(slug);
+    const raw = await docio.readDoc(abs);
+    const text = docm.stripConflictBlock(raw == null ? '' : raw);
+    d.dirty = false;
+    if (d.base == null) d.base = text;
+    let sent = false;
+    if (text !== d.base) {
+      d.pending = true;
+      try {
+        const r = await live.command('docEdit', { slug, base: d.base, text });
+        d.base = r && typeof r.doc === 'string' ? r.doc : text;
+        sent = true;
+        if (r && r.clean === false) notice('warn', `${live.hostName()} changed the same section at the same moment. Your wording is in; theirs is kept in the versions list.`);
+      } catch (e) {
+        notice('error', `That edit did not reach ${live.hostName()}: ${e.message}. It is still in your editor; type again to resend it.`);
+      } finally {
+        d.pending = false;
+      }
+    }
+    // What arrived while the edit was on its way, and what joining it produced, go into the editor now.
+    if ((sent || d.deferred) && !d.dirty) {
+      d.deferred = false;
+      try {
+        const cur = await live.command('docRead', { slug });
+        if (!d.dirty && !d.pending && cur && typeof cur.text === 'string') {
+          d.base = docm.stripConflictBlock(cur.text);
+          await docio.writeDoc(abs, cur.text);
+        }
+      } catch { /* the next change brings it */ }
+    }
+    if (d.again) { d.again = false; guestDocChanged(slug); }
+  }
+
+  /** Ask the sharing window. undefined, with the reason shown, when it said no or could not be reached. */
+  async function liveAsk(cmd, args = {}, bytes = null, { quiet = false } = {}) {
+    try {
+      return await live.command(cmd, args, bytes);
+    } catch (e) {
+      if (!quiet) notice('error', `${live.hostName()}’s window did not take that: ${e.message}`);
+      return undefined;
+    }
+  }
+
+  async function sendAttachment(s, { name, bytes, image = false, ext = '' }) {
+    if (!bytes || !bytes.length) { notice('error', 'That file is empty.'); return; }
+    if (bytes.length > LIMITS.upload) {
+      notice('error', `${name || 'That file'} is ${Math.round(bytes.length / 1048576)} MB; attachments are capped at ${Math.round(LIMITS.upload / 1048576)} MB.`);
+      return;
+    }
+    const rec = await liveAsk('attach', { slug: s.slug, name, image, ext }, bytes);
+    if (rec) attached({ ...rec, path: store.attachmentPath(s.slug, rec) });
+  }
+
+  /** Open a prompt the sharer just made, once its copy has arrived. */
+  async function openWhenMirrored(slug) {
+    for (let i = 0; i < 100 && !disposed; i += 1) {
+      if (store && store.exists(slug) && store.read(slug)) return openSession(slug);
+      await sleep(50);
+    }
+    notice('warn', 'The new prompt has not arrived from the sharing window yet. It appears in the list when it does.');
+    return null;
+  }
+
+  const personLabel = (p) => `${p.name}${p.machine ? ` (${p.machine})` : ''}`;
+  const promptTitle = (slug) => { const r = slug && store ? store.read(slug) : null; return r ? r.title : 'a prompt'; };
+
+  async function copyInvite({ quiet = false } = {}) {
+    const text = live.inviteText((vscode.env && vscode.env.uriScheme) || 'vscode');
+    if (!text) return false;
+    await vscode.env.clipboard.writeText(text);
+    if (!quiet) notice('info', 'The invite is on your clipboard. Whoever opens it has to be signed in to the same Claude account.');
+    return true;
+  }
+
+  async function liveMenu() {
+    const st = live.state();
+    const others = st.people.filter((p) => !p.me);
+    const who = others.map((p) => ({
+      value: 'noop', label: personLabel(p), icon: 'person',
+      description: p.role === 'host' ? `sharing this library${p.slug ? ` · in ${promptTitle(p.slug)}` : ''}` : p.slug ? `in ${promptTitle(p.slug)}` : 'looking at the list',
+    }));
+    let title;
+    let detail;
+    let items;
+    if (st.role === 'off') {
+      const acct = engineAccount();
+      title = 'Work on prompts live with someone';
+      detail = acct ? `This window is signed in to Claude as ${acct}. Only windows signed in to that same account can join.` : 'Sign in to Claude first: the account decides who may join.';
+      items = [
+        { value: 'share', label: 'Share this library live', description: 'Whoever you invite sees every prompt here, and each idea and edit as it happens, and can add their own. Merges run in this window.', icon: 'live' },
+        { value: 'join', label: 'Join a live library…', description: 'Paste the invite someone sent you.', icon: 'link' },
+      ];
+    } else if (st.role === 'host') {
+      title = others.length ? `Sharing live with ${others.length} ${others.length === 1 ? 'person' : 'people'}` : 'Sharing live. Nobody has joined yet.';
+      detail = `For ${st.host.account}. Reachable at ${st.invite.addrs.join(', ')}, port ${st.invite.port}: the same network, or a tailnet.`;
+      items = [
+        { value: 'copy', label: 'Copy the invite', description: 'A link that joins in one click, and the account to sign in to', icon: 'link' },
+        ...who,
+        { value: 'stop', label: 'Stop sharing', description: 'Everyone connected is disconnected, and the invite stops working.', icon: 'disconnect' },
+      ];
+    } else {
+      title = st.status === 'live' ? `Live in ${st.host.name}’s library` : st.status === 'error' ? `Not connected to ${st.host.name}` : `Connecting to ${st.host.name}…`;
+      detail = st.error || `Merges run in ${st.host.name}’s window, on the engine signed in there.`;
+      items = [
+        ...who,
+        { value: 'leave', label: `Leave ${st.host.name}’s library`, description: 'Back to your own prompts. The copy of theirs is removed from this computer.', icon: 'disconnect' },
+      ];
+    }
+    const choice = await uiPick({ title, detail, items, anchor: 'live' });
+    switch (choice) {
+      case 'share': {
+        if (!engineAccount()) await engine.detectAll();
+        if (!store) return;
+        const r = await live.startSharing({ dir: store.dir });
+        if (!r.ok) { notice('error', r.error); post(); return; }
+        if (activeSlug) live.view(activeSlug);
+        await copyInvite({ quiet: true });
+        const os = process.platform === 'win32' ? 'Windows' : process.platform === 'darwin' ? 'macOS' : 'The firewall';
+        notice('info', `Sharing live, and the invite is on your clipboard. If ${os} asks whether VS Code may accept connections, allow it on private networks.`);
+        post();
+        return;
+      }
+      case 'join':
+        await liveJoin(null);
+        return;
+      case 'copy':
+        await copyInvite();
+        return;
+      case 'stop':
+        await live.stopSharing();
+        notice('info', 'Stopped sharing. The invite no longer works.');
+        post();
+        return;
+      case 'leave':
+        await live.leave();
+        notice('info', 'Back in your own library.');
+        return;
+      default:
+    }
+  }
+
+  async function liveJoin(code) {
+    const text = code ? String(code) : await uiAsk({
+      title: 'Join a live library',
+      detail: 'Paste the invite: the link, or the whole message it came in. This window has to be signed in to the same Claude account as the person sharing.',
+      placeholder: 'vscode://…/join?code=pflive1…', okLabel: 'Join',
+    });
+    if (!text) return;
+    if (live.isHost()) {
+      const ok = await uiConfirm({ title: 'Stop sharing your library to join this one?', text: 'Anyone connected to your library is disconnected.', okLabel: 'Stop and join' });
+      if (!ok) return;
+      await live.stopSharing();
+    }
+    if (!live.isGuest() && [...sessions.values()].some((x) => x.busy())) { notice('info', 'Wait for the engine to finish in this library before joining another.'); return; }
+    if (live.isGuest()) await live.leave();
+    if (!engineAccount()) await engine.detectAll();
+    const r = await live.join(text);
+    if (!r.ok) { notice('error', r.error); post(); return; }
+    notice('info', `Joining ${r.host}’s library…`);
+  }
+
+  /** In a joined library: send what changes a prompt to the sharer. true when the message was handled. */
+  async function guestDispatch(m, s) {
+    const slug = s ? s.slug : null;
+    const there = live.hostName();
+    const needPrompt = () => { if (!s) notice('info', 'Open a prompt first.'); return Boolean(s); };
+    switch (m.type) {
+      case 'idea':
+        if (needPrompt()) await liveAsk('idea', { slug, text: String(m.text || ''), attachments: Array.isArray(m.attachments) ? m.attachments : [] });
+        return true;
+      case 'addIdea':
+        if (m.text != null && String(m.text).trim()) {
+          const target = await sessionForCommand();
+          if (target) await liveAsk('idea', { slug: target.slug, text: String(m.text) });
+        } else {
+          panelOnce({ type: 'focus', target: 'idea' });
+        }
+        return true;
+      case 'editIdea':
+        if (needPrompt() && (await liveAsk('editIdea', { slug, entryId: m.entryId, text: m.text })) === false) notice('info', 'Nothing changed.');
+        return true;
+      case 'retry':
+        if (s) await liveAsk('retry', { slug, entryId: m.entryId || null });
+        return true;
+      case 'resolve':
+        if (s && m.conflictId && (m.keep === 'new' || m.keep === 'old')) await liveAsk('resolve', { slug, conflictId: m.conflictId, keep: m.keep });
+        return true;
+      case 'polish':
+        if (s) await liveAsk('polish', { slug, full: Boolean(m.full) });
+        return true;
+      case 'setTarget':
+        if (s && m.target) await liveAsk('setTarget', { slug, target: String(m.target) });
+        return true;
+      case 'rename':
+        if (s) await liveAsk('rename', { slug, title: String(m.title || '') });
+        return true;
+      case 'restore': {
+        if (!s) return true;
+        const r = await liveAsk('restore', { slug, snapshotId: m.snapshotId });
+        if (r && !r.ok) notice('info', r.reason === 'busy' ? `Wait for the engine in ${there}’s window to finish before restoring.` : 'That version is gone.');
+        return true;
+      }
+      case 'suggestion.dismiss':
+        if (s && m.text) await liveAsk('dismissSuggestion', { slug, text: String(m.text) });
+        return true;
+      case 'idea.dismiss':
+        if (s && m.text) await liveAsk('dismissIdea', { slug, text: String(m.text) });
+        return true;
+      case 'vars.set':
+        if (s && m.values && typeof m.values === 'object') {
+          // Shown here at once; the sharer's copy follows a moment later and says the same.
+          store.setVars(slug, m.values);
+          s.reread();
+          await liveAsk('setVars', { slug, values: m.values });
+        }
+        return true;
+      case 'typing':
+        if (s) liveAsk('typing', { slug }, null, { quiet: true });
+        return true;
+      case 'newPrompt': {
+        const r = await liveAsk('create', { title: String(m.title || 'Untitled') });
+        if (r && r.slug && (await openWhenMirrored(r.slug))) {
+          const p = getPanel();
+          if (p) p.webview.postMessage({ type: 'focus', target: 'idea' });
+        }
+        return true;
+      }
+      case 'newFromTemplate': {
+        const choice = m.id ? String(m.id) : await uiPick({ title: 'Start from which shape?', detail: 'Each one is real text with the unknowns in [brackets].', items: templates.TEMPLATES.map((t) => ({ value: t.id, label: t.label, description: t.blurb, icon: 'template' })) });
+        const t = choice ? templates.byId(choice) : null;
+        if (!t) return true;
+        const r = await liveAsk('create', { title: t.label, body: templates.seedFrom(t.id, t.label) });
+        if (r && r.slug) await openWhenMirrored(r.slug);
+        return true;
+      }
+      case 'deletePrompt': {
+        const item = store.list().find((x) => x.slug === m.slug);
+        if (!item) return true;
+        const ok = await uiConfirm({ title: `Delete "${item.title}" for everyone?`, text: `This is ${there}’s library: the prompt moves to the trash there, and disappears for everyone working in it.`, okLabel: 'Delete', danger: true });
+        if (ok) await liveAsk('delete', { slug: m.slug });
+        return true;
+      }
+      case 'image.paste':
+        if (needPrompt() && m.data) await sendAttachment(s, { name: String(m.name || ''), bytes: Buffer.from(String(m.data), 'base64'), image: true, ext: String(m.ext || 'png') });
+        return true;
+      case 'file.drop':
+        if (needPrompt() && m.data) await sendAttachment(s, { name: String(m.name || 'attachment'), bytes: Buffer.from(String(m.data), 'base64') });
+        return true;
+      case 'attach.pick': {
+        if (!needPrompt()) return true;
+        const picked = await vscode.window.showOpenDialog({ canSelectMany: true, canSelectFiles: true, canSelectFolders: false, openLabel: 'Attach to this idea' });
+        for (const uri of picked || []) {
+          let bytes;
+          try { bytes = fs.readFileSync(uri.fsPath); } catch (e) { notice('error', `${path.basename(uri.fsPath)} could not be read: ${e.message}`); continue; }
+          await sendAttachment(s, { name: path.basename(uri.fsPath), bytes });
+        }
+        return true;
+      }
+      case 'project.connect':
+      case 'project.pick':
+      case 'project.remote':
+      case 'project.menu':
+      case 'project.refresh':
+      case 'project.detach':
+        notice('info', `Projects are connected from ${there}’s window: the folder is read, and its brief built, on that computer.`);
+        return true;
+      case 'run':
+        notice('info', `Test runs start from ${there}’s window, where this library’s engine is.`);
+        return true;
+      case 'sync.now':
+      case 'sync.setup':
+        notice('info', 'Library sync is for your own library, and waits while you are in a live one.');
+        return true;
+      default:
+        return false;
+    }
+  }
+
+  // ------------------------------------------------------------------------------------------
   // Messages from the webview (and from the cold shell's commands)
   // ------------------------------------------------------------------------------------------
 
@@ -811,6 +1302,9 @@ function create(host) {
 
   async function dispatch(m) {
     const s = active();
+    if (m.type === 'live.menu') { await liveMenu(); return; }
+    if (m.type === 'live.join') { await liveJoin(m.code); return; }
+    if (live.isGuest() && await guestDispatch(m, s)) return;
     switch (m.type) {
       case 'ready': {
         post();
@@ -859,11 +1353,7 @@ function create(host) {
         if (!item) return;
         const ok = await uiConfirm({ title: `Delete "${item.title}"?`, text: "It moves to the library's .trash folder, where it can be recovered.", okLabel: 'Delete', danger: true });
         if (!ok) return;
-        const sess = sessions.get(m.slug);
-        if (sess) { sess.dispose(); sessions.delete(m.slug); }
-        store.remove(m.slug);
-        if (activeSlug === m.slug) { activeSlug = null; await globalState.update(LAST_OPEN, undefined); }
-        post();
+        await removePrompt(m.slug);
         return;
       }
       case 'image.paste': {
@@ -897,14 +1387,15 @@ function create(host) {
       case 'idea':
         if (!s) { notice('info', 'Create or open a prompt first.'); return; }
         if (!engine.selection().ok) { notice('error', engine.selection().reason); return; }
-        s.submitIdea(m.text, Array.isArray(m.attachments) ? m.attachments : Array.isArray(m.images) ? m.images : []);
+        // While the library is shared, every idea says who sent it; the people who joined see it.
+        s.submitIdea(m.text, Array.isArray(m.attachments) ? m.attachments : Array.isArray(m.images) ? m.images : [], live.isHost() ? { by: live.me() } : {});
         return;
       case 'addIdea': {
         const target = await sessionForCommand();
         if (!target) return;
         if (m.text != null && String(m.text).trim()) {
           if (!engine.selection().ok) { notice('error', engine.selection().reason); return; }
-          target.submitIdea(String(m.text));
+          target.submitIdea(String(m.text), [], live.isHost() ? { by: live.me() } : {});
           return;
         }
         // Ideas are typed in the idea box: the panel comes forward with the cursor in it.
@@ -1297,16 +1788,27 @@ function create(host) {
       // A hand edit in the editor shows up in the prompt panel within a moment.
       disposables.push(vscode.workspace.onDidChangeTextDocument((e) => {
         const s = active();
-        if (s && e.document && e.document.uri && docio.same(e.document.uri.fsPath, s.docPath)) repaintSoon();
+        const fsPath = e.document && e.document.uri ? e.document.uri.fsPath : null;
+        if (!fsPath) return;
+        if (s && docio.same(fsPath, s.docPath)) repaintSoon();
+        // Typed into a document of a joined library: on its way to the sharer.
+        const joinedSlug = mirrorSlugOf(fsPath);
+        if (joinedSlug && e.contentChanges && e.contentChanges.length) guestDocChanged(joinedSlug);
       }));
       // The kit watches sourcePath/autoReload; the settings that change behaviour are watched here.
       disposables.push(vscode.workspace.onDidChangeConfiguration((e) => {
-        if (e.affectsConfiguration('promptForge.libraryPath')) { openStore(); startSync(); post(); }
+        if (e.affectsConfiguration('promptForge.libraryPath') && !live.isGuest()) {
+          if (live.isHost()) {
+            live.stopSharing();
+            notice('info', 'Stopped sharing live: the library folder changed. Share again to invite people to the new one.');
+          }
+          openStore(); startSync(); post();
+        }
         if (e.affectsConfiguration('promptForge.layout') || e.affectsConfiguration('promptForge.layoutStackWidth') || e.affectsConfiguration('promptForge.layoutSplit') || e.affectsConfiguration('promptForge.railCollapsed')) post();
         if (['promptForge.engine', 'promptForge.cli', 'promptForge.compatible'].some((k) => e.affectsConfiguration(k))) {
           engine.detectAll().then(() => { if (!disposed) post(); });
         }
-        if (e.affectsConfiguration('promptForge.sync')) { startSync(); post(); }
+        if (e.affectsConfiguration('promptForge.sync') && !live.isGuest()) { startSync(); post(); }
       }));
       // Coming back to the window is when the other machine's changes are most likely waiting.
       if (vscode.window.onDidChangeWindowState) {
@@ -1317,6 +1819,13 @@ function create(host) {
         if (disposed) return;
         log.info(sel.ok ? `engine: ${sel.provider}/${sel.mode} merge=${sel.mergeModel} polish=${sel.polishModel}` : `engine: ${sel.reason}`);
         post();
+        // Sharing again, or back in the library this window had joined, as it was before the reload.
+        // After detection, because both depend on knowing which account this window is signed in to.
+        if (store) {
+          live.resume({ dir: store.dir })
+            .then(() => { if (live.isHost() && activeSlug) live.view(activeSlug); post(); })
+            .catch((e) => log.warn(`live: ${e.stack || e.message}`));
+        }
       });
       startSync();
       const last = globalState.get(LAST_OPEN);
@@ -1332,6 +1841,8 @@ function create(host) {
       for (const { resolve } of uiPending.values()) resolve(null);
       uiPending.clear();
       clearTimeout(repaintTimer);
+      live.dispose();
+      for (const d of liveDocs.values()) clearTimeout(d.timer);
       stopSync();
       docEditors.dispose();
       for (const s of sessions.values()) s.dispose();

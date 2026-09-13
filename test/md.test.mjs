@@ -74,7 +74,18 @@ test('structure renders: headings, nesting, ordered lists, tasks, tables, quotes
   assert.match(html, /<blockquote>/);
   assert.match(html, /<hr>/);
   assert.match(html, /<pre data-lang="js">/);
-  assert.match(html, /<div class="xtag">&lt;instructions&gt;<\/div>/);
+  assert.match(html, /<h2 class="xsec" title="&lt;instructions&gt;">Instructions<\/h2>/);
+});
+
+test('a tagged section reads as its heading, a closing tag is not drawn, and a tag inside a section is a label', () => {
+  const html = md.render('<goal>\n\nShip it.\n\n</goal>\n\n<examples>\n\n<example>\nA\n</example>\n\n</examples>\n');
+  assert.match(html, /<h2 class="xsec" title="&lt;goal&gt;">Goal<\/h2>/);
+  assert.match(html, /<h2 class="xsec" title="&lt;examples&gt;">Examples<\/h2>/);
+  assert.match(html, /<div class="xtag xsub" title="&lt;example&gt;">Example<\/div>/);
+  assert.match(html, /<div class="xtag xclose" title="&lt;\/goal&gt;"><\/div>/);
+  assert.ok(!/>&lt;\/?goal&gt;</.test(html), 'the raw tag is never the visible text');
+  assert.match(md.render('<output_format>\n\nJSON.\n\n</output_format>\n'), /Output format<\/h2>/);
+  assert.match(md.render('<goal>\n\nx\n\n</goal>\n', { wrap: true }), /data-kind="xtag"[^>]*><h2 class="xsec"/, 'the editor still edits the tag line as its own block');
 });
 
 test('a fence keeps its body verbatim and escaped', () => {

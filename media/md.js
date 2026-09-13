@@ -172,12 +172,44 @@
     return `<blockquote>${blocks(inner).map(one).join('\n')}</blockquote>`;
   }
 
-  function one(b) {
+  // A tag on its own line is structure. For the model it has to stay a tag; for the person reading the
+  // prompt it reads as the heading it stands for: <goal> shows as "Goal", <output_format> as "Output
+  // format", and a closing tag -- which means nothing to a reader -- is not shown. The tag itself is
+  // in the tooltip, and Source shows the file exactly as it is.
+  const XOPEN = /^\s*<([a-zA-Z_][\w.-]*)(?:\s[^>]*)?>\s*$/;
+  const XCLOSE = /^\s*<\/([a-zA-Z_][\w.-]*)\s*>\s*$/;
+  const tagLabel = (name) => { const s = String(name).replace(/[_-]+/g, ' ').trim(); return s ? s.charAt(0).toUpperCase() + s.slice(1) : s; };
+
+  /** `depth` is how many tags enclose this one: 0 is a section, anything deeper a label inside one. */
+  function xtag(src, depth = 0) {
+    const t = String(src).trim();
+    if (XCLOSE.test(t)) return `<div class="xtag xclose" title="${esc(t)}"></div>`;
+    const open = XOPEN.exec(t);
+    if (!open || /\/>$/.test(t)) return `<div class="xtag">${esc(t)}</div>`;
+    const label = esc(tagLabel(open[1]));
+    return depth === 0
+      ? `<h2 class="xsec" title="${esc(t)}">${label}</h2>`
+      : `<div class="xtag xsub" title="${esc(t)}">${label}</div>`;
+  }
+
+  /** How deep each block sits among the tags around it, so a section reads apart from a label in it. */
+  function tagDepths(bs) {
+    let depth = 0;
+    return bs.map((b) => {
+      if (b.kind !== 'xtag') return depth;
+      const t = b.src.trim();
+      if (XCLOSE.test(t)) { depth = Math.max(0, depth - 1); return depth; }
+      if (XOPEN.test(t) && !/\/>$/.test(t)) { depth += 1; return depth - 1; }
+      return depth;
+    });
+  }
+
+  function one(b, depth = 0) {
     switch (b.kind) {
       case 'blank': return '';
       case 'heading': { const m = RE.heading.exec(b.src); const n = m[1].length; return `<h${n}>${inline(m[2])}</h${n}>`; }
       case 'hr': return '<hr>';
-      case 'xtag': return `<div class="xtag">${esc(b.src.trim())}</div>`;
+      case 'xtag': return xtag(b.src, depth);
       case 'fence': return fence(b.src);
       case 'table': return table(b.src);
       case 'list': return list(b.src);
@@ -193,9 +225,10 @@
    */
   function render(md, { wrap = false } = {}) {
     const bs = blocks(md);
-    if (!wrap) return bs.map(one).join('\n');
+    const depths = tagDepths(bs);
+    if (!wrap) return bs.map((b, i) => one(b, depths[i])).join('\n');
     return bs
-      .map((b, i) => (b.kind === 'blank' ? '' : `<div class="blk" data-b="${i}" data-kind="${b.kind}" data-start="${b.start}" data-end="${b.end}" tabindex="0">${one(b)}</div>`))
+      .map((b, i) => (b.kind === 'blank' ? '' : `<div class="blk" data-b="${i}" data-kind="${b.kind}" data-start="${b.start}" data-end="${b.end}" tabindex="0">${one(b, depths[i])}</div>`))
       .join('\n');
   }
 

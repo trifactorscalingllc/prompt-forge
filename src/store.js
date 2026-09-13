@@ -174,10 +174,12 @@ function open(libraryPath, { home } = {}) {
     ...(secret ? { secret: true } : {}), dir: d === 'files' ? 'files' : 'images',
   });
 
-  function appendEntry(slug, text, attachments = []) {
+  function appendEntry(slug, text, attachments = [], { by = null } = {}) {
     return withSidecar(slug, (sc) => {
       const keep = (Array.isArray(attachments) ? attachments : []).filter((a) => a && a.file).map(keepAttachment);
       const entry = { id: nextId(sc.entries, 'e'), ts: now(), text: String(text), status: 'pending', snapshotId: null, error: null, attachments: keep };
+      // Who wrote it, when more than one person is working in the library at once.
+      if (by && by.name) entry.by = { name: String(by.name).slice(0, 80), machine: String(by.machine || '').slice(0, 80) };
       sc.entries.push(entry);
       return { ...entry, attachments: keep.map((a) => ({ ...a, path: attachmentPath(slug, a) })) };
     });

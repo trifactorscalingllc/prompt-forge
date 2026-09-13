@@ -41,6 +41,17 @@
       row.tabIndex = 0;
       const name = el('span', 'pname', p.title);
       const meta = el('span', 'pmeta', `${p.entries} idea${p.entries === 1 ? '' : 's'}${p.openConflicts ? ` · ${p.openConflicts} open` : ''}`);
+      // Who else has this prompt open, in a live library: an initial each, the name on hover.
+      const here = ((s.live && s.live.people) || []).filter((x) => !x.me && x.slug === p.slug);
+      if (here.length) {
+        const who = el('span', 'pwho');
+        for (const x of here.slice(0, 4)) {
+          const dot = el('span', `pdot${x.role === 'host' ? ' host' : ''}`, String(x.name || '?').trim().charAt(0).toUpperCase() || '?');
+          dot.title = `${x.name}${x.machine ? ` (${x.machine})` : ''} has this open`;
+          who.append(dot);
+        }
+        meta.append(who);
+      }
       const del = el('button', 'x', '×');
       del.title = 'Delete this prompt';
       del.addEventListener('click', (e) => { e.stopPropagation(); vscode.postMessage({ type: 'deletePrompt', slug: p.slug }); });
@@ -112,6 +123,37 @@
   // ------------------------------------------------------------------------------------------
   // Header
   // ------------------------------------------------------------------------------------------
+  // ------------------------------------------------------------------------------------------
+  // Live: the people button. Off, it offers to share or join; sharing, it counts who is here;
+  // joined, it names whose library this is. The menu behind it is drawn by the extension.
+  // ------------------------------------------------------------------------------------------
+  function renderLive(s) {
+    const L = s.live || { role: 'off', status: 'off', people: [] };
+    const btn = $('live');
+    const name = $('live-name');
+    const others = (L.people || []).filter((p) => !p.me);
+    const who = (p) => `${p.name}${p.machine ? ` (${p.machine})` : ''}`;
+    btn.classList.toggle('on', L.role !== 'off' && L.status === 'live');
+    btn.classList.toggle('busy', L.role === 'guest' && (L.status === 'connecting' || L.status === 'reconnecting'));
+    btn.classList.toggle('bad', L.role !== 'off' && L.status === 'error');
+    if (L.role === 'off') {
+      name.textContent = '';
+      btn.title = 'Work on this library live with someone signed in to the same Claude account, or join theirs';
+    } else if (L.role === 'host') {
+      name.textContent = others.length ? `${others.length} here` : 'live';
+      btn.title = others.length
+        ? `Sharing live with ${others.map(who).join(', ')}.\nClick to copy the invite, see who is where, or stop sharing.`
+        : 'Sharing live. Nobody has joined yet.\nClick to copy the invite or stop sharing.';
+    } else {
+      name.textContent = L.status === 'live' ? `${L.host.name}’s library` : L.status === 'error' ? 'not connected' : L.status === 'connecting' ? 'connecting…' : 'reconnecting…';
+      btn.title = [
+        L.status === 'live' ? `Live in ${L.host.name}’s library (${L.host.account}).` : L.error || `Connecting to ${L.host.name}…`,
+        others.length ? `Here: ${others.map(who).join(', ')}` : '',
+        'Click to see who is where, or leave.',
+      ].filter(Boolean).join('\n');
+    }
+  }
+
   function renderHeader(s) {
     const a = s.active;
     $('title').textContent = a ? a.title : 'Prompt Forge';
@@ -120,13 +162,18 @@
     $('copy').disabled = !a;
     renderAddonCopy(s);
     renderConnect(s);
+    renderLive(s);
 
     const e = s.engine;
     const summary = $('engine-summary');
     summary.textContent = '';
     const blurbs = s.blurbs || { roles: {}, models: {}, targets: {} };
     const part = (text, tip) => { const sp = el('span', 'epart', text); if (tip) sp.title = tip; summary.append(sp); };
-    if (e.selected) {
+    if (s.live && s.live.role === 'guest') {
+      part(`Live in ${s.live.host.name}’s library · merges run on the engine there`, 'Ideas, polish and conflict answers go to the sharing window, which runs them on its own engine and models.');
+      part(' · settings', 'Open Settings');
+      summary.classList.remove('bad');
+    } else if (e.selected) {
       const p = e.providers.find((x) => x.id === e.selected.provider) || {};
       const who = e.selected.mode === 'cli' ? (p.cli && p.cli.account ? p.cli.account : 'CLI login') : 'API key';
       const plan = e.selected.mode === 'cli' && p.cli && p.cli.plan ? ` · ${p.cli.plan}` : '';
@@ -218,7 +265,7 @@
       nav.append(b);
     }
     const back = el('button', 'btn small', 'Done');
-    back.addEventListener('click', () => { engineOpen = false; save(); if (latest) render(latest); });
+    back.addEventListener('click', () => setEngineOpen(false));
     nav.append(el('div', 'snav-spacer'), back);
 
     const section = (id, title, extra) => { const h = el('h3', 'shead', title); anchors[id] = h; if (extra) h.append(extra); body.append(h); };
@@ -879,7 +926,11 @@
       }
       const meta = el('div', 'mmeta');
       const stateText = e.status === 'pending' ? 'merging…' : e.status === 'failed' ? `failed: ${e.error || ''}` : (e.edits && e.edits.length ? `merged · edited ${e.edits.length}×` : 'merged');
-      meta.append(el('span', e.status === 'failed' ? 'bad' : null, `${ago(e.ts)} · ${stateText}`));
+      // In a live library each idea says who sent it, unless it was you.
+      const me = s.live && s.live.me;
+      const byline = e.by && !(me && e.by.name === me.name && e.by.machine === me.machine) ? `${e.by.name} · ` : '';
+      if (byline) meta.title = `Sent by ${e.by.name}${e.by.machine ? ` on ${e.by.machine}` : ''}`;
+      meta.append(el('span', e.status === 'failed' ? 'bad' : null, `${byline}${ago(e.ts)} · ${stateText}`));
       const acts = el('div', 'macts');
       if (editing !== e.id && e.status !== 'pending') {
         const edit = el('button', 'icon', '✎');
@@ -988,7 +1039,7 @@
     b.addEventListener('click', () => vscode.postMessage({ type: 'newPrompt' }));
     row.append(b);
     const eb = el('button', 'btn', s.engine.selected ? 'Settings' : 'Set up an engine');
-    eb.addEventListener('click', () => { engineOpen = true; save(); if (latest) render(latest); });
+    eb.addEventListener('click', () => setEngineOpen(true));
     row.append(eb);
     box.append(row);
     if (s.engine.selected) {
@@ -997,6 +1048,17 @@
     } else {
       box.append(el('p', 'muted', `No engine yet: ${s.engine.reason || 'sign in or add a key'}.`));
     }
+    const L = s.live || { role: 'off' };
+    const lr = el('p', 'muted live-invite');
+    if (L.role === 'guest') {
+      lr.textContent = `Live in ${L.host.name}’s library. Pick a prompt on the left.`;
+    } else {
+      lr.append(document.createTextNode('Working with someone? '));
+      const lb = el('button', 'link', L.role === 'host' ? 'Sharing live: copy the invite or stop' : 'Share this library live, or join theirs');
+      lb.addEventListener('click', () => vscode.postMessage({ type: 'live.menu' }));
+      lr.append(lb);
+    }
+    box.append(lr);
     root.append(box);
   }
 
@@ -1023,26 +1085,66 @@
     cols.style.setProperty('--split', `${layout.split}%`);
     $('split').setAttribute('aria-orientation', stacked ? 'horizontal' : 'vertical');
     const shut = Boolean(layout.railCollapsed);
-    $('app').classList.toggle('rail-collapsed', shut);
+    // While the rail is animating, its classes are the animation's to set.
+    if (!railBusy) {
+      $('app').classList.toggle('rail-collapsed', shut);
+      if (!shut) $('app').classList.remove('rail-fading');
+    }
+    chevron(shut);
+  }
+
+  function chevron(shut) {
     const t = $('rail-toggle');
     t.textContent = shut ? '›' : '‹';
     t.title = shut ? 'Show the prompts list' : 'Collapse the prompts list';
     t.setAttribute('aria-expanded', String(!shut));
   }
 
+  // Collapsing fades the list out, then narrows the rail; expanding widens the rail, then fades the
+  // list back in. Nothing reflows while it can be seen, which is what made the old toggle jump.
+  let railBusy = null;
+  function animateRail(shut) {
+    const app = $('app');
+    clearTimeout(railBusy);
+    railBusy = null;
+    chevron(shut);
+    if (calm()) {
+      app.classList.remove('rail-fading');
+      app.classList.toggle('rail-collapsed', shut);
+      applyLayout();
+      return;
+    }
+    app.classList.add('rail-fading');
+    if (shut) {
+      railBusy = setTimeout(() => {
+        app.classList.add('rail-collapsed');
+        railBusy = setTimeout(() => { railBusy = null; applyLayout(); }, 200);
+      }, 120);
+    } else {
+      app.classList.remove('rail-collapsed');
+      railBusy = setTimeout(() => { railBusy = null; app.classList.remove('rail-fading'); applyLayout(); }, 200);
+    }
+    applyLayout();
+  }
+
   // Applied here first and posted after, like the divider: the click has to feel instant, and the
   // extension echoes the same value back on the next state anyway.
   function toggleRail() {
     layout.railCollapsed = !layout.railCollapsed;
-    applyLayout();
+    animateRail(layout.railCollapsed);
     vscode.postMessage({ type: 'setLayout', railCollapsed: layout.railCollapsed });
   }
   $('rail-toggle').addEventListener('click', toggleRail);
 
+  let laidOut = false;
   function renderLayout(s) {
     const next = withDefaults(s.layout);
     if (dragging) { layout = { ...next, split: layout.split }; return; }   // never fight a live drag
     layout = next;
+    // Collapsed or shown from somewhere else (the command, the settings page) moves the same way.
+    const shown = $('app').classList.contains('rail-collapsed');
+    if (laidOut && !railBusy && shown !== Boolean(next.railCollapsed)) { animateRail(Boolean(next.railCollapsed)); return; }
+    laidOut = true;
     applyLayout();
   }
 
@@ -1090,6 +1192,49 @@
   // `auto` has to react to the tab being dragged wider or narrower, not only to a new state message.
   if (window.ResizeObserver) new ResizeObserver(() => applyLayout()).observe($('main'));
 
+  // ------------------------------------------------------------------------------------------
+  // Motion
+  //
+  // Short, and none at all when the system asks for reduced motion. Settings fade across the work
+  // instead of one replacing the other in a single frame; the rail's contents fade before it moves.
+  // ------------------------------------------------------------------------------------------
+  function calm() {
+    return Boolean(window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches);
+  }
+
+  /** Play the entrance on something just shown. */
+  function enter(node) {
+    if (!node || calm()) return;
+    node.classList.remove('view-in');
+    void node.offsetWidth;   // restart it when it was already playing
+    node.classList.add('view-in');
+    node.addEventListener('animationend', () => node.classList.remove('view-in'), { once: true });
+  }
+
+  let engineClosing = null;
+  /** Open or close Settings: the one route for every button that does, so each one animates. */
+  function setEngineOpen(open) {
+    if (engineClosing || open === engineOpen) return;
+    const panel = $('engine');
+    if (!open && !calm() && !panel.hidden) {
+      panel.classList.remove('view-in');
+      panel.classList.add('view-out');
+      engineClosing = setTimeout(() => {
+        engineClosing = null;
+        panel.classList.remove('view-out');
+        engineOpen = false;
+        save();
+        if (latest) render(latest);
+        enter(latest && latest.active ? $('columns') : $('empty'));
+      }, 120);
+      return;
+    }
+    engineOpen = open;
+    save();
+    if (latest) render(latest);
+    enter(open ? panel : (latest && latest.active ? $('columns') : $('empty')));
+  }
+
   function render(s) {
     latest = s;
     if (s.bootError) {
@@ -1105,10 +1250,12 @@
     renderPreview(s);
     renderUsage(s);
     if (!s.active) editing = null;
-    idea.disabled = Boolean(s.bootError) || !s.active || !s.engine.selected;
+    // In a joined library the sharer's engine merges, so this window needs no engine of its own.
+    const joined = Boolean(s.live && s.live.role === 'guest');
+    idea.disabled = Boolean(s.bootError) || !s.active || (!s.engine.selected && !joined);
     idea.placeholder = s.bootError ? 'The prompt library cannot be opened. See the message above.'
       : !s.active ? 'Create or open a prompt first.'
-      : !s.engine.selected ? 'Sign in to an engine (click the engine line above) to start merging ideas.'
+      : !s.engine.selected && !joined ? 'Sign in to an engine (click the engine line above) to start merging ideas.'
         : 'Type an idea and press Enter. Shift+Enter for a new line. Paste, drop or clip a file to attach it.';
   }
 
@@ -1224,7 +1371,8 @@
     if (ev.key === 'Escape') { ev.preventDefault(); endRename(false); }
   });
   titleEdit.addEventListener('blur', () => { if (!titleEdit.hidden) endRename(true); });
-  $('settings').addEventListener('click', () => { engineOpen = !engineOpen; save(); if (latest) render(latest); });
+  $('settings').addEventListener('click', () => setEngineOpen(!engineOpen));
+  $('live').addEventListener('click', () => vscode.postMessage({ type: 'live.menu' }));
   $('open-library').addEventListener('click', () => vscode.postMessage({ type: 'openLibrary' }));
   $('open-doc').addEventListener('click', () => vscode.postMessage({ type: 'openDoc' }));
   // A webview cannot follow a link itself; hand it to the extension, which opens it in the browser.
@@ -1317,7 +1465,7 @@
   });
   document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && !$('target-menu').hidden) { closeTargetMenu(); $('target-btn').focus(); } });
   window.addEventListener('resize', closeTargetMenu);
-  $('engine-summary').addEventListener('click', () => { engineOpen = !engineOpen; save(); if (latest) render(latest); });
+  $('engine-summary').addEventListener('click', () => setEngineOpen(!engineOpen));
 
   // ------------------------------------------------------------------------------------------
   // Add-on copy
@@ -1406,6 +1554,8 @@
       terminal: svg('<rect x="1.8" y="2.8" width="12.4" height="10.4" rx="1.4"/><path d="m4.6 6.2 2 1.8-2 1.8M8.2 10h3.2"/>'),
       json: svg('<path d="M5.5 2.5c-1.8 0-1.8 1.2-1.8 2.4s-.6 2.1-1.7 3.1c1.1 1 1.7 1.9 1.7 3.1s0 2.4 1.8 2.4M10.5 2.5c1.8 0 1.8 1.2 1.8 2.4s.6 2.1 1.7 3.1c-1.1 1-1.7 1.9-1.7 3.1s0 2.4-1.8 2.4"/>'),
       trash: svg('<path d="M2.8 4.3h10.4M6.2 4.3V2.6h3.6v1.7M4.2 4.3l.7 9.1h6.2l.7-9.1"/>'),
+      live: svg('<circle cx="6" cy="5.4" r="2.2"/><path d="M2 13.4a4 4 0 0 1 8 0"/><path d="M10.4 3.3a2.2 2.2 0 0 1 0 4.2M11.6 13.4a4 4 0 0 0-2-3.5"/>'),
+      person: svg('<circle cx="8" cy="5.4" r="2.4"/><path d="M3.4 13.6a4.6 4.6 0 0 1 9.2 0"/>'),
     };
   })();
 

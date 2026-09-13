@@ -81,11 +81,24 @@ test('a title is at most five words, whoever proposed it; setTitle rewrites the 
 
   // capTitle is the guarantee behind the instruction: a model told "at most five words" that
   // returns nine still yields five, and the quoting and trailing punctuation come off.
-  assert.equal(doc.capTitle('"Collapsible prompt sidebar, with a plug and a hammer icon."'), 'Collapsible prompt sidebar, with a');
+  // ...and the cut backs up past words that would leave the name hanging ("…, with a").
+  assert.equal(doc.capTitle('"Collapsible prompt sidebar, with a plug and a hammer icon."'), 'Collapsible prompt sidebar');
   assert.equal(doc.capTitle('**Landing page rewrite**'), 'Landing page rewrite');
   assert.equal(doc.capTitle('Ship it.'), 'Ship it');
   assert.equal(doc.capTitle(''), '', 'nothing proposed is not a title');
   assert.equal(doc.capTitle(null), '');
   assert.equal(doc.setTitle('# Untitled\n\n## Goal\n\nx\n', 'Brief'), '# Brief\n\n## Goal\n\nx\n');
   assert.equal(doc.setTitle('no heading\n', 'Brief'), '# Brief\n\nno heading\n');
+});
+
+test('a title never ends on a dangling word, and survives a polish that drops or rewords it', () => {
+  assert.equal(doc.capTitle('Emails that book calls for'), 'Emails that book calls');
+  assert.equal(doc.capTitle('Sidebar with a plug and a hammer'), 'Sidebar with a plug');
+  assert.equal(doc.capTitle('Cold email sequence for plumbers'), 'Cold email sequence for plumbers', 'a whole phrase is left alone');
+  assert.equal(doc.titleOf('# Brief\n\n<goal>\nx\n</goal>\n'), 'Brief');
+  assert.equal(doc.titleOf('Opening sentence.\n\n<goal>'), null);
+  assert.equal(doc.titleOf('# Task\n\nDo it.'), null, 'a GPT section heading is not a title');
+  assert.equal(doc.ensureTitle('Opening sentence.\n\n<goal>\n\nx\n\n</goal>\n', 'Brief'), '# Brief\n\nOpening sentence.\n\n<goal>\n\nx\n\n</goal>\n', 'a dropped title is put back on top');
+  assert.equal(doc.ensureTitle('# Brief Reworded By Polish\n\nx\n', 'Brief'), '# Brief\n\nx\n', 'a reworded title is restored');
+  assert.equal(doc.ensureTitle('# Task\n\nDo it.\n', 'Brief'), '# Brief\n\n# Task\n\nDo it.\n', 'a section heading is not mistaken for the title');
 });

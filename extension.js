@@ -222,6 +222,15 @@ function activate(context) {
     vscode.commands.registerCommand('promptForge.attachRemoteProject', () => send({ type: 'project.remote' })),
     vscode.commands.registerCommand('promptForge.syncNow', () => send({ type: 'sync.now' })),
     vscode.commands.registerCommand('promptForge.setUpSync', () => send({ type: 'sync.setup' })),
+    vscode.commands.registerCommand('promptForge.live', () => send({ type: 'live.menu' })),
+    // An invite link, vscode://trifactorscaling.prompt-forge-trifactor/join?code=…, joins a live library.
+    vscode.window.registerUriHandler({
+      handleUri(uri) {
+        if (String(uri.path || '').replace(/\/+$/, '') !== '/join') return;
+        const code = new URLSearchParams(uri.query || '').get('code');
+        if (code) send({ type: 'live.join', code });
+      },
+    }),
   );
   // NOTE: the kit registers `promptForge.reload` and its own configuration watcher for
   // sourcePath / autoReload. Anything else that must react to a settings change belongs in the

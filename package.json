@@ -2,7 +2,7 @@
   "name": "prompt-forge-trifactor",
   "displayName": "Prompt Forge for VS Code",
   "description": "Build complicated prompts one idea at a time. Every Enter merges an idea into a structured prompt, contradictions surface instead of being guessed away, Polish rewrites it for the model you are sending it to, and Send puts it straight into Claude Code. Works with your own Claude, Gemini, or OpenAI login, or any API key.",
-  "version": "0.13.2",
+  "version": "0.14.0",
   "publisher": "trifactorscaling",
   "license": "MIT",
   "repository": {
@@ -166,6 +166,12 @@
         "title": "Set Up Library Sync",
         "category": "Prompt Forge",
         "icon": "$(repo)"
+      },
+      {
+        "command": "promptForge.live",
+        "title": "Share or Join a Live Library",
+        "category": "Prompt Forge",
+        "icon": "$(live-share)"
       }
     ],
     "menus": {

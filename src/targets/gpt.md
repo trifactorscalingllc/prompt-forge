@@ -4,7 +4,7 @@ GPT models do best with a prompt that is organised like a developer message: mar
 
 ## Shape
 
-Use these markdown headings, in this order:
+Use these markdown headings, in this order. Include only the sections the document has material for; a section with nothing in it is left out, never filled with "None provided" or "Not yet specified".
 
 # Task
 One or two sentences: what to produce and for whom. State the outcome, not the process.

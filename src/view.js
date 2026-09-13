@@ -48,6 +48,7 @@ function html({ vscode, webview, mediaRoots, stamp }) {
           <h1 id="title" title="Click to rename">Prompt Forge</h1>
           <input id="title-edit" class="title-edit" type="text" spellcheck="false" autocomplete="off" hidden>
           <div class="head-actions">
+            <button id="live" class="iconbtn ghost named" title="Work on this library live with someone signed in to the same Claude account, or join theirs">${ICON.people}<span id="live-name"></span></button>
             <button id="connect" class="iconbtn ghost named" title="Connect this prompt to the folder this window has open">${ICON.plug}<span id="connect-name"></span></button>
             <button id="settings" class="iconbtn ghost" title="Engine, models, target and document settings">${ICON.gear}</button>
           </div>
@@ -117,6 +118,8 @@ function html({ vscode, webview, mediaRoots, stamp }) {
 // Inline SVG rather than a codicon font: the webview would have to ship and load the font, and
 // these inherit currentColor, so they follow the VS Code theme on their own.
 const ICON = {
+  // Two people: working in the library together.
+  people: '<svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><circle cx="6" cy="5.4" r="2.2"/><path d="M2 13.4a4 4 0 0 1 8 0"/><path d="M10.4 3.3a2.2 2.2 0 0 1 0 4.2M11.6 13.4a4 4 0 0 0-2-3.5"/></svg>',
   plug: '<svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M6 1.5v3.5M10 1.5v3.5"/><path d="M4 5h8v2.8a4 4 0 0 1-8 0z"/><path d="M8 11.8v2.7"/></svg>',
   hammer: '<svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M10.8 1.7 14.3 5.2 12 7.5 8.5 4z"/><path d="M8.8 5.7 2.9 11.6a1.45 1.45 0 1 0 2 2l5.9-5.9"/></svg>',
   copy: '<svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><rect x="5.6" y="5.6" width="8" height="8.8" rx="1.1"/><path d="M10.6 2.6H3.5a1 1 0 0 0-1 1v7.1"/></svg>',

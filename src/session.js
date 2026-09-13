@@ -81,13 +81,21 @@ function changedSections(before, after) {
 
 const quotePath = (p) => (/\s/.test(p) ? `"${p}"` : p);
 
-function createSession({ slug, store, docio, engine, cfg, log, publish = () => {}, settleMs = 450, lookupFor = defaultLookup, fs = nodeFs }) {
+function createSession({ slug, store, docio, engine, cfg, log, publish = () => {}, settleMs = 450, lookupFor = defaultLookup, fs = nodeFs, readOnly = false }) {
   const docPath = store.docPath(slug);
   let sc = null;
   let disposed = false;
   let engineState = idleState();
+  // readOnly: a window that joined someone else's live library. It reads the sharer's copy and never
+  // writes it or runs the engine on it; what it asks for goes to the sharer. Copy and send marks are
+  // the one thing it keeps for itself, because what "new since I copied" means is per person.
+  const localMarks = {};
 
-  const reread = () => { sc = store.read(slug); return sc; };
+  const reread = () => {
+    sc = store.read(slug);
+    if (sc && readOnly) { sc.copied = localMarks.copied || null; sc.sent = localMarks.sent || null; }
+    return sc;
+  };
   const lastSnapshot = () => sc.snapshots[sc.snapshots.length - 1];
   const engineCfg = () => (cfg() && cfg().engine) || {};
   const keepBodies = () => {
@@ -160,7 +168,7 @@ function createSession({ slug, store, docio, engine, cfg, log, publish = () => {
   }
 
   async function runBatch(batch) {
-    if (disposed) return;
+    if (disposed || readOnly) return;
     reread();
     const role = batch.kind === 'polish' ? 'polish' : 'merge';
     engineState = { ...idleState(), state: 'busy', op: role, startedAt: Date.now() };
@@ -262,7 +270,8 @@ function createSession({ slug, store, docio, engine, cfg, log, publish = () => {
       reread();
       store.setConflicts(slug, out.conflicts, { entryId: entryIds.length ? entryIds[entryIds.length - 1] : null });
       reread();
-      let doc = formatDoc(out.doc);
+      // The title is the document's own, whatever the reply did with it: put back if dropped, restored if reworded.
+      let doc = formatDoc(docm.ensureTitle(out.doc, docm.titleOf(body) || sc.title));
       // An untitled prompt takes its name from the first idea that lands.
       if (entryIds.length && isUntitled()) {
         // The engine names it, because it has just read the idea and knows what it is about. The
@@ -312,7 +321,11 @@ function createSession({ slug, store, docio, engine, cfg, log, publish = () => {
       }
 
       const conflicts = sc.conflicts.map(publicConflict);
-      const built = buildPolishPrompt({ doc: body, conflicts, target, styleGuide: targets.styleGuide(target.family), projects: sc.projects || [], only });
+      // A whole-document polish writes fresh advice for the target it polished for. A partial one keeps
+      // the merge's advice, which was already written for this target.
+      const suggest = suggesting() && !only.length;
+      const previousTarget = batch.from && batch.from !== sc.target ? targets.resolve(batch.from) : null;
+      const built = buildPolishPrompt({ doc: body, conflicts, target, styleGuide: targets.styleGuide(target.family), projects: sc.projects || [], only, suggest, previousTarget });
       const res = await engine.call({ role: 'polish', system: built.system, prompt: built.prompt, timeoutMs: timeoutMs(), onProgress: progress });
       if (disposed) return;
       if (res.call) engineState.model = res.call.model;
@@ -331,8 +344,14 @@ function createSession({ slug, store, docio, engine, cfg, log, publish = () => {
       }
       // The guide's shape, guaranteed: whatever the model returned, the headings, the order and the
       // tags are the family's own.
-      const doc = formatDoc(out.doc, { family: target.family });
+      // The style guide opens with a framing sentence, and a model writing one tends to drop or reword
+      // the "# Title" line above it. The title is not the polish's to change.
+      const doc = formatDoc(docm.ensureTitle(out.doc, docm.titleOf(body) || sc.title), { family: target.family });
       await land({ kind: 'polish', doc, changes: out.changes.length ? out.changes : only.length ? [`rewrote ${only.join(', ')}`] : [], call: res.call });
+      if (suggest) {
+        store.setSuggestions(slug, out.suggestions);
+        store.setIdeas(slug, out.ideas);
+      }
       store.setPolished(slug, { doc, target: sc.target });
       reread();
       engineState = idleState();
@@ -343,6 +362,8 @@ function createSession({ slug, store, docio, engine, cfg, log, publish = () => {
 
   async function load() {
     if (!reread()) throw new Error(`no prompt named "${slug}"`);
+    // In a joined library a pending idea is being merged in the sharer's window right now.
+    if (readOnly) { publish('load'); return sc; }
     // A pending entry at load time means a reload or crash cut a merge short. The idea is still here.
     for (const e of sc.entries) {
       if (e.status === 'pending') store.updateEntry(slug, e.id, { status: 'failed', error: 'interrupted: the extension reloaded during the merge' });
@@ -353,10 +374,10 @@ function createSession({ slug, store, docio, engine, cfg, log, publish = () => {
     return sc;
   }
 
-  function submitIdea(text, attachments = []) {
+  function submitIdea(text, attachments = [], { by = null } = {}) {
     const t = String(text == null ? '' : text).trim();
     if (!t) return null;
-    const entry = store.appendEntry(slug, t, attachments);
+    const entry = store.appendEntry(slug, t, attachments, { by });
     reread();
     queue.push({ kind: 'idea', entryId: entry.id });
     publish('idea');
@@ -461,7 +482,7 @@ function createSession({ slug, store, docio, engine, cfg, log, publish = () => {
   async function copyText() {
     const text = compose(await liveDoc());
     // Copying is what starts an add-on round: from here, "new" means new relative to this.
-    store.setCopyMark(slug, text);
+    if (readOnly) localMarks.copied = { doc: text, ts: Date.now() }; else store.setCopyMark(slug, text);
     reread();
     publish('copied');
     return text;
@@ -474,7 +495,7 @@ function createSession({ slug, store, docio, engine, cfg, log, publish = () => {
     const now = compose(await liveDoc());
     const add = buildAddendum(mark.doc, now);
     if (!add.text) return null;
-    store.setCopyMark(slug, now);
+    if (readOnly) localMarks.copied = { doc: now, ts: Date.now() }; else store.setCopyMark(slug, now);
     reread();
     publish('copied');
     return add;
@@ -497,7 +518,8 @@ function createSession({ slug, store, docio, engine, cfg, log, publish = () => {
     return add.text ? add : null;
   }
   async function markSent(dest) {
-    store.setSentMark(slug, compose(await liveDoc(), { mention: true }), dest);
+    const text = compose(await liveDoc(), { mention: true });
+    if (readOnly) localMarks.sent = { doc: text, ts: Date.now(), dest: dest || null }; else store.setSentMark(slug, text, dest);
     reread();
     publish('sent');
   }
@@ -598,7 +620,18 @@ function createSession({ slug, store, docio, engine, cfg, log, publish = () => {
     reread: () => { reread(); },
     resolve: (conflictId, keep) => queue.push({ kind: 'resolve', conflictId, keep }),
     polish: ({ full = false } = {}) => queue.push({ kind: 'polish', ...(full ? { full: true } : {}) }),
-    setTarget(target) { store.setTarget(slug, target); reread(); queue.push({ kind: 'polish' }); },
+    setTarget(target) {
+      const from = sc.target;
+      if (String(target) === from) return;
+      store.setTarget(slug, target);
+      // Advice written for the old target names it and its gaps. It goes the moment the target changes,
+      // and the polish that follows writes new advice for the new one.
+      store.setSuggestions(slug, []);
+      store.setIdeas(slug, []);
+      reread();
+      publish('suggestions');
+      queue.push({ kind: 'polish', from });
+    },
     restore, rename, copyText, copyNewText, sendText, sendNewText, markSent, variables, setVars, run, idle, warm,
     progress: () => ({ ...engineState, queued: queue.size() }),
     dismissSuggestion(text) { store.dismissSuggestion(slug, text); reread(); publish('suggestions'); },

@@ -178,6 +178,19 @@ test('merge may not invent, which until now only polish was told', () => {
   assert.ok(p.indexOf('prefer a concrete statement') < p.indexOf('Add nothing of your own'), 'the disclaimer follows the rule it qualifies');
 });
 
+test('polish keeps the title, pads nothing, and on a target switch renames the model and writes new advice', () => {
+  const p = buildPolishPrompt({ ...solo, styleGuide: 'g' });
+  assert.match(p.system, /keep it as the first line, word for word/);
+  assert.match(p.system, /never write placeholder text such as "None provided"/);
+  assert.match(p.system, /Keep only the sections the document has material for/);
+  assert.ok(!p.prompt.includes('is now for'), 'no switch, no renaming note');
+  const switched = buildPolishPrompt({ ...solo, styleGuide: 'g', target: { id: 'opus-5', label: 'Claude Opus 5', family: 'claude' }, previousTarget: { label: 'Claude Fable 5.1' }, suggest: true });
+  assert.ok(switched.prompt.includes('This prompt was written for Claude Fable 5.1 and is now for Claude Opus 5.'));
+  assert.ok(switched.prompt.includes('"suggestions"') && switched.prompt.includes('"ideas"'), 'advice for the new model comes back with the polish');
+  assert.equal(switched.system, p.system, 'still the same cached system half');
+  assert.match(whole(buildMergePrompt({ ...solo, needsTitle: true })), /complete, grammatical noun phrase/);
+});
+
 test('polish still carries its own no-invention rule, unchanged', () => {
   assert.ok(/Add nothing the document does not say; drop nothing it does/.test(whole(buildPolishPrompt({ ...solo, styleGuide: 'g' }))));
 });

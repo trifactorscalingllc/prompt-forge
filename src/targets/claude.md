@@ -5,6 +5,7 @@ Claude reads structure best when each part of the prompt sits inside a clearly n
 ## Shape
 
 - Open with one or two plain sentences that say what the task is and what a finished result looks like. No role-play preamble ("You are a world-class..."); state the job.
+- Include only the sections the document has material for. A section with nothing in it is left out, never filled with "None provided" or "Not yet specified".
 - Then one block per section, in this order, each as an XML tag ON ITS OWN LINE with a blank line before and after it:
 
 <goal>

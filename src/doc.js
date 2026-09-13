@@ -16,7 +16,11 @@ function seed(title) {
   return `# ${title}\n`;
 }
 
-/** At most five words, trimmed of punctuation and quoting, capitalised. */
+// Words a name cannot end on. A five-word cut through "Sidebar with a plug and a hammer" leaves
+// "Sidebar with a plug and", which is not a name; the cut backs up to a word that can end a phrase.
+const DANGLING = new Set(['a', 'an', 'the', 'and', 'or', 'but', 'nor', 'of', 'for', 'to', 'with', 'without', 'in', 'on', 'at', 'by', 'from', 'into', 'onto', 'about', 'as', 'than', 'that', 'which', 'who', 'vs', 'via', 'per', '&', 'is', 'are', 'my', 'your', 'our', 'its', 'their']);
+
+/** At most five words, trimmed of punctuation and quoting, never ending on a word left hanging, capitalised. */
 function capTitle(text, max = 5) {
   const words = String(text == null ? '' : text)
     .replace(/[`"'*_#]/g, ' ')
@@ -24,11 +28,41 @@ function capTitle(text, max = 5) {
     .trim()
     .split(' ')
     .filter(Boolean)
-    .slice(0, max)
-    .join(' ')
-    .replace(/[.,;:!?\-]+$/, '');
-  if (!words) return '';
-  return words.charAt(0).toUpperCase() + words.slice(1);
+    .slice(0, max);
+  const bare = (w) => w.toLowerCase().replace(/[.,;:!?\-]+$/, '');
+  while (words.length > 1 && DANGLING.has(bare(words[words.length - 1]))) words.pop();
+  const out = words.join(' ').replace(/[.,;:!?\-]+$/, '');
+  if (!out) return '';
+  return out.charAt(0).toUpperCase() + out.slice(1);
+}
+
+const squashWord = (s) => String(s == null ? '' : s).toLowerCase().replace(/[^a-z0-9]+/g, '');
+const SECTION_KEYS = new Set([...SECTIONS.map(squashWord), 'task']);
+
+/** The document's title: its first line when that is a "# " heading and not a section ("# Task"), else null. */
+function titleOf(doc) {
+  const line = String(doc == null ? '' : doc).split('\n').find((l) => l.trim());
+  const m = line ? /^#\s+(.+?)\s*$/.exec(line) : null;
+  return m && !SECTION_KEYS.has(squashWord(m[1])) ? m[1] : null;
+}
+
+/**
+ * The document with `title` as its first line. A polish that opens with the style guide's framing
+ * sentence tends to drop the "# Title" line, or reword it; this puts back the title the document had
+ * and changes nothing else. A first line that is a section heading ("# Task") is not a title, so the
+ * title goes above it.
+ */
+function ensureTitle(doc, title) {
+  const t = String(title == null ? '' : title).trim();
+  const s = String(doc == null ? '' : doc);
+  if (!t) return s;
+  const lines = s.split('\n');
+  const i = lines.findIndex((l) => l.trim());
+  if (i >= 0 && titleOf(lines[i]) !== null) {
+    lines[i] = `# ${t}`;
+    return lines.join('\n');
+  }
+  return `# ${t}\n\n${s.replace(/^\n+/, '')}`;
 }
 
 /** The fallback when the engine offers no title: first line, first five words, capitalised. */
@@ -127,5 +161,5 @@ function stripForCopy(doc) {
 
 module.exports = {
   SECTIONS, CONFLICT_OPEN, CONFLICT_CLOSE, CONFLICT_HEADING,
-  seed, isBlank, titleFrom, capTitle, setTitle, renderConflictBlock, withConflictBlock, stripConflictBlock, stripForCopy,
+  seed, isBlank, titleFrom, capTitle, setTitle, titleOf, ensureTitle, renderConflictBlock, withConflictBlock, stripConflictBlock, stripForCopy,
 };
