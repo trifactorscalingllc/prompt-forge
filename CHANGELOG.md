@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.14.1
+
+- **Connecting a project is immediate.** The plug connects in the time it takes to read the project's README, manifests and house-rules files, with a brief written straight from them: languages and framework versions, purpose, entry points, scripts, layout, conventions, the first lines of CLAUDE.md or AGENTS.md, and what is not set up. It no longer waits for an engine call first. The engine still writes its fuller brief, in the background, and that replaces the quick one when it lands; the plug's tooltip says which is in use. Another prompt connecting to the same project at the same commit reuses the engine's brief with no call, and Rebuild writes a new one.
+- **An answered conflict leaves at once.** Clicking keep old or keep new takes the conflict off the top of the Ideas panel immediately and puts your answer in the thread, marked as merging, until the merge that places it lands. If that merge fails, the conflict comes back as a question rather than hanging. In a live library the thread says who answered.
+
 ## 0.14.0
 
 Two people signed in to the same Claude account can work in one prompt library at the same time.

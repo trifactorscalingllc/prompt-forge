@@ -102,6 +102,12 @@
       const when = p.builtAt ? new Date(p.builtAt).toLocaleString() : 'not built';
       return `${p.label} \u2014 ${p.path}\nread ${p.files.length} file(s), built ${when}${p.head ? ` at ${p.head}` : ''}`;
     });
+    const quick = list.filter((p) => p.briefKind === 'quick' && !p.error);
+    if (quick.length) {
+      lines.push(quick.some((p) => p.refining)
+        ? 'Connected with a brief read straight from the files; the engine is writing a fuller one in the background.'
+        : 'Connected with a brief read straight from the files. Rebuild it for one written by the engine.');
+    }
     if (off) lines.push('promptForge.projectContext is off, so this is not being sent.');
     lines.push('Click to view the brief, reconnect or disconnect.');
     btn.title = lines.join('\n');
@@ -776,9 +782,20 @@
   // ------------------------------------------------------------------------------------------
   // Conflicts, history, usage
   // ------------------------------------------------------------------------------------------
+  // An answer leaves the strip the moment it is clicked and is in the thread at once, marked as
+  // merging. The extension records it straight away as well, so no repaint brings the card back; if
+  // the merge cannot place it, the conflict comes back as a question.
+  const answering = new Map();   // conflict id -> the answer as the thread shows it until the extension has it
+
+  function answer(c, keep) {
+    answering.set(c.id, { id: c.id, keep, ts: Date.now(), section: c.section, existing: c.existing, incoming: c.incoming, pending: true });
+    if (latest) { renderConflicts(latest); renderHistory(latest); }
+    vscode.postMessage({ type: 'resolve', conflictId: c.id, keep });
+  }
+
   function renderConflicts(s) {
     const root = $('conflicts');
-    const list = s.active ? s.active.conflicts : [];
+    const list = s.active ? s.active.conflicts.filter((c) => !answering.has(c.id)) : [];
     root.hidden = !list.length;
     root.textContent = '';
     if (!list.length) return;
@@ -791,8 +808,8 @@
       const pair = el('div', 'cpair');
       const oldB = el('button', 'chip', ''); oldB.append(el('b', null, 'keep old: '), el('span', null, c.existing));
       const newB = el('button', 'chip', ''); newB.append(el('b', null, 'keep new: '), el('span', null, c.incoming));
-      oldB.addEventListener('click', () => vscode.postMessage({ type: 'resolve', conflictId: c.id, keep: 'old' }));
-      newB.addEventListener('click', () => vscode.postMessage({ type: 'resolve', conflictId: c.id, keep: 'new' }));
+      oldB.addEventListener('click', () => answer(c, 'old'));
+      newB.addEventListener('click', () => answer(c, 'new'));
       pair.append(oldB, newB);
       row.append(pair);
       root.append(row);
@@ -873,7 +890,8 @@
       root.append(vl);
     }
 
-    const resolved = a.resolved || [];
+    const known = a.resolved || [];
+    const resolved = [...known, ...[...answering.values()].filter((r) => !known.some((x) => x.id === r.id && x.pending))];
     if (!a.entries.length && !resolved.length && !versionsOpen) {
       const ph = el('div', 'placeholder');
       ph.append(el('h3', null, 'Your ideas go here.'), el('p', null, 'Type one below and press Enter. Rough is fine: each idea is merged into the prompt on the right, never pasted in as a bullet.'));
@@ -893,7 +911,7 @@
     // Ideas and the answers to the conflicts they raised, in the order they happened.
     const timeline = [...a.entries.map((e) => ({ ts: e.ts, e })), ...resolved.map((r) => ({ ts: r.ts, r }))].sort((x, y) => x.ts - y.ts);
     for (const item of timeline) {
-      if (item.r) { log.append(resolutionMsg(item.r)); continue; }
+      if (item.r) { log.append(resolutionMsg(item.r, s.live && s.live.me)); continue; }
       const e = item.e;
       const msg = el('div', `msg ${e.status}`);
       msg.dataset.id = e.id;
@@ -973,20 +991,22 @@
   }
 
   /** A conflict the person answered, in the thread beside the ideas, in the conflict's yellow. */
-  function resolutionMsg(r) {
-    const msg = el('div', 'msg resolution');
+  function resolutionMsg(r, me) {
+    const msg = el('div', `msg resolution${r.pending ? ' pending' : ''}`);
     const bubble = el('div', 'bubble');
     const head = el('div', 'rhead');
     head.append(el('span', 'rtag', 'Conflict'), el('span', 'rwhere', `${r.id}${r.section ? ` · ${r.section}` : ''}`));
     const kept = r.keep === 'new' ? r.incoming : r.existing;
     const dropped = r.keep === 'new' ? r.existing : r.incoming;
-    bubble.append(head, el('div', 'mtext', `You kept the ${r.keep === 'new' ? 'new' : 'existing'} side: ${kept}`));
+    const who = r.who && !(me && r.who.name === me.name && r.who.machine === me.machine) ? r.who.name : 'You';
+    bubble.append(head, el('div', 'mtext', `${who} kept the ${r.keep === 'new' ? 'new' : 'existing'} side: ${kept}`));
     if (dropped) {
       const d = el('div', 'rdropped', dropped);
       d.title = 'The side you did not keep';
       bubble.append(d);
     }
-    msg.append(bubble, el('div', 'mmeta', `${ago(r.ts)} · ${r.by === 'local' ? 'placed at once, no engine call' : 'merged by the engine'}`));
+    const how = r.pending ? 'merging…' : r.by === 'local' ? 'placed at once, no engine call' : 'merged by the engine';
+    msg.append(bubble, el('div', 'mmeta', `${ago(r.ts)} · ${how}`));
     return msg;
   }
 
@@ -1237,6 +1257,10 @@
 
   function render(s) {
     latest = s;
+    // An answer the extension has taken no longer needs holding here: it is off the open list now,
+    // whether answered, placed, or asked again.
+    const open = new Set(s.active ? s.active.conflicts.map((c) => c.id) : []);
+    for (const id of [...answering.keys()]) if (!open.has(id)) answering.delete(id);
     if (s.bootError) {
       showNotice('error', `Cannot open the prompt library: ${s.bootError}. Fix promptForge.libraryPath in Settings.`, true);
     }

@@ -74,7 +74,7 @@ function createHostCommands({ getStore, ensureSession, removePrompt, engineSelec
       case 'resolve': {
         if (args.keep !== 'new' && args.keep !== 'old') throw new Error('Keep old or keep new.');
         const s = await sessionFor(args);
-        s.resolve(str(args.conflictId, 32), args.keep);
+        s.resolve(str(args.conflictId, 32), args.keep, { by });
         return true;
       }
       case 'polish': {

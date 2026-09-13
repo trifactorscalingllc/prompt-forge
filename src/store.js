@@ -157,7 +157,7 @@ function open(libraryPath, { home } = {}) {
         updatedAt: sc.updatedAt,
         createdAt: sc.createdAt,
         entries: sc.entries.length,
-        openConflicts: sc.conflicts.length,
+        openConflicts: sc.conflicts.filter((c) => !c.answer).length,
       };
       rows.set(slug, { mtimeMs: st.mtimeMs, size: st.size, row });
       out.push(row);
@@ -338,11 +338,36 @@ function open(libraryPath, { home } = {}) {
           incoming: c.incoming || '',
           raisedAt: was ? was.raisedAt : now(),
           entryId: was ? was.entryId : entryId,
+          // Answered while a merge was running: the merge that lands next must not un-ask it.
+          ...(was && was.answer ? { answer: was.answer, answeredAt: was.answeredAt, ...(was.answeredBy ? { answeredBy: was.answeredBy } : {}) } : {}),
         };
       });
       return sc.conflicts;
     });
   }
+
+  /**
+   * Record an answer the moment it is given. The conflict stays open until the merge that places it
+   * lands; until then it reads as answered, so the panel can take it off the strip at once.
+   */
+  function answerConflict(slug, id, keep, { by = null } = {}) {
+    return withSidecar(slug, (sc) => {
+      const c = sc.conflicts.find((x) => x.id === id);
+      if (!c) return null;
+      c.answer = keep === 'new' ? 'new' : 'old';
+      c.answeredAt = now();
+      if (by && by.name) c.answeredBy = { name: String(by.name).slice(0, 80), machine: String(by.machine || '').slice(0, 80) };
+      else delete c.answeredBy;
+      return c;
+    });
+  }
+
+  /** An answer the merge could not place goes back to being a question. */
+  const unanswerConflicts = (slug, ids) => withSidecar(slug, (sc) => {
+    const set = new Set(ids);
+    for (const c of sc.conflicts) if (set.has(c.id)) { delete c.answer; delete c.answeredAt; delete c.answeredBy; }
+    return sc.conflicts;
+  });
 
   /** Close a conflict and record the answer. `by` says whether it was placed locally or by the engine. */
   function resolveConflict(slug, id, keep, { by = 'engine' } = {}) {
@@ -350,7 +375,11 @@ function open(libraryPath, { home } = {}) {
       const i = sc.conflicts.findIndex((c) => c.id === id);
       if (i < 0) return null;
       const [c] = sc.conflicts.splice(i, 1);
-      sc.resolved.push({ id: c.id, keep, ts: now(), section: c.section, existing: c.existing, incoming: c.incoming, entryId: c.entryId || null, by });
+      // Stamped when it was answered, not when it landed, so it stays where it appeared in the thread.
+      sc.resolved.push({
+        id: c.id, keep, ts: c.answeredAt || now(), section: c.section, existing: c.existing, incoming: c.incoming, entryId: c.entryId || null, by,
+        ...(c.answeredBy ? { who: c.answeredBy } : {}),
+      });
       return c;
     });
   }
@@ -382,7 +411,7 @@ function open(libraryPath, { home } = {}) {
     dir, docPath, sidecarPath, exists, read, write, create, list, stats,
     appendEntry, updateEntry, addSnapshot, pruneBodies, setTarget, setTitle, setProjects, setCopyMark, setSentMark, setPolished, setVars, addRun,
     saveImage, saveFile, imageDir, filesDir, attachmentPath, imagePath: attachmentPath, portablePath, resolvePortable,
-    setSuggestions, dismissSuggestion, setIdeas, dismissIdea, setConflicts, resolveConflict, remove,
+    setSuggestions, dismissSuggestion, setIdeas, dismissIdea, setConflicts, answerConflict, unanswerConflicts, resolveConflict, remove,
     readDoc, writeDoc,
   };
 }

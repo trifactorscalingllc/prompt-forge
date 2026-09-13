@@ -180,6 +180,17 @@ function createSession({ slug, store, docio, engine, cfg, log, publish = () => {
     } catch (e) {
       fail(touched, e.message || String(e));
     }
+    // An answer this merge could not place goes back to being a question, rather than sitting in the
+    // thread as "merging" for ever.
+    if (role === 'merge' && engineState.state === 'error' && (batch.resolutions || []).length) {
+      reread();
+      const stuck = batch.resolutions.map((r) => r.conflictId).filter((id) => sc.conflicts.some((c) => c.id === id && c.answer));
+      if (stuck.length) {
+        store.unanswerConflicts(slug, stuck);
+        reread();
+        publish('failed');
+      }
+    }
   }
 
   async function runMerge(batch) {
@@ -590,8 +601,15 @@ function createSession({ slug, store, docio, engine, cfg, log, publish = () => {
       slug, title: sc.title, target: sc.target, docPath, docOpen: docio.isOpen(docPath),
       entries: sc.entries.map((e) => ({ ...e })),
       snapshots: sc.snapshots.map(({ doc, ...rest }) => rest),
-      conflicts: sc.conflicts.map((c) => ({ ...c })),
-      resolved: (sc.resolved || []).map((r) => ({ ...r })),
+      conflicts: sc.conflicts.filter((c) => !c.answer).map((c) => ({ ...c })),
+      resolved: [
+        ...(sc.resolved || []).map((r) => ({ ...r })),
+        // Answered and on the way: in the thread already, marked as merging.
+        ...sc.conflicts.filter((c) => c.answer).map((c) => ({
+          id: c.id, keep: c.answer, ts: c.answeredAt, section: c.section, existing: c.existing, incoming: c.incoming,
+          entryId: c.entryId || null, who: c.answeredBy || null, pending: true,
+        })),
+      ],
       keepVersions: keepBodies(),
       projects: (sc.projects || []).map((p) => ({ ...p })),
       suggestions: (sc.suggestions || []).map((x) => ({ ...x })),
@@ -618,7 +636,17 @@ function createSession({ slug, store, docio, engine, cfg, log, publish = () => {
     // The runtime owns attaching a project (it needs the picker and the engine), so it writes the
     // sidecar and tells the session to pick the change up.
     reread: () => { reread(); },
-    resolve: (conflictId, keep) => queue.push({ kind: 'resolve', conflictId, keep }),
+    resolve(conflictId, keep, { by = null } = {}) {
+      const c = !readOnly && sc ? sc.conflicts.find((x) => x.id === conflictId) : null;
+      if (!c || c.answer || (keep !== 'new' && keep !== 'old')) return false;
+      // Recorded before the merge that places it runs: the card leaves the strip and the answer is in
+      // the thread now, marked as merging, not when the merge lands.
+      store.answerConflict(slug, conflictId, keep, { by });
+      reread();
+      publish('answer');
+      queue.push({ kind: 'resolve', conflictId, keep });
+      return true;
+    },
     polish: ({ full = false } = {}) => queue.push({ kind: 'polish', ...(full ? { full: true } : {}) }),
     setTarget(target) {
       const from = sc.target;

@@ -98,6 +98,8 @@ Umbrella *reading* is refused on purpose — it would re-create the ambiguity th
 
 Nothing is read until you attach a folder. `.env*`, keys, credentials, anything `.gitignore`d and every build directory are excluded *before* the search runs. The brief is capped at 40 lines, and **View** shows you the exact text being sent plus the list of files it came from. Set `promptForge.projectContext` to `off` to stop sending it without detaching.
 
+**Connecting is immediate.** A project connects with a brief written from its own files on the spot, with no engine call to wait for. The engine writes a fuller brief in the background, which replaces the quick one when it is ready, and another prompt connecting to the same project at the same commit reuses it with no call. **Rebuild** writes a new one.
+
 **A project on another machine** — a Mac mini, a server — attaches from a local window without opening a remote one: *Prompt Forge: Attach a Project over SSH*, or *Over SSH…* in the picker. Hosts come from `~/.ssh/config`. The folder is listed first and the same deny-list runs on that listing on this machine, so only the files that survive it are read. SSH runs in batch mode: it needs a key or an agent, and never waits on a password prompt.
 
 ## Working live with someone

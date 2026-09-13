@@ -142,6 +142,42 @@ test('conflicts land in the sidecar and the doc block; keep old closes them with
   assert.equal(session.snapshot().resolved.length, 1, 'the panel can show the answer in the thread');
 });
 
+test('an answer leaves the conflict strip and is in the thread the moment it is given, and comes back as a question if the merge fails', async () => {
+  const conflict = [{ id: 'C1', section: 'Goal', existing: 'Keep it short.', incoming: 'but i want it long' }];
+  let down = false;
+  const { session } = setup((req, n) => {
+    if (n === 1) return mergeReply(req, 'Keep it short.', conflict);
+    return down ? { text: '', usage: null, error: 'engine down', call: null } : mergeReply(req, 'Make it long.', []);
+  });
+  await session.load();
+  session.submitIdea('but i want it long');
+  await session.idle();
+
+  down = true;
+  assert.equal(session.resolve('C1', 'new'), true);
+  let snap = session.snapshot();
+  assert.deepEqual(snap.conflicts, [], 'off the strip before any merge has run');
+  assert.equal(snap.resolved.length, 1);
+  assert.equal(snap.resolved[0].pending, true, 'in the thread, marked as merging');
+  assert.equal(snap.resolved[0].keep, 'new');
+  assert.equal(session.resolve('C1', 'old'), false, 'a second click is not a second answer');
+  await session.idle();
+  snap = session.snapshot();
+  assert.equal(snap.conflicts.length, 1, 'the merge failed, so it is a question again');
+  assert.equal(snap.resolved.length, 0);
+
+  down = false;
+  session.resolve('C1', 'new', { by: { name: 'sam', machine: 'LAPTOP' } });
+  const answeredAt = session.snapshot().resolved[0].ts;
+  await session.idle();
+  snap = session.snapshot();
+  assert.deepEqual(snap.conflicts, []);
+  assert.equal(snap.resolved.length, 1);
+  assert.ok(!snap.resolved[0].pending);
+  assert.equal(snap.resolved[0].ts, answeredAt, 'it stays where it appeared in the thread');
+  assert.deepEqual(snap.resolved[0].who, { name: 'sam', machine: 'LAPTOP' });
+});
+
 test('keep new is placed without a model when the incoming side reads as prompt text, and goes to the engine when it is a remark', async () => {
   const conflict = (incoming) => [{ id: 'C1', section: 'Goal', existing: 'Keep it short.', incoming }];
   const a = setup((req) => mergeReply(req, 'Keep it short.', conflict('Make it long.')));

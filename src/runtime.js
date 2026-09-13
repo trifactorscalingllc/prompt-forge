@@ -32,6 +32,7 @@ const { createLive } = require('./live');
 const { createHostCommands } = require('./live/commands');
 const { slugOfRel } = require('./live/files');
 const { LIMITS } = require('./attachments');
+const { createBriefs } = require('./briefs');
 
 const LAST_OPEN = 'promptForge.lastOpen';
 const CLAUDE_EXTENSION = 'anthropic.claude-code';
@@ -148,6 +149,8 @@ function create(host) {
     const snap = session ? session.snapshot() : null;
     // In a joined library the engine runs in the sharer's window, so what it is doing comes from there.
     if (snap && live.isGuest()) { const remote = live.engineFor(snap.slug); if (remote) snap.engine = remote; }
+    // A project connected with its quick brief says so while the engine writes the fuller one.
+    if (snap && snap.projects.length) snap.projects = snap.projects.map((p) => (briefs.refining(p.path, p.host) ? { ...p, refining: true } : p));
     return {
       library: store.dir,
       prompts: store.list(),
@@ -450,76 +453,60 @@ function create(host) {
     return { dir, host: sshHost };
   }
 
-  /** One call, on attach, with the polish model. Its output is reused on every merge after. */
-  async function buildBrief(dir, label, sshHost) {
+  /** What connecting reads: the one folder, here or over ssh. { files, tree, text, truncated, head? } or { error }. */
+  async function collectProject(dir, sshHost) {
     const cfg = projectCfg();
-    let collected;
     if (sshHost) {
       const ssh = resolveBin('ssh', {});
       if (!ssh) return { error: 'ssh is not on your PATH' };
-      collected = await remote.collectRemote({ runCli, ssh, host: sshHost, dir, maxFiles: cfg.maxFiles, maxBytes: cfg.maxBytes });
-      if (collected.error) return { error: collected.error };
-    } else {
-      try { collected = project.collect(dir, { fs, maxFiles: cfg.maxFiles, maxBytes: cfg.maxBytes }); } catch (e) { return { error: e.message }; }
+      return remote.collectRemote({ runCli, ssh, host: sshHost, dir, maxFiles: cfg.maxFiles, maxBytes: cfg.maxBytes });
     }
-    const where = sshHost ? `${sshHost}:${dir}` : dir;
-    if (!collected.files.length) return { error: `Nothing readable in ${where}. A project needs a README or a manifest to describe itself.` };
+    return project.collect(dir, { fs, maxFiles: cfg.maxFiles, maxBytes: cfg.maxBytes });
+  }
+
+  /** The engine's brief: one call with the polish model, made in the background, reused on every merge after. */
+  async function describeProject({ label, dir, collected }) {
     const res = await engine.call({
       role: 'polish',
-      prompt: project.buildBriefPrompt({ label, dir: where, collected }),
+      prompt: project.buildBriefPrompt({ label, dir, collected }),
       timeoutMs: ((config().engine || {}).timeoutSeconds || 240) * 1000,
     });
     if (res.error) return { error: res.error };
     const brief = project.capBrief(res.text);
     if (!brief) return { error: 'The engine returned an empty brief.' };
-    return { brief, files: collected.files, truncated: collected.truncated, call: res.call, head: collected.head || null };
+    return { brief, call: res.call ? { model: res.call.model, in: (res.call.usage || {}).input || 0, out: (res.call.usage || {}).output || 0 } : null };
   }
+
+  const briefs = createBriefs({
+    getStore: () => store, collect: collectProject, describe: describeProject, gitHead, log,
+    onChange: (slug) => { const sess = sessions.get(slug); if (sess) sess.reread(); post(); },
+  });
 
   // Building a brief is one engine call, which is seconds. Without this the plug looked dead for
   // all of them, so it got clicked again, and every click started another attach.
   const attaching = new Set();
 
-  async function attachProject(slug, dir, sshHost = null) {
+  // Connecting is a read of the project's own files, which takes a moment, never an engine call,
+  // which takes half a minute (src/briefs.js). `force` is Rebuild: no reuse, a new engine brief.
+  async function attachProject(slug, dir, sshHost = null, { force = false } = {}) {
     if (!store || !slug) return;
     if (attaching.has(slug)) { notice('info', 'Still connecting to that project. One moment.'); return; }
-    const label = sshHost ? `${sshHost}:${path.posix.basename(dir.replace(/\/+$/, '')) || dir}` : (path.basename(dir) || dir);
-    const same = (p) => p.path === dir && (p.host || null) === (sshHost || null);
-    if (!engine.selection().ok) {
-      // Attaching without an engine is allowed: the folder is recorded and the brief builds later.
-      const list = (store.read(slug).projects || []).filter((p) => !same(p));
-      list.push({ id: `p${list.length + 1}`, label, path: dir, host: sshHost || undefined, brief: '', builtAt: 0, head: sshHost ? null : gitHead(dir), files: [], error: engine.selection().reason });
-      store.setProjects(slug, list);
-      const sess = sessions.get(slug); if (sess) sess.reread();
-      notice('info', `${label} attached. Its brief will build once an engine is signed in.`);
-      post();
-      return;
-    }
     attaching.add(slug);
     post();   // the panel has to show it started before the call, not after it finishes
-    notice('info', `Connecting to ${label}… one engine call to describe it.`);
-    let built;
+    let res;
     try {
-      built = await buildBrief(dir, label, sshHost);
+      res = await briefs.attach(slug, dir, sshHost, { force, engineReady: engine.selection().ok });
     } finally {
       attaching.delete(slug);
     }
-    const list = (store.read(slug).projects || []).filter((p) => !same(p));
-    const id = `p${Date.now().toString(36)}`;
-    const base = { id, label, path: dir, ...(sshHost ? { host: sshHost } : {}) };
-    if (built.error) {
-      list.push({ ...base, brief: '', builtAt: 0, head: sshHost ? null : gitHead(dir), files: [], error: built.error });
-      notice('error', `Could not describe ${label}: ${built.error}`);
-    } else {
-      list.push({
-        ...base, brief: built.brief, builtAt: Date.now(), head: sshHost ? built.head : gitHead(dir),
-        files: built.files, truncated: built.truncated,
-        call: built.call ? { model: built.call.model, in: (built.call.usage || {}).input || 0, out: (built.call.usage || {}).output || 0 } : null,
-        error: null,
-      });
-      notice('info', `${label} attached — read ${built.files.length} file${built.files.length === 1 ? '' : 's'}.`);
-    }
-    store.setProjects(slug, list);
     const sess = sessions.get(slug); if (sess) sess.reread();
+    const p = res.record;
+    if (res.error) {
+      notice('error', `Could not connect ${p.label}: ${res.error}`);
+    } else {
+      const more = res.reused ? '' : engine.selection().ok ? ' The engine is writing a fuller brief in the background.' : ' Sign in to an engine and rebuild it for a fuller brief.';
+      notice('info', `Connected to ${p.label}: read ${p.files.length} file${p.files.length === 1 ? '' : 's'}.${more}`);
+    }
     post();
   }
 
@@ -1471,7 +1458,7 @@ function create(host) {
       case 'project.refresh': {
         if (!s || !m.id) return;
         const p = (store.read(s.slug).projects || []).find((x) => x.id === String(m.id));
-        if (p) await attachProject(s.slug, p.path, p.host || null);
+        if (p) await attachProject(s.slug, p.path, p.host || null, { force: true });
         return;
       }
       case 'project.view': {
@@ -1660,7 +1647,7 @@ function create(host) {
         return;
       }
       case 'resolve':
-        if (s && m.conflictId && (m.keep === 'new' || m.keep === 'old')) s.resolve(m.conflictId, m.keep);
+        if (s && m.conflictId && (m.keep === 'new' || m.keep === 'old')) s.resolve(m.conflictId, m.keep, live.isHost() ? { by: live.me() } : {});
         return;
       case 'retry':
         if (s) { if (m.entryId) s.retry(m.entryId); else s.retryAll(); }

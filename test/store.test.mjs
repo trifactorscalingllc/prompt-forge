@@ -113,6 +113,25 @@ test('setConflicts keeps raisedAt for ids already open and stamps new ones; reso
   assert.equal(after.resolved[0].keep, 'new');
 });
 
+test('an answer given while a merge runs survives that merge rewriting the list, closes stamped when it was given, and can be taken back', () => {
+  const s = store.open(tmp());
+  const { slug } = s.create('P');
+  s.setConflicts(slug, [{ id: 'C1', section: 'Goal', existing: 'a', incoming: 'b' }]);
+  s.answerConflict(slug, 'C1', 'new', { by: { name: 'sam', machine: 'LAPTOP' } });
+  assert.equal(s.list()[0].openConflicts, 0, 'an answered conflict is not counted as open');
+  s.setConflicts(slug, [{ id: 'C1', section: 'Goal', existing: 'a', incoming: 'b' }, { id: 'C2', section: 'Goal', existing: 'c', incoming: 'd' }]);
+  const c1 = s.read(slug).conflicts[0];
+  assert.equal(c1.answer, 'new');
+  assert.deepEqual(c1.answeredBy, { name: 'sam', machine: 'LAPTOP' });
+  s.resolveConflict(slug, 'C1', 'new');
+  const r = s.read(slug).resolved[0];
+  assert.equal(r.ts, c1.answeredAt);
+  assert.deepEqual(r.who, { name: 'sam', machine: 'LAPTOP' });
+  s.answerConflict(slug, 'C2', 'old');
+  s.unanswerConflicts(slug, ['C2']);
+  assert.equal(s.read(slug).conflicts[0].answer, undefined);
+});
+
 test('remove moves both files into .trash and the prompt leaves the list', () => {
   const s = store.open(tmp());
   const { slug } = s.create('Gone');

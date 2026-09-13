@@ -97,6 +97,50 @@ test('a brief never reads a secret, a build directory, or anything oversized', (
   assert.ok(got.tree.includes('app/'), 'the shape of the project is still described');
 });
 
+test('a quick brief is written from the files alone, in the brief shape, with nothing secret in it', () => {
+  const fs = fakeFs({
+    ...REPO,
+    [j('acme-web', 'package.json')]: JSON.stringify({
+      name: 'acme-web', description: 'Online booking for salons.', main: 'server.js', type: 'module',
+      scripts: { dev: 'next dev', test: 'vitest' }, dependencies: { next: '^15.0.0', stripe: '^14.1.0' }, devDependencies: { vitest: '^2.0.0' },
+    }),
+    [j('acme-web', 'tsconfig.json')]: '{}',
+  });
+  const collected = project.collect(j('acme-web'), { fs });
+  const brief = project.quickBrief({ label: 'acme-web', dir: j('acme-web'), collected });
+  const lines = brief.split('\n');
+  assert.equal(lines[0], `## Project: acme-web  (${j('acme-web')})`, 'the same heading the engine brief uses');
+  assert.match(brief, /^Stack: TypeScript, Next\.js 15\.0\.0, Stripe 14\.1\.0, Vitest 2\.0\.0$/m);
+  assert.match(brief, /^Purpose: Online booking for salons\.$/m);
+  assert.match(brief, /^Entry points: server\.js, app\/layout\.tsx$/m);
+  assert.match(brief, /^Scripts: dev \(next dev\), test \(vitest\)$/m);
+  assert.match(brief, /^Conventions: TypeScript \(tsconfig\.json\); ES modules; house rules in AGENTS\.md$/m);
+  assert.match(brief, /^- Server components by default\.$/m, 'the project\'s own instructions to models travel as they are');
+  assert.match(brief, /^Do not assume: no tests found near the top of the tree; no GitHub Actions workflows$/m);
+  assert.ok(lines.length <= 40);
+  assert.ok(!/super-secret-value|sk_live_nope|BEGIN PRIVATE KEY|token/.test(brief), 'only what collect already let through');
+
+  const readmeOnly = project.quickBrief({
+    label: 'renamer', dir: '/x/renamer',
+    collected: { files: ['README.md'], tree: ['README.md', 'main.go', 'go.mod'], text: '--- README.md ---\n# Renamer\n[![ci](b.svg)](c)\n\nA CLI that renames [photos](https://e.com) by *date*.\nStill the same paragraph.\n\nSecond paragraph.\n\n--- go.mod ---\nmodule example.com/renamer\n\ngo 1.22\n' },
+  });
+  assert.match(readmeOnly, /^Purpose: A CLI that renames photos by date\. Still the same paragraph\.$/m, 'the first prose paragraph, links and emphasis reduced to words');
+  assert.match(readmeOnly, /^Stack: Go, Go 1\.22 \(module example\.com\/renamer\)$/m);
+  assert.match(readmeOnly, /^Entry points: main\.go$/m);
+
+  // A VS Code extension's manifest is longer than the 20 000 characters collect() keeps of a file.
+  const long = `{"name":"ext","description":"A VS Code extension.","main":"./extension.js","engines":{"vscode":"^1.94.0"},"scripts":{"test":"node --test"},"contributes":{"x":"${'y'.repeat(30000)}"}}`;
+  const cut = project.quickBrief({
+    label: 'ext', dir: '/x/ext',
+    collected: { files: ['package.json'], tree: ['package.json', 'extension.js', 'ext-1.0.0.vsix'], text: `--- package.json ---\n${long.slice(0, 20000)}\n… (truncated)` },
+  });
+  assert.match(cut, /^Purpose: A VS Code extension\.$/m, 'a manifest cut off by the read still gives up its fields');
+  assert.match(cut, /VS Code extension \(engine \^1\.94\.0\)/);
+  assert.match(cut, /^Scripts: test \(node --test\)$/m);
+  assert.match(cut, /^Entry points: extension\.js$/m);
+  assert.match(cut, /^Layout: package\.json, extension\.js$/m, 'a packaged build is output, not the shape of the project');
+});
+
 test('an oversized file is skipped by the same rule that lets a normal one through', () => {
   const big = { ...REPO, [j('acme-web', 'README.md')]: 'x'.repeat(project.MAX_FILE_BYTES + 1) };
   const got = project.collect(j('acme-web'), { fs: fakeFs(big) });
