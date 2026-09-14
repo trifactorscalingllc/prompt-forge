@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.15.0
+
+- **Send runs the prompt.** Choosing where to send it no longer stops at the input box. A new or recent conversation opens in a Claude terminal beside the editor with the prompt already sent, so you watch it start working. A terminal already running Claude gets the prompt and Enter. **Send update** runs what changed in the same conversation, in the terminal already open for it.
+- The prompt goes to `claude` as one argument, with no shell in between, so apostrophes, quotes and newlines arrive intact in PowerShell, cmd, zsh and fish. It is submitted even when Claude opens with a startup question, where a paste and Enter would have answered the question instead.
+- The Claude Code panel is not used for this: its open command only fills the input box, and nothing another extension can call presses Enter in it. `promptForge.sendSubmit: false` puts things back as they were.
+- On Windows an npm `claude.cmd` is passed over for the copy the Claude Code extension ships, since cmd.exe would cut the prompt at its first newline. A prompt too long for a command line (30,000 characters on Windows) is pasted and left for Enter, and the notice says why.
+- A conversation Send starts runs on your Claude login, never on an `ANTHROPIC_API_KEY` left in the environment.
+
 ## 0.14.1
 
 - **Connecting a project is immediate.** The plug connects in the time it takes to read the project's README, manifests and house-rules files, with a brief written straight from them: languages and framework versions, purpose, entry points, scripts, layout, conventions, the first lines of CLAUDE.md or AGENTS.md, and what is not set up. It no longer waits for an engine call first. The engine still writes its fuller brief, in the background, and that replaces the quick one when it lands; the plug's tooltip says which is in use. Another prompt connecting to the same project at the same commit reuses the engine's brief with no call, and Rebuild writes a new one.

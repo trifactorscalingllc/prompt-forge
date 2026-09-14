@@ -563,7 +563,9 @@
     closeTargetMenu();
     const menu = $('send-menu');
     menu.textContent = '';
-    menu.append(el('div', 'fhead', 'Send to Claude Code. It lands in the input box; nothing is sent until you press Enter there.'));
+    menu.append(el('div', 'fhead', !data ? 'Send to Claude Code.'
+      : data.submit ? 'Send to Claude Code. It runs as soon as it arrives.'
+        : 'Send to Claude Code. It lands in the input box; nothing is sent until you press Enter there.'));
     if (!data) {
       menu.append(el('div', 'fnote', 'Looking for Claude…'));
     } else if (!data.items || !data.items.length) {

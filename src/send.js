@@ -8,8 +8,16 @@
 //   4. a new Claude Code conversation in that folder (the panel when the extension is installed,
 //      otherwise a terminal running `claude`)
 //   5. for a project on an SSH host, a terminal on that host in that folder
-// Nothing is ever submitted on the person's behalf. The prompt lands in the input box, and Enter is
-// theirs: a prompt sent to the wrong conversation cannot be taken back.
+// With promptForge.sendSubmit on (the default) the prompt runs as soon as it arrives. A conversation
+// is opened as `claude <prompt>` (or `claude --resume <id> <prompt>`) in a terminal beside the
+// editor, and a terminal already running Claude gets the paste and then Enter. The Claude Code panel
+// cannot do this: its open command fills the input box and nothing any other extension can call
+// presses Enter there. With the setting off the prompt lands in the input box and Enter is theirs.
+//
+// claude is launched as the terminal's own process, never typed into a shell: the prompt is one
+// argument, so apostrophes, quotes and newlines need no quoting in PowerShell, cmd, zsh or fish.
+// Measured on 2.1.270: the argument is submitted even when a startup dialog is showing, where a
+// paste followed by Enter would have answered the dialog instead ("No, exit" is its default).
 //
 // This file is the part that does not need VS Code: finding conversations on disk, ordering the
 // choices, and building what is typed into a terminal. The runtime does the rest.
@@ -84,11 +92,44 @@ function findSentSession({ folder, sentAt, promptStart, home = os.homedir(), fs 
 
 const shq = (s) => `'${String(s).replace(/'/g, `'\\''`)}'`;
 
+/** The far shell's `cd` into the project folder, with ~ left for that shell to expand. */
+function remoteCd(dir) {
+  const d = String(dir || '~');
+  return d === '~' ? 'cd' : d.startsWith('~/') ? `cd "$HOME"/${shq(d.slice(2))}` : `cd ${shq(d)}`;
+}
+
 /** What a terminal on an SSH host runs to start Claude in the project folder. */
 function remoteClaudeCommand(host, dir) {
-  const d = String(dir || '~');
-  const cd = d === '~' ? 'cd' : d.startsWith('~/') ? `cd "$HOME"/${shq(d.slice(2))}` : `cd ${shq(d)}`;
-  return `ssh -t ${host} ${JSON.stringify(`${cd} && claude`)}`;
+  return `ssh -t ${host} ${JSON.stringify(`${remoteCd(dir)} && claude`)}`;
+}
+
+/**
+ * ssh's arguments for Claude on the host, in the folder, with the prompt already sent. ssh hands
+ * its last argument to the far (POSIX) shell as a line, so there the prompt is single-quoted.
+ */
+function remoteLaunchArgs(host, dir, text, { cli = 'claude' } = {}) {
+  return ['-t', host, `${remoteCd(dir)} && ${cli} ${shq(text)}`];
+}
+
+/** claude's arguments for a conversation that starts with the prompt sent: new, or a resumed one. */
+function claudeArgs({ text, resume = null, sessionId = null }) {
+  if (resume) return ['--resume', resume, String(text)];
+  return sessionId ? ['--session-id', sessionId, String(text)] : [String(text)];
+}
+
+/**
+ * The longest prompt that goes as an argument. Windows caps a whole command line at 32,767
+ * characters and Linux one argument at 128 KiB. A longer prompt is pasted and left for Enter.
+ */
+const ARG_LIMIT = { win32: 30000, other: 100000 };
+const fitsArgv = (text, platform = process.platform) => String(text || '').length <= (platform === 'win32' ? ARG_LIMIT.win32 : ARG_LIMIT.other);
+
+/**
+ * The claude to launch, from candidates in order of preference. A Windows .cmd or .bat shim is
+ * passed over: cmd.exe re-reads its arguments and would cut the prompt at its first newline.
+ */
+function launchBin(candidates, platform = process.platform) {
+  return (candidates || []).find((b) => b && !(platform === 'win32' && /\.(cmd|bat)$/i.test(b))) || null;
 }
 
 /**
@@ -138,4 +179,4 @@ function destinations({ folder = null, terminals = [], sessions = [], hasClaudeE
   return out;
 }
 
-module.exports = { projectKey, sessionTitle, recentSessions, findSentSession, remoteClaudeCommand, pasteSequence, destinations, shq };
+module.exports = { projectKey, sessionTitle, recentSessions, findSentSession, remoteClaudeCommand, remoteLaunchArgs, claudeArgs, fitsArgv, launchBin, ARG_LIMIT, pasteSequence, destinations, shq, oneLine };

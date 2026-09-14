@@ -5,6 +5,7 @@
 //
 // create() must touch nothing but `host` (the shell test builds it with a vscode that throws on
 // any access); every VS Code side effect lives in start() or a message handler.
+const crypto = require('node:crypto');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
@@ -654,31 +655,127 @@ function create(host) {
     return t;
   }
 
-  async function deliver(item, text) {
+  const sendSubmits = () => setting('sendSubmit', config().sendSubmit) !== false;
+
+  // Claude reads a paste as it arrives; an Enter in the same write can land before the paste is in.
+  const PASTE_SETTLE_MS = 400;
+  // The billing guarantee the engine keeps holds here too: a conversation Send starts runs on the
+  // Claude login, never on an API key that happens to be in the environment.
+  const SUBSCRIPTION_ENV = { ANTHROPIC_API_KEY: null, ANTHROPIC_AUTH_TOKEN: null };
+
+  // Terminals Send started, by conversation id or remote place, so a Send update goes into the one
+  // already running it instead of starting that conversation a second time.
+  const launched = new Map();
+  const alive = (t) => Boolean(t && !t.exitStatus && (vscode.window.terminals || []).includes(t));
+
+  /** claude to launch directly: the configured path, PATH, then the copy the Claude Code extension ships. */
+  function claudeBin() {
+    const ext = vscode.extensions && vscode.extensions.getExtension(CLAUDE_EXTENSION);
+    const bundled = ext ? path.join(ext.extensionPath, 'resources', 'native-binary', process.platform === 'win32' ? 'claude.exe' : 'claude') : null;
+    return sendMod.launchBin([
+      resolveBin('claude', { configured: (config().cli || {}).claudePath }),
+      bundled && fs.existsSync(bundled) ? bundled : null,
+    ]);
+  }
+
+  function claudeIcon() {
+    const ext = vscode.extensions && vscode.extensions.getExtension(CLAUDE_EXTENSION);
+    const svg = ext && path.join(ext.extensionPath, 'resources', 'claude-logo.svg');
+    return svg && fs.existsSync(svg) ? vscode.Uri.file(svg) : undefined;
+  }
+
+  /** A terminal beside the editor whose process is claude (or ssh) itself, so the prompt is one argument and needs no quoting. */
+  function launch({ key, name, cwd, shellPath, shellArgs }) {
+    const t = vscode.window.createTerminal({ name, cwd, shellPath, shellArgs, env: SUBSCRIPTION_ENV, iconPath: claudeIcon(), location: { viewColumn: vscode.ViewColumn.Beside } });
+    t.show(false);
+    if (key) launched.set(key, t);
+    return t;
+  }
+
+  async function pasteAndEnter(t, text) {
+    t.show(false);
+    t.sendText(sendMod.pasteSequence(text), false);
+    await sleep(PASTE_SETTLE_MS);
+    t.sendText('\r', false);
+  }
+
+  /**
+   * Deliver `text` to `item`. Returns { ran, sessionId?, why? }: ran is whether it was submitted, and
+   * why says what stopped a submit the setting asked for (the prompt is still delivered, unsent).
+   */
+  async function deliver(item, text, { folder = null } = {}) {
+    let why = '';
+    if (sendSubmits()) {
+      const bin = ['session', 'new-panel', 'new-terminal'].includes(item.kind) ? claudeBin() : null;
+      const ssh = item.kind === 'remote' ? resolveBin('ssh', {}) : null;
+      const cwd = folder || workspaceDir() || undefined;
+      switch (item.kind) {
+        case 'terminal': {
+          const t = claudeTerminals().find((x) => x.name === item.name);
+          if (!t) throw new Error(`the terminal "${item.name}" is closed`);
+          await pasteAndEnter(t, text);
+          return { ran: true };
+        }
+        case 'session': {
+          const open = launched.get(item.id);
+          if (alive(open)) { await pasteAndEnter(open, text); return { ran: true }; }
+          if (!bin) { why = 'claude was not found to run it'; break; }
+          if (!sendMod.fitsArgv(text)) { why = 'it is too long to start a conversation with'; break; }
+          launch({ key: item.id, name: `Claude · ${sendMod.oneLine(item.title || item.id, 30)}`, cwd, shellPath: bin, shellArgs: sendMod.claudeArgs({ text, resume: item.id }) });
+          return { ran: true };
+        }
+        case 'new-panel':
+        case 'new-terminal': {
+          if (!bin) { why = 'claude was not found to run it'; break; }
+          if (!sendMod.fitsArgv(text)) { why = 'it is too long to start a conversation with'; break; }
+          // Our own id, so the conversation is known at once and a Send update can reach it.
+          const sessionId = crypto.randomUUID();
+          launch({ key: sessionId, name: `Claude · ${path.basename(item.folder || cwd || '')}`, cwd: item.folder || cwd, shellPath: bin, shellArgs: sendMod.claudeArgs({ text, sessionId }) });
+          return { ran: true, sessionId };
+        }
+        case 'remote': {
+          const key = `remote:${item.host}:${item.dir}`;
+          const open = launched.get(key);
+          if (alive(open)) { await pasteAndEnter(open, text); return { ran: true }; }
+          if (!ssh) { why = 'ssh was not found'; break; }
+          if (!sendMod.fitsArgv(text)) { why = 'it is too long to start a conversation with'; break; }
+          launch({ key, name: `Claude · ${item.host}`, shellPath: ssh, shellArgs: sendMod.remoteLaunchArgs(item.host, item.dir, text) });
+          return { ran: true };
+        }
+        default:
+          throw new Error(`nowhere to send "${item.kind}"`);
+      }
+    }
     switch (item.kind) {
       case 'terminal': {
         const t = claudeTerminals().find((x) => x.name === item.name);
         if (!t) throw new Error(`the terminal "${item.name}" is closed`);
         t.show(false);
         t.sendText(sendMod.pasteSequence(text), false);
-        return;
+        return { ran: false, why };
       }
       case 'session':
+        if (!hasClaudeExtension()) throw new Error('the Claude Code extension is not installed');
         await vscode.commands.executeCommand('claude-vscode.editor.open', item.id, text);
-        return;
+        return { ran: false, why };
       case 'new-panel':
         await vscode.commands.executeCommand('claude-vscode.editor.open', undefined, text);
-        return;
+        return { ran: false, why };
       case 'new-terminal':
         await startTerminal({ name: `Claude · ${path.basename(item.folder)}`, cwd: item.folder, command: 'claude', text });
-        return;
+        return { ran: false, why };
       case 'remote':
         await startTerminal({ name: `Claude · ${item.host}`, cwd: undefined, command: sendMod.remoteClaudeCommand(item.host, item.dir), text });
-        return;
+        return { ran: false, why };
       default:
         throw new Error(`nowhere to send "${item.kind}"`);
     }
   }
+
+  /** What the notice says once a prompt is delivered. */
+  const deliveredNote = (r, where, what = 'The prompt') => (r.ran
+    ? `${what} is running in ${where}.`
+    : `${what} is in ${where}. Press Enter there to send it.${r.why ? ` It was not sent for you: ${r.why}.` : ''}`);
 
   const destLabel = (d) => (d.kind === 'terminal' ? `the terminal "${d.name}"` : d.kind === 'session' ? `the conversation "${d.title || d.id}"` : d.kind === 'remote' ? `Claude on ${d.host}` : 'a new Claude Code conversation');
 
@@ -703,7 +800,8 @@ function create(host) {
       const found = sendMod.findSentSession({ folder: remembered.folder, sentAt: snap.sent.ts, promptStart: remembered.promptStart });
       remembered = found ? { kind: 'session', id: found.id, title: found.title } : null;
     }
-    const items = sendMod.destinations({ folder, terminals, sessions: sessionsHere, hasClaudeExtension: hasClaudeExtension(), remembered, remote: far });
+    // A conversation that runs on send is resumed by claude itself, so it needs no panel to be offered.
+    const items = sendMod.destinations({ folder, terminals, sessions: sessionsHere, hasClaudeExtension: hasClaudeExtension() || sendSubmits(), remembered, remote: far });
     return { snap, items, remembered };
   }
 
@@ -724,6 +822,7 @@ function create(host) {
       items: items.map(({ kind, label, description, last, name, id, title, folder, host, dir }) => ({ kind, label, description, last: Boolean(last), name, id, title, folder, host, dir })),
       unfilled: names.filter((n) => !values[n]),
       files: snap.files.length,
+      submit: sendSubmits(),
       ...extra,
     });
   }
@@ -735,16 +834,20 @@ function create(host) {
     const item = sendPlan(s).items.find((i) => sameDest(i, dest));
     if (!item) { notice('warn', 'That place is no longer there. Pick another.'); postSendMenu(s, { open: true }); return; }
     const text = await s.sendText();
+    let r;
     try {
-      await deliver(item, text);
+      r = await deliver(item, text, { folder: sendPlaces(s).folder });
     } catch (e) {
       notice('error', `Could not send: ${e.message}`);
       return;
     }
     const { label: _l, description: _d, last: _last, index: _i, ...rest } = item;
-    const record = rest.kind === 'new-panel' ? { kind: 'new-panel', folder: rest.folder, promptStart: text.split('\n').find((l) => l.trim()) || '' } : rest;
+    const promptStart = text.split('\n').find((l) => l.trim()) || '';
+    // A conversation started with our own id is known now; one opened in the panel only once Enter is pressed there.
+    const record = r.sessionId ? { kind: 'session', id: r.sessionId, title: sendMod.oneLine(promptStart) }
+      : rest.kind === 'new-panel' ? { kind: 'new-panel', folder: rest.folder, promptStart } : rest;
     await s.markSent(record);
-    notice('info', `The prompt is in ${destLabel(item)}. Press Enter there to send it.`);
+    notice('info', deliveredNote(r, destLabel(item)));
     post();
   }
 
@@ -759,9 +862,9 @@ function create(host) {
     const live = remembered && items.find((d) => d.last);
     if (live) {
       try {
-        await deliver(live, add.text);
+        const r = await deliver(live, add.text, { folder: sendPlaces(s).folder });
         await s.markSent(remembered);
-        notice('info', `What changed is in ${destLabel(remembered)}. Press Enter there to send it.${add.restyled ? ' The prompt was restyled since, so the whole prompt may read better.' : ''}`);
+        notice('info', `${deliveredNote(r, destLabel(remembered), 'What changed')}${add.restyled ? ' The prompt was restyled since, so the whole prompt may read better.' : ''}`);
         post();
         return;
       } catch (e) {

@@ -74,3 +74,35 @@ test('destinations: the remembered place first when it still exists, then live t
   const noExt = send.destinations({ ...opts, hasClaudeExtension: false, remembered: null });
   assert.deepEqual(noExt.map((x) => x.kind), ['terminal', 'new-terminal', 'remote'], 'without the extension there is no panel to open a conversation in');
 });
+
+test('a conversation that runs on send gets the prompt as one argument, byte for byte, new or resumed', () => {
+  const text = "# Brief\n\nIt's \"quoted\", $HOME stays literal; `and` so do backticks.\n";
+  assert.deepEqual(send.claudeArgs({ text }), [text]);
+  assert.deepEqual(send.claudeArgs({ text, sessionId: 'abc' }), ['--session-id', 'abc', text], 'a new conversation carries our own id, so it is known at once');
+  assert.deepEqual(send.claudeArgs({ text, resume: 's1', sessionId: 'ignored' }), ['--resume', 's1', text]);
+});
+
+test('a prompt too long for a command line is not launched as an argument', () => {
+  assert.equal(send.fitsArgv('x'.repeat(send.ARG_LIMIT.win32), 'win32'), true);
+  assert.equal(send.fitsArgv('x'.repeat(send.ARG_LIMIT.win32 + 1), 'win32'), false, 'Windows caps the whole line at 32K');
+  assert.equal(send.fitsArgv('x'.repeat(send.ARG_LIMIT.win32 + 1), 'darwin'), true);
+  assert.equal(send.fitsArgv('x'.repeat(send.ARG_LIMIT.other + 1), 'linux'), false, 'Linux caps one argument at 128 KiB');
+});
+
+test('the claude launched is never a Windows cmd shim, which would cut the prompt at its first newline', () => {
+  assert.equal(send.launchBin(['C:\\npm\\claude.cmd', 'C:\\ext\\claude.exe'], 'win32'), 'C:\\ext\\claude.exe');
+  assert.equal(send.launchBin([null, 'C:\\x\\claude.BAT'], 'win32'), null);
+  assert.equal(send.launchBin(['/usr/local/bin/claude', '/ext/claude'], 'darwin'), '/usr/local/bin/claude');
+  assert.equal(send.launchBin([null, '/ext/claude'], 'linux'), '/ext/claude');
+});
+
+test('Claude on an SSH host starts in the folder with the prompt sent, and the far shell reads the prompt back exactly', { skip: process.platform === 'win32' && 'needs a POSIX shell' }, async () => {
+  const text = "Line one, it's here.\nLine \"two\" with $HOME, `whoami` and a '\\'' trap.";
+  const args = send.remoteLaunchArgs('mini', '~/code/my app', text);
+  assert.deepEqual(args.slice(0, 2), ['-t', 'mini']);
+  assert.ok(args[2].startsWith('cd "$HOME"/\'code/my app\' && claude \''));
+  // What ssh would hand the far shell, run by a local one: only the prompt comes out.
+  const { execFileSync } = await import('node:child_process');
+  const [, , line] = send.remoteLaunchArgs('mini', '~', text, { cli: "printf '%s'" });
+  assert.equal(execFileSync('/bin/sh', ['-c', line], { encoding: 'utf8' }), text);
+});

@@ -88,7 +88,7 @@ function html({ vscode, webview, mediaRoots, stamp }) {
             <div class="col-actions">
               <button id="polish" class="iconbtn" title="Rewrite the document in the target model&#39;s preferred style. After the first polish only what changed is rewritten; Alt+click rewrites all of it.">${ICON.hammer}</button>
               <button id="run" class="iconbtn" title="Send this prompt to a model and show the answer. Costs one call.">${ICON.send}</button>
-              <button id="send-claude" class="iconbtn" aria-haspopup="listbox" aria-expanded="false" title="Send to Claude Code: a terminal running Claude, a conversation in this project, or a new one. It lands in the input box; nothing is submitted until you press Enter there.">${ICON.terminal}</button>
+              <button id="send-claude" class="iconbtn" aria-haspopup="listbox" aria-expanded="false" title="Send to Claude Code: a terminal running Claude, a conversation in this project, or a new one. It runs as soon as it arrives, unless the Send Submit setting is off.">${ICON.terminal}</button>
               <button id="send-update" class="iconbtn addon" hidden>${ICON.terminal}<span id="send-update-count"></span></button>
               <button id="copy-new" class="iconbtn swap addon" hidden><span class="i-off">${ICON.copyPlus}</span><span class="i-on">${ICON.check}</span><span id="copy-new-count"></span></button>
               <button id="copy" class="iconbtn swap" title="Copy the final prompt to the clipboard"><span class="i-off">${ICON.copy}</span><span class="i-on">${ICON.check}</span></button>

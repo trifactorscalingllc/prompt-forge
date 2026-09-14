@@ -2,7 +2,7 @@
   "name": "prompt-forge-trifactor",
   "displayName": "Prompt Forge for VS Code",
   "description": "Build complicated prompts one idea at a time. Every Enter merges an idea into a structured prompt, contradictions surface instead of being guessed away, Polish rewrites it for the model you are sending it to, and Send puts it straight into Claude Code. Works with your own Claude, Gemini, or OpenAI login, or any API key.",
-  "version": "0.14.1",
+  "version": "0.15.0",
   "publisher": "trifactorscaling",
   "license": "MIT",
   "repository": {
@@ -405,6 +405,13 @@
           "scope": "window",
           "order": 10.5,
           "markdownDescription": "Show suggestions in the prompt where a section is empty or thin. They are advice only: they live beside the prompt, never inside it, so they are never copied and never saved into the document."
+        },
+        "promptForge.sendSubmit": {
+          "type": "boolean",
+          "default": true,
+          "scope": "window",
+          "order": 10.6,
+          "markdownDescription": "Run a prompt as soon as **Send** delivers it to Claude Code. A new or recent conversation opens in a Claude terminal beside the editor with the prompt already sent, and a terminal already running Claude gets the prompt and Enter. Off: the prompt lands in the input box (the Claude Code panel's, when that extension is installed) and pressing Enter is yours."
         },
         "promptForge.projectRoots": {
           "type": "array",

@@ -67,7 +67,9 @@ An idea can carry files. Images and PDFs go to the engine as content blocks wher
 4. a new Claude Code conversation (a terminal running `claude` if the Claude Code extension is not installed)
 5. Claude on the SSH host of an attached remote project
 
-The prompt lands in the input box and nothing is submitted: pressing Enter is yours. After more ideas, **Send update** carries only what changed to the same place. If that place is gone, the whole prompt goes to the new one.
+The prompt runs as soon as it arrives. A new or recent conversation opens in a Claude terminal beside the editor with the prompt already sent, and a terminal already running Claude gets the prompt and Enter. After more ideas, **Send update** carries only what changed to the same place, and runs it there too. If that place is gone, the whole prompt goes to the new one.
+
+The Claude Code panel cannot be sent to this way: its open command only fills the input box, and nothing another extension can call presses Enter in it. Set `promptForge.sendSubmit` to `false` to go back to that: the prompt lands in the input box (the panel's, when the Claude Code extension is installed) and pressing Enter is yours.
 
 ## Variables
 
