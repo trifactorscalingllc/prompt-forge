@@ -767,11 +767,53 @@
     body.append(el('span', 'sg-kind', kind === 'action' ? 'Act on this' : 'Worth adding'));
     if (sg.section) body.append(el('span', 'sg-where', sg.section));
     body.append(el('span', 'sg-text', sg.text));
+    if (Array.isArray(sg.options) && sg.options.length) body.append(suggestionChoices(sg));
     const x = el('button', 'sg-x', '\u00d7');
     x.title = 'Dismiss. It will not come back for this prompt.';
     x.addEventListener('click', () => vscode.postMessage({ type: 'suggestion.dismiss', text: sg.text }));
     card.append(body, x);
     return card;
+  }
+
+  // A suggestion that asks for a choice lists its likely answers as buttons. Tick the ones that
+  // apply and Add sends them as one idea, which the merge writes into that section. The ticks live
+  // here, keyed by the advice, so a repaint while you are choosing does not clear them.
+  const ticked = new Map();   // suggestion text -> Set of ticked options
+
+  function suggestionChoices(sg) {
+    const row = el('div', 'sg-opts');
+    const picked = ticked.get(sg.text) || new Set();
+    ticked.set(sg.text, picked);
+    for (const p of [...picked]) if (!sg.options.includes(p)) picked.delete(p);
+    const add = el('button', 'sg-add');
+    const where = sg.section || 'the prompt';
+    const label = () => {
+      add.disabled = !picked.size;
+      add.textContent = picked.size ? `Add ${picked.size === 1 ? 'it' : `these ${picked.size}`} to ${where}` : 'Tick what applies';
+    };
+    for (const opt of sg.options) {
+      const b = el('button', 'sg-opt', opt);
+      b.setAttribute('aria-pressed', String(picked.has(opt)));
+      b.title = `Tick "${opt}" as part of your answer`;
+      b.addEventListener('click', () => {
+        if (picked.has(opt)) picked.delete(opt); else picked.add(opt);
+        b.setAttribute('aria-pressed', String(picked.has(opt)));
+        label();
+      });
+      row.append(b);
+    }
+    add.addEventListener('click', () => {
+      if (!picked.size) return;
+      const picks = sg.options.filter((o) => picked.has(o));
+      ticked.delete(sg.text);
+      add.disabled = true;
+      add.textContent = 'Adding…';
+      row.querySelectorAll('.sg-opt').forEach((b) => { b.disabled = true; });
+      vscode.postMessage({ type: 'suggestion.apply', text: sg.text, picks });
+    });
+    label();
+    row.append(add);
+    return row;
   }
 
   const budgetDesc = (s) => {

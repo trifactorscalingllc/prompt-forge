@@ -23,6 +23,7 @@ const { modelBlurb, ROLE_BLURBS } = require('./blurbs');
 const project = require('./project');
 const remote = require('./remote');
 const sendMod = require('./send');
+const suggestMod = require('./suggest');
 const clipfiles = require('./clipfiles');
 const { selectionIdea } = require('./selection');
 const { createSync } = require('./sync');
@@ -1281,6 +1282,15 @@ function create(host) {
       case 'suggestion.dismiss':
         if (s && m.text) await liveAsk('dismissSuggestion', { slug, text: String(m.text) });
         return true;
+      case 'suggestion.apply': {
+        if (!needPrompt() || !m.text) return true;
+        const sg = (s.snapshot().suggestions || []).find((x) => x.text === String(m.text));
+        const picks = sg ? suggestMod.picksFrom(sg.options, m.picks) : [];
+        if (!picks.length) return true;
+        await liveAsk('idea', { slug, text: suggestMod.clarificationIdea({ section: sg.section, text: sg.text, picks }) });
+        await liveAsk('dismissSuggestion', { slug, text: sg.text });
+        return true;
+      }
       case 'idea.dismiss':
         if (s && m.text) await liveAsk('dismissIdea', { slug, text: String(m.text) });
         return true;
@@ -1551,6 +1561,18 @@ function create(host) {
       case 'suggestion.dismiss':
         if (s && m.text) s.dismissSuggestion(String(m.text));
         return;
+      case 'suggestion.apply': {
+        // The ticks are matched against the options this suggestion offers now, never taken as sent.
+        if (!s || !m.text) return;
+        const sg = (s.snapshot().suggestions || []).find((x) => x.text === String(m.text));
+        if (!sg) { notice('info', 'That suggestion has gone; the prompt changed since.'); post(); return; }
+        const picks = suggestMod.picksFrom(sg.options, m.picks);
+        if (!picks.length) return;
+        if (!engine.selection().ok) { notice('error', engine.selection().reason); post(); return; }
+        s.submitIdea(suggestMod.clarificationIdea({ section: sg.section, text: sg.text, picks }), [], live.isHost() ? { by: live.me() } : {});
+        s.dismissSuggestion(sg.text);
+        return;
+      }
       case 'setSuggestions':
         await updateSetting('suggestions', m.value !== false);
         post();

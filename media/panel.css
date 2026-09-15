@@ -337,6 +337,21 @@ html, body { height: 100%; overflow: hidden; max-width: 100%; }
 .sg-text { opacity: 0.92; }
 .sg-x { flex: none; background: none; border: none; color: inherit; opacity: 0.45; cursor: pointer; padding: 0 3px; line-height: 1; }
 .sg-x:hover { opacity: 1; }
+/* Answers to tick: outlined until chosen, then filled in the card's own colour. */
+.sg-opts { display: flex; flex-wrap: wrap; align-items: center; gap: 5px; margin-top: 7px; }
+.sg-opt { font: inherit; font-size: 0.95em; line-height: 1.5; padding: 1px 9px 1px 7px; border-radius: 999px; cursor: pointer;
+  color: var(--vscode-foreground); background: transparent; border: 1px solid rgba(128, 128, 128, 0.45); }
+.sg-opt::before { content: '+'; display: inline-block; width: 1em; text-align: center; opacity: 0.6; }
+.sg-opt[aria-pressed="true"]::before { content: '\2713'; opacity: 1; }
+.sg-opt:hover:not(:disabled) { border-color: rgba(128, 128, 128, 0.8); }
+.suggestion.action .sg-opt[aria-pressed="true"] { border-color: #e5534b; background: rgba(229, 83, 75, 0.24); }
+.suggestion.info .sg-opt[aria-pressed="true"] { border-color: #3fb950; background: rgba(63, 185, 80, 0.24); }
+.sg-add { font: inherit; font-size: 0.95em; line-height: 1.5; padding: 1px 10px; border-radius: 999px; cursor: pointer; border: 1px solid transparent;
+  color: var(--vscode-button-foreground); background: var(--vscode-button-background); }
+.sg-add:hover:not(:disabled) { background: var(--vscode-button-hoverBackground); }
+.sg-add:disabled { cursor: default; color: var(--vscode-descriptionForeground); background: transparent; }
+.sg-opt:disabled { cursor: default; opacity: 0.6; }
+.sg-opt:focus-visible, .sg-add:focus-visible { outline: 1px solid var(--vscode-focusBorder); outline-offset: 1px; }
 
 /* Add-on copy: present only when there is something new, so it carries a count rather than a
    label. Tinted, because it is not the button you reach for by default. */

@@ -3,6 +3,7 @@
 // Never throws: a bad engine reply is an ordinary outcome the panel shows with a Retry.
 const { stripConflictBlock } = require('../doc');
 const { applyEdits } = require('./edits');
+const { optionsFor } = require('../suggest');
 
 function tryParse(s) {
   try {
@@ -109,7 +110,10 @@ function parseEngineOutput(text, { kind = 'merge', inputDoc = '' } = {}) {
         .slice(0, 3)
         .map((x) => {
           const section = str(x.section).trim().slice(0, 60);
-          return { section, kind: suggestionKind(section, x.kind), text: str(x.text).replace(/\s+/g, ' ').trim().slice(0, 400) };
+          const text = str(x.text).replace(/\s+/g, ' ').trim().slice(0, 400);
+          // Answers to tick, when the advice asks for a choice. Left off entirely when there are none.
+          const options = optionsFor({ options: x.options, text });
+          return { section, kind: suggestionKind(section, x.kind), text, ...(options.length ? { options } : {}) };
         })
       : [],
     ideas: Array.isArray(obj.ideas)

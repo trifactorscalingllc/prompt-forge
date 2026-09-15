@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.16.0
+
+- **Tick the answer to a suggestion.** When a suggestion asks you to choose ("Name the formats you accept, e.g. CSV, JSON or XML"), its likely answers appear under it as buttons. Tick the ones that apply and **Add** sends them as one idea that names the suggestion it answers, so the merge writes them into that section and the suggestion goes away. Nothing is added until you press Add.
+- The engine now offers these options itself where a sensible set exists. Suggestions saved before this version get buttons from the examples already written in their text.
+- In a shared library the answer goes to the sharer's window like any other idea.
+
 ## 0.15.0
 
 - **Send runs the prompt.** Choosing where to send it no longer stops at the input box. A new or recent conversation opens in a Claude terminal beside the editor with the prompt already sent, so you watch it start working. A terminal already running Claude gets the prompt and Enter. **Send update** runs what changed in the same conversation, in the terminal already open for it.

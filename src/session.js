@@ -8,6 +8,7 @@ const targets = require('./targets');
 const { buildMergePrompt, buildPolishPrompt, mergeSystem } = require('./engine/prompt');
 const { buildAddendum, diffSections } = require('./addendum');
 const { parseEngineOutput } = require('./engine/output');
+const { optionsFor } = require('./suggest');
 const { formatDoc } = require('./engine/format');
 const S = require('./engine/sections');
 const { forEngine } = require('./attachments');
@@ -612,7 +613,8 @@ function createSession({ slug, store, docio, engine, cfg, log, publish = () => {
       ],
       keepVersions: keepBodies(),
       projects: (sc.projects || []).map((p) => ({ ...p })),
-      suggestions: (sc.suggestions || []).map((x) => ({ ...x })),
+      // Suggestions saved before options existed still get the examples in their text as buttons.
+      suggestions: (sc.suggestions || []).map((x) => { const options = optionsFor(x); return options.length ? { ...x, options } : { ...x }; }),
       ideas: (sc.ideas || []).map((x) => ({ ...x })),
       copied: sc.copied ? { ts: sc.copied.ts } : null,
       sent: sc.sent ? { ts: sc.sent.ts, dest: sc.sent.dest } : null,
