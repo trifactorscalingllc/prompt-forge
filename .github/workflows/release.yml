@@ -7,6 +7,8 @@ permissions:
 jobs:
   release:
     runs-on: ubuntu-latest
+    # Room for every publish retry below; a hung job still ends on its own.
+    timeout-minutes: 45
     # Job level, not step level, and this is the whole point: a step's `if` is evaluated before that
     # step's own `env:` block exists, so `if: env.VSCE_PAT != ''` on a step that defines VSCE_PAT
     # itself is always false. Set here, both the gate and the publish see it.
@@ -28,7 +30,17 @@ jobs:
           generate_release_notes: true
       - name: Publish to the VS Code Marketplace
         if: ${{ env.VSCE_PAT != '' }}
-        run: npx --yes @vscode/vsce@3 publish --skip-duplicate --packagePath prompt-forge-trifactor-*.vsix
+        # Retried, so a release needs nobody watching. In Sept 2026 the Marketplace's upload timed out
+        # after 3 minutes ("Request timeout: /_apis/gallery") three runs in a row for 0.16.0 while the
+        # token verified fine, and the fourth went through. --skip-duplicate makes a retry safe when
+        # an attempt that reported a timeout had in fact landed.
+        run: |
+          for attempt in 1 2 3 4 5 6; do
+            if npx --yes @vscode/vsce@3 publish --skip-duplicate --packagePath prompt-forge-trifactor-*.vsix; then exit 0; fi
+            echo "::warning::Marketplace publish attempt $attempt failed; trying again in 2 minutes"
+            sleep 120
+          done
+          exit 1
       - name: Publish to Open VSX
         if: ${{ env.OVSX_PAT != '' }}
         run: npx --yes ovsx publish prompt-forge-trifactor-*.vsix -p "$OVSX_PAT"
