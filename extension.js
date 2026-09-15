@@ -62,6 +62,7 @@ function readConfig() {
     },
     suggestions: c.get('suggestions', true),
     sendSubmit: c.get('sendSubmit', true),
+    autoForge: { mode: c.get('autoForge', 'off'), minChars: c.get('autoForgeMinChars', 400), minPrompts: c.get('autoForgeMinPrompts', 3) },
     keepVersionBodies: c.get('keepVersionBodies', 20),
     docEditor: c.get('docEditor', 'forge'),
     sourcePath: c.get('sourcePath', ''),
@@ -224,12 +225,16 @@ function activate(context) {
     vscode.commands.registerCommand('promptForge.syncNow', () => send({ type: 'sync.now' })),
     vscode.commands.registerCommand('promptForge.setUpSync', () => send({ type: 'sync.setup' })),
     vscode.commands.registerCommand('promptForge.live', () => send({ type: 'live.menu' })),
-    // An invite link, vscode://trifactorscaling.prompt-forge-trifactor/join?code=…, joins a live library.
+    // Links into the extension. An invite, vscode://trifactorscaling.prompt-forge-trifactor/join?code=…,
+    // joins a live library. Anything else (/forge/undo?id=…, from an auto-forge card in a Claude Code
+    // chat) is the hot runtime's to handle, so new links never need a restart.
     vscode.window.registerUriHandler({
       handleUri(uri) {
-        if (String(uri.path || '').replace(/\/+$/, '') !== '/join') return;
-        const code = new URLSearchParams(uri.query || '').get('code');
-        if (code) send({ type: 'live.join', code });
+        const p = String(uri.path || '').replace(/\/+$/, '');
+        const query = Object.fromEntries(new URLSearchParams(uri.query || ''));
+        if (p === '/join') { if (query.code) send({ type: 'live.join', code: query.code }); return; }
+        const rt = hot.current();
+        if (rt) rt.handleMessage({ type: 'uri', path: p, query }).catch((e) => log.error(`link ${p} failed: ${e.stack || e.message}`));
       },
     }),
   );

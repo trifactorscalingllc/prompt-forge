@@ -1,0 +1,7 @@
+{
+  "name": "prompt-forge",
+  "version": "0.17.0",
+  "description": "Lets Prompt Forge notice a bigger job in this chat, offer to forge its long prompts into one prompt, and undo it with /unforge.",
+  "author": { "name": "Trifactor Scaling" },
+  "homepage": "https://github.com/trifactorscalingllc/prompt-forge"
+}

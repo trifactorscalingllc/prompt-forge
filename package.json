@@ -2,7 +2,7 @@
   "name": "prompt-forge-trifactor",
   "displayName": "Prompt Forge for VS Code",
   "description": "Build complicated prompts one idea at a time. Every Enter merges an idea into a structured prompt, contradictions surface instead of being guessed away, Polish rewrites it for the model you are sending it to, and Send puts it straight into Claude Code. Works with your own Claude, Gemini, or OpenAI login, or any API key.",
-  "version": "0.16.0",
+  "version": "0.17.0",
   "publisher": "trifactorscaling",
   "license": "MIT",
   "repository": {
@@ -412,6 +412,39 @@
           "scope": "window",
           "order": 10.6,
           "markdownDescription": "Run a prompt as soon as **Send** delivers it to Claude Code. A new or recent conversation opens in a Claude terminal beside the editor with the prompt already sent, and a terminal already running Claude gets the prompt and Enter. Off: the prompt lands in the input box (the Claude Code panel's, when that extension is installed) and pressing Enter is yours."
+        },
+        "promptForge.autoForge": {
+          "type": "string",
+          "enum": [
+            "off",
+            "confirm"
+          ],
+          "enumDescriptions": [
+            "Never watch Claude Code chats.",
+            "When a Claude Code chat in this window's folders has had several long prompts, Claude asks whether to forge them into one prompt here."
+          ],
+          "default": "off",
+          "scope": "window",
+          "order": 10.7,
+          "markdownDescription": "Offer to forge a bigger job in a Claude Code chat into one prompt. Turning it on installs a small Claude Code plugin (`prompt-forge@prompt-forge-local`); chats started after that report their prompts to this window, and when enough long ones arrive Claude asks whether to forge them. The card it posts can be undone, or type `/unforge`. Turning it off removes the plugin. Nothing is read while it is off."
+        },
+        "promptForge.autoForgeMinChars": {
+          "type": "number",
+          "default": 400,
+          "minimum": 100,
+          "maximum": 5000,
+          "scope": "window",
+          "order": 10.8,
+          "markdownDescription": "How long a Claude Code prompt must be, in characters, to count toward auto-forge. Pasted code, stack traces and @-mentions are not counted."
+        },
+        "promptForge.autoForgeMinPrompts": {
+          "type": "number",
+          "default": 3,
+          "minimum": 2,
+          "maximum": 10,
+          "scope": "window",
+          "order": 10.9,
+          "markdownDescription": "How many long prompts, among a chat's last 8, make Claude ask whether to forge them."
         },
         "promptForge.projectRoots": {
           "type": "array",

@@ -296,6 +296,8 @@ function open(libraryPath, { home } = {}) {
   const setCopyMark = (slug, doc) => withSidecar(slug, (sc) => { sc.copied = { doc: String(doc == null ? '' : doc), ts: now() }; return sc.copied; });
   const setSentMark = (slug, doc, dest) => withSidecar(slug, (sc) => { sc.sent = { doc: String(doc == null ? '' : doc), ts: now(), dest: dest || null }; return sc.sent; });
   const setPolished = (slug, mark) => withSidecar(slug, (sc) => { sc.polished = mark ? { ...mark, ts: now() } : null; return sc.polished; });
+  // Where a prompt came from when it was not typed here: auto-forge records the Claude Code chat.
+  const setOrigin = (slug, origin) => withSidecar(slug, (sc) => { sc.origin = origin ? { ...origin, ts: now() } : null; return sc.origin; });
   const setVars = (slug, values) => withSidecar(slug, (sc) => {
     sc.vars = { ...(sc.vars || {}) };
     for (const [k, v] of Object.entries(values || {})) {
@@ -409,7 +411,7 @@ function open(libraryPath, { home } = {}) {
 
   return {
     dir, docPath, sidecarPath, exists, read, write, create, list, stats,
-    appendEntry, updateEntry, addSnapshot, pruneBodies, setTarget, setTitle, setProjects, setCopyMark, setSentMark, setPolished, setVars, addRun,
+    appendEntry, updateEntry, addSnapshot, pruneBodies, setTarget, setTitle, setProjects, setCopyMark, setSentMark, setPolished, setOrigin, setVars, addRun,
     saveImage, saveFile, imageDir, filesDir, attachmentPath, imagePath: attachmentPath, portablePath, resolvePortable,
     setSuggestions, dismissSuggestion, setIdeas, dismissIdea, setConflicts, answerConflict, unanswerConflicts, resolveConflict, remove,
     readDoc, writeDoc,

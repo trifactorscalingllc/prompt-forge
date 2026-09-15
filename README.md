@@ -71,6 +71,14 @@ The prompt runs as soon as it arrives. A new or recent conversation opens in a C
 
 The Claude Code panel cannot be sent to this way: its open command only fills the input box, and nothing another extension can call presses Enter in it. Set `promptForge.sendSubmit` to `false` to go back to that: the prompt lands in the input box (the panel's, when the Claude Code extension is installed) and pressing Enter is yours.
 
+## Auto-forge in Claude Code chats
+
+Off by default. Turn it on under **Settings › Auto-forge in Claude chats**. It installs a small Claude Code plugin, and chats started afterwards in this window's folders report their prompts to Prompt Forge.
+
+When a chat has had 3 prompts of 400+ characters among its last 8, Claude asks, in its own question dialog, whether to forge them into one prompt. **Forge them** merges them with the same engine and rules as typed ideas, and Claude posts a card: what changed, any conflict held back, and links to **Undo** or **Open in Prompt Forge**. Type `/unforge` to undo the chat's last forge. Change the numbers with `promptForge.autoForgeMinChars` and `promptForge.autoForgeMinPrompts`.
+
+When no VS Code window is running auto-forge, the plugin's hooks reach nothing and the chat shows nothing. Headless `claude -p` runs are never watched. Turning it off removes the plugin.
+
 ## Variables
 
 Write `{{client}}` (or any name) in an idea or the document. The slot stays in the document; fill it in the strip under the prompt, or when you copy. Copy, Send and a test run get the value, so one prompt serves every client, repo or audience it is written for.

@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.17.0
+
+**Auto-forge, phase 1: a Claude Code chat that turns into a bigger job can be forged into one prompt, from inside the chat.** Off by default.
+
+- **Turn it on** under Settings › Auto-forge in Claude chats, or with `promptForge.autoForge: "confirm"`. That installs a small Claude Code plugin, `prompt-forge@prompt-forge-local`. Chats started afterwards, in this window's folders, report their prompts to Prompt Forge; chats already open need restarting.
+- **When a chat has had 3 prompts of 400+ characters** among its last 8, a line in the chat says it looks like a bigger job. When Claude finishes that reply, it asks in its own question dialog: *Forge them*, *Not now* or *Never in this chat*. Pasted code, stack traces, @-mentions and slash commands are not counted. Both numbers are settings.
+- **Forge them** merges those prompts into a new prompt in the library, with the same engine and rules as typed ideas, so contradictions are held back as conflicts. Claude then posts a card: the prompt's name, what changed, any conflict held back, and links to **Undo** or **Open in Prompt Forge**. Prompt Forge's panel shows the same with an Undo button.
+- **`/unforge`** in the chat undoes the chat's last forge: a new prompt goes to the library's trash, and a forge into an existing prompt goes back to the version before. More long prompts in the same chat are offered as an update to the same prompt.
+- **Never in the way:** the hooks read a private local address from `~/.prompt-forge/autoforge-url` each time. When no VS Code window is running auto-forge, that file is gone and the chat shows nothing. Headless `claude -p` runs and chats outside this window's folders are ignored. Turning auto-forge off removes the plugin.
+
 ## 0.16.0
 
 - **Tick the answer to a suggestion.** When a suggestion asks you to choose ("Name the formats you accept, e.g. CSV, JSON or XML"), its likely answers appear under it as buttons. Tick the ones that apply and **Add** sends them as one idea that names the suggestion it answers, so the merge writes them into that section and the suggestion goes away. Nothing is added until you press Add.

@@ -201,6 +201,21 @@ Auto-forge is off by default, and switching it on lists exactly what is read. Pr
 
 Still to check: clicking a card link, and the `curl` hook on Windows (Claude Code runs hooks through Git Bash there).
 
-**Phase 1:** plugin, endpoint, detection, confirm-first, card, undo, `/unforge`. Ships with the setting `off`.
+**Phase 1:** plugin, endpoint, detection, confirm-first, card, undo, `/unforge`. Ships with the setting `off`. Built for 0.17.0 (2026-09-15):
+
+| Piece | Where | Tested by |
+|---|---|---|
+| Plugin: 3 `curl … \|\| true` hooks, `/unforge` | `claude-plugin/` | `claude plugin validate`; install, repeat install and uninstall in an isolated `CLAUDE_CONFIG_DIR` |
+| Endpoint, URL in `~/.prompt-forge/autoforge-url` (0600) | `src/autoforge/agent.js` | `test/autoforge.test.mjs` |
+| Detection, card text, the chat state machine | `detect.js`, `card.js`, `controller.js` | `test/autoforge.test.mjs`, plus a real `claude --plugin-dir` chat driven end to end: offer, question, Forge them, card, `/prompt-forge:unforge` |
+| Install and remove through the CLI | `install.js` | unit test with a fake CLI |
+| Wiring: real merge, notices, Undo button, links, settings row | `src/runtime.js`, `extension.js` | not yet run inside VS Code |
+
+Found while building:
+- A plugin command reaches `UserPromptSubmit` namespaced, as `/prompt-forge:unforge`.
+- The hook's `CLAUDE_CODE_ENTRYPOINT` is `cli` in a terminal chat. `sdk` runs are ignored.
+- The card's `Stop` hook fires with `stop_hook_active: true`, because it follows the question in the same turn. The controller's one-shot states prevent loops, not that flag.
+
+Settings are flat (`autoForge`, `autoForgeMinChars`, `autoForgeMinPrompts`), because a string setting with dotted children reads back as an object.
 **Phase 2:** questions, answers, `Q2:`, and the Reply button in the panel.
 **Phase 3:** auto mode, tuning, wrong detection, digest.

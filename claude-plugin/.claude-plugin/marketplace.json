@@ -1,0 +1,15 @@
+{
+  "name": "prompt-forge-local",
+  "owner": { "name": "Trifactor Scaling" },
+  "metadata": {
+    "description": "The Claude Code plugin the Prompt Forge VS Code extension installs when auto-forge is switched on."
+  },
+  "plugins": [
+    {
+      "name": "prompt-forge",
+      "source": "./prompt-forge",
+      "description": "Lets Prompt Forge notice a bigger job in this chat, offer to forge its long prompts into one prompt, and undo it with /unforge.",
+      "version": "0.17.0"
+    }
+  ]
+}

@@ -457,6 +457,12 @@
       : 'On. Where a section is empty or thin, a note in the prompt says what belongs there. They live beside the prompt and never inside it, so a copy never carries one and a hand edit cannot save one into the document.',
       small(s.suggestions === false ? 'Turn on' : 'Turn off', null,
         () => vscode.postMessage({ type: 'setSuggestions', value: s.suggestions === false })));
+    const af = s.autoForge || { mode: 'off', minChars: 400, minPrompts: 3 };
+    row('Auto-forge in Claude chats', af.mode === 'confirm'
+      ? `On, asking first. When a Claude Code chat in this window's folders has had ${af.minPrompts} prompts of ${af.minChars}+ characters, Claude asks whether to forge them into one prompt here. The card it posts has an Undo link, or type /unforge.`
+      : 'Off. Turning it on installs a small Claude Code plugin, so chats started afterwards can offer to forge a bigger job into one prompt here. Nothing is read while it is off.',
+      small(af.mode === 'confirm' ? 'Turn off' : 'Turn on', null,
+        () => vscode.postMessage({ type: 'setAutoForge', value: af.mode === 'confirm' ? 'off' : 'confirm' })));
 
     row('Prompts list', lay.railCollapsed
       ? 'Collapsed to a strip. The chevron on the strip brings it back, as does Prompt Forge: Toggle the Prompts List.'

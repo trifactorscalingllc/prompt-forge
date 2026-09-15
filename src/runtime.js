@@ -24,6 +24,10 @@ const project = require('./project');
 const remote = require('./remote');
 const sendMod = require('./send');
 const suggestMod = require('./suggest');
+const { createAutoForge } = require('./autoforge/controller');
+const { createAgent } = require('./autoforge/agent');
+const { createInstaller, pluginVersion } = require('./autoforge/install');
+const afDetect = require('./autoforge/detect');
 const clipfiles = require('./clipfiles');
 const { selectionIdea } = require('./selection');
 const { createSync } = require('./sync');
@@ -170,6 +174,7 @@ function create(host) {
       blurbs: blurbs(engine.state()),
       sync: syncState(),
       hasClaudeExtension: hasClaudeExtension(),
+      autoForge: (() => { const a = autoForgeSettings(); return { mode: a.mode, minChars: a.minChars, minPrompts: a.minPrompts, listening: Boolean(afAgent && afAgent.owns()) }; })(),
     };
   }
 
@@ -878,6 +883,154 @@ function create(host) {
   }
 
   // ------------------------------------------------------------------------------------------
+  // Auto-forge (docs/auto-forge.md). A Claude Code chat in this window's folders that turns into a
+  // bigger job is offered forging. The plugin's hooks post to a local endpoint, the controller
+  // decides, and the forge is an ordinary prompt in this library, merged by the same engine as a
+  // typed idea. Phase 1 asks first. A joined live library never runs it: that library is the sharer's.
+  // ------------------------------------------------------------------------------------------
+  const PLUGIN_SOURCE = path.join(__dirname, '..', 'claude-plugin');
+  const PLUGIN_STATE = 'promptForge.autoForgePlugin';
+  const EXTENSION_ID = (() => {
+    try {
+      const p = JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'package.json'), 'utf8'));
+      return `${p.publisher}.${p.name}`;
+    } catch {
+      return 'trifactorscaling.prompt-forge-trifactor';
+    }
+  })();
+  const autoForgeSettings = () => {
+    const c = config().autoForge || {};
+    return afDetect.settingsFrom({ mode: setting('autoForge', c.mode), minChars: setting('autoForgeMinChars', c.minChars), minPrompts: setting('autoForgeMinPrompts', c.minPrompts) });
+  };
+  let afAgent = null;
+  let afApplying = Promise.resolve();
+
+  /** A person's chat (not a headless run) whose folder is one of this window's. */
+  function chatInScope(cwd, entrypoint) {
+    if (entrypoint && /sdk/i.test(String(entrypoint))) return false;
+    if (!cwd) return false;
+    return (vscode.workspace.workspaceFolders || []).some((f) => {
+      const rel = path.relative(f.uri.fsPath, cwd);
+      return rel === '' || (!rel.startsWith('..') && !path.isAbsolute(rel));
+    });
+  }
+
+  async function waitForEntries(slug, ids, timeoutMs) {
+    const until = Date.now() + timeoutMs;
+    while (!disposed && Date.now() < until) {
+      if (!store || !store.exists(slug)) return null;
+      const sc = store.read(slug);
+      const mine = sc.entries.filter((e) => ids.includes(e.id));
+      if (mine.length === ids.length && mine.every((e) => e.status === 'merged' || e.status === 'failed')) return sc;
+      await sleep(400);
+    }
+    return null;
+  }
+
+  /** Merge a chat's long prompts: into a new prompt, or into the one this chat was forged into before. */
+  async function forgeFromChat({ sessionId, cwd, texts, slug }) {
+    if (!store) return { ok: false, error: 'the prompt library is not open' };
+    if (live.isGuest()) return { ok: false, error: "this window is in someone else's live library" };
+    const sel = engine.selection();
+    if (!sel.ok) return { ok: false, error: sel.reason };
+    let created = false;
+    if (!slug || !store.exists(slug)) {
+      slug = store.create('Untitled').slug;
+      store.setOrigin(slug, { kind: 'claude-chat', sessionId, cwd });
+      created = true;
+    }
+    const s = await ensureSession(slug);
+    const before = (store.read(slug).snapshots.slice(-1)[0] || {}).id || null;
+    const by = { name: 'Claude Code chat', machine: path.basename(cwd || '') };
+    const ids = texts.map((t) => s.submitIdea(t, [], { by })).filter(Boolean).map((e) => e.id);
+    post();
+    const undo = { slug, created, before };
+    const sc = await waitForEntries(slug, ids, (((config().engine || {}).timeoutSeconds) || 240) * 1000 + 30000);
+    if (!sc) {
+      const title = store && store.exists(slug) ? store.read(slug).title : 'Untitled';
+      return { ok: true, slug, title, changes: ['Still merging when this card was written: open it in Prompt Forge for the result'], conflicts: [], undo };
+    }
+    const mine = sc.entries.filter((e) => ids.includes(e.id));
+    if (mine.length && mine.every((e) => e.status === 'failed')) {
+      if (created) await removePrompt(slug);
+      return { ok: false, error: mine[0].error || 'the merge failed' };
+    }
+    const changes = sc.snapshots.filter((x) => (x.entryIds || []).some((id) => ids.includes(id))).flatMap((x) => x.changes || []);
+    return { ok: true, slug, title: sc.title, changes, conflicts: (sc.conflicts || []).filter((c) => !c.answer), undo };
+  }
+
+  /** A new forged prompt goes to the trash; a forge into an existing one restores the version before it. */
+  async function undoChatForge(u) {
+    if (!u || !store || !store.exists(u.slug)) return { ok: false, reason: 'that prompt is no longer in the library' };
+    if (u.created) { await removePrompt(u.slug); return { ok: true }; }
+    const s = await ensureSession(u.slug);
+    const r = await s.restore(u.before);
+    post();
+    if (r.ok) return { ok: true };
+    return { ok: false, reason: r.reason === 'busy' ? 'the engine is still merging that prompt, try again in a moment' : r.reason };
+  }
+
+  function onAutoForgeEvent(e) {
+    if (e.type === 'forged') notice('info', `Auto-forged ${e.count} prompts from a Claude Code chat into "${e.title}".`, { label: 'Undo', message: { type: 'autoforge.undo', id: e.forgeId } });
+    else if (e.type === 'failed') notice('warn', `Auto-forge could not forge ${e.count} prompts from a Claude Code chat: ${e.error}`);
+    else if (e.type === 'undone') notice('info', `Undid the auto-forge into "${e.title}". It is in the library's trash, or back to the version before.`);
+    else log.info(`auto-forge: ${e.type} in chat ${String(e.sessionId || '').slice(0, 8)}`);
+  }
+
+  const autoForge = createAutoForge({
+    settings: autoForgeSettings,
+    engineReady: () => {
+      if (!store) return { ok: false, reason: 'the prompt library is not open' };
+      const sel = engine.selection();
+      return sel.ok ? { ok: true } : { ok: false, reason: sel.reason };
+    },
+    inScope: chatInScope,
+    forge: forgeFromChat,
+    undo: undoChatForge,
+    uriFor: (action, id) => `vscode://${EXTENSION_ID}/forge/${action}?id=${id}`,
+    onEvent: onAutoForgeEvent,
+    log,
+  });
+
+  const pluginInstaller = createInstaller({
+    runCli,
+    sourceDir: PLUGIN_SOURCE,
+    log,
+    claudeBin: () => resolveBin('claude', { configured: (config().cli || {}).claudePath }) || claudeBin(),
+  });
+
+  /** Listen or not, and install or remove the Claude Code plugin, to match the setting. One at a time. */
+  function applyAutoForge(reason) {
+    afApplying = afApplying.then(() => applyAutoForgeNow(reason)).catch((e) => log.warn(`auto-forge: ${e.stack || e.message}`));
+    return afApplying;
+  }
+
+  async function applyAutoForgeNow(reason) {
+    if (disposed) return;
+    const on = autoForgeSettings().mode !== 'off' && Boolean(store) && !live.isGuest();
+    if (on) {
+      if (!afAgent) {
+        afAgent = createAgent({ handle: (event, input) => autoForge.handle(event, input), log });
+        await afAgent.start();
+      }
+      const version = pluginVersion(PLUGIN_SOURCE);
+      if (globalState.get(PLUGIN_STATE) === version) return;
+      const r = await pluginInstaller.ensure();
+      if (!r.ok) { notice('error', `Auto-forge is on, but its Claude Code plugin could not be installed: ${r.error}`); return; }
+      await globalState.update(PLUGIN_STATE, version);
+      notice('info', "Auto-forge is on. Claude Code chats started from now on, in this window's folders, will offer to forge a bigger job into one prompt here. Chats already open need restarting first.");
+      return;
+    }
+    if (afAgent) { const a = afAgent; afAgent = null; await a.dispose(); }
+    // Only a person turning it off removes the plugin; a reload or a closed window must not.
+    if (reason === 'setting' && globalState.get(PLUGIN_STATE)) {
+      const r = await pluginInstaller.remove();
+      await globalState.update(PLUGIN_STATE, undefined);
+      notice(r.ok ? 'info' : 'warn', r.ok ? 'Auto-forge is off, and its Claude Code plugin is removed.' : `Auto-forge is off, but its Claude Code plugin could not be removed: ${r.error}`);
+    }
+  }
+
+  // ------------------------------------------------------------------------------------------
   // Library sync
   // ------------------------------------------------------------------------------------------
   let sync = null;
@@ -1577,6 +1730,36 @@ function create(host) {
         await updateSetting('suggestions', m.value !== false);
         post();
         return;
+      case 'setAutoForge':
+        await updateSetting('autoForge', m.value === 'confirm' ? 'confirm' : 'off');
+        await applyAutoForge('setting');
+        post();
+        return;
+      case 'autoforge.undo': {
+        const r = await autoForge.undoById(String(m.id || ''));
+        if (!r.ok) notice('warn', `Nothing undone: ${r.reason}.`);
+        return;
+      }
+      case 'uri': {
+        // A link from an auto-forge card in a Claude Code chat. The panel comes forward so the click
+        // visibly did something.
+        const id = String((m.query && m.query.id) || '');
+        if (!id) return;
+        if (m.path === '/forge/undo') {
+          panelNow();
+          const r = await autoForge.undoById(id);
+          if (!r.ok) notice('warn', `Nothing undone: ${r.reason}.`);
+          return;
+        }
+        if (m.path === '/forge/open') {
+          const f = autoForge.forgeById(id);
+          const slug = f && f.result && f.result.ok ? f.result.slug : null;
+          panelNow();
+          if (!slug || !store || !store.exists(slug)) { notice('warn', 'That forged prompt is no longer known to this window.'); return; }
+          await openSession(slug, { reveal: true });
+        }
+        return;
+      }
       case 'project.detach':
         if (s && m.id) detachProject(s.slug, String(m.id));
         return;
@@ -1921,6 +2104,9 @@ function create(host) {
           engine.detectAll().then(() => { if (!disposed) post(); });
         }
         if (e.affectsConfiguration('promptForge.sync') && !live.isGuest()) { startSync(); post(); }
+        if (['promptForge.autoForge', 'promptForge.autoForgeMinChars', 'promptForge.autoForgeMinPrompts'].some((k) => e.affectsConfiguration(k))) {
+          applyAutoForge('setting').then(() => { if (!disposed) post(); });
+        }
       }));
       // Coming back to the window is when the other machine's changes are most likely waiting.
       if (vscode.window.onDidChangeWindowState) {
@@ -1940,6 +2126,7 @@ function create(host) {
         }
       });
       startSync();
+      applyAutoForge('start');
       const last = globalState.get(LAST_OPEN);
       if (last && store.exists(last)) {
         openSession(last, { reveal: false }).catch((e) => log.error(`could not reopen ${last}: ${e.message}`));
@@ -1956,6 +2143,8 @@ function create(host) {
       live.dispose();
       for (const d of liveDocs.values()) clearTimeout(d.timer);
       stopSync();
+      autoForge.dispose();
+      if (afAgent) { afAgent.dispose(); afAgent = null; }
       docEditors.dispose();
       for (const s of sessions.values()) s.dispose();
       sessions.clear();

@@ -1,0 +1,39 @@
+{
+  "description": "Posts each hook event to Prompt Forge in VS Code. The URL is read from ~/.prompt-forge/autoforge-url on every call; when Prompt Forge is not running the file is gone, curl fails, and || true keeps the chat silent.",
+  "hooks": {
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "curl -s -m 3 -X POST -H 'Content-Type: application/json' -H \"X-Claude-Entrypoint: ${CLAUDE_CODE_ENTRYPOINT:-}\" --data-binary @- \"$(cat \"$HOME/.prompt-forge/autoforge-url\" 2>/dev/null)/prompt\" || true",
+            "timeout": 5
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "curl -s -m 25 -X POST -H 'Content-Type: application/json' -H \"X-Claude-Entrypoint: ${CLAUDE_CODE_ENTRYPOINT:-}\" --data-binary @- \"$(cat \"$HOME/.prompt-forge/autoforge-url\" 2>/dev/null)/stop\" || true",
+            "timeout": 30
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "AskUserQuestion",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "curl -s -m 3 -X POST -H 'Content-Type: application/json' -H \"X-Claude-Entrypoint: ${CLAUDE_CODE_ENTRYPOINT:-}\" --data-binary @- \"$(cat \"$HOME/.prompt-forge/autoforge-url\" 2>/dev/null)/ask\" || true",
+            "timeout": 5
+          }
+        ]
+      }
+    ]
+  }
+}
