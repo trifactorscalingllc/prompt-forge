@@ -307,8 +307,9 @@
         controls.push(small('Set key', 'Optional. Stored in your OS keychain.', () => vscode.postMessage({ type: 'engine.setKey', provider: p.id })));
       } else {
         if (!p.cli.found) {
-          status = 'CLI not installed.';
-          if (p.installUrl) controls.push(small('Install', null, () => vscode.postMessage({ type: 'openUrl', url: p.installUrl })));
+          status = p.installable ? 'Not installed. Prompt Forge can install it for you.' : 'CLI not installed.';
+          if (p.installable) controls.push(small('Install', 'Runs the official installer in a terminal, waits for it, then offers the sign-in.', () => vscode.postMessage({ type: 'engine.installCli', provider: p.id })));
+          else if (p.installUrl) controls.push(small('Install', null, () => vscode.postMessage({ type: 'openUrl', url: p.installUrl })));
         } else if (p.cli.loggedIn) {
           status = `Signed in${p.cli.account ? ` as ${p.cli.account}` : ''}${p.cli.plan ? ` · ${p.cli.plan}` : ''} · CLI ${p.cli.version || ''}`;
         } else {

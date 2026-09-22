@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.19.0
+
+- **No engine? Prompt Forge installs one.** Where it used to say "CLI not installed" and leave you to find the docs, the Claude row in settings now says *Prompt Forge can install it for you* and **Install** does it: it shows you the official command first, runs it in a terminal you can watch (no admin rights, nothing else touched), waits for the CLI to appear, and then offers the sign-in. Every notice about a missing engine carries the same button.
+- **A CLI installed a minute ago works straight away.** A window's PATH is the one it started with, so Prompt Forge also looks where the official installer puts `claude` — `~/.local/bin`, or `%USERPROFILE%\.local\bin` on Windows — instead of asking you to reload VS Code.
+- Sign in on a machine with no CLI now offers the install as the first choice, with the API key still there as the second.
+
 ## 0.18.0
 
 - **Advice beside the prompt stays until you act on it.** Suggestions and ideas used to be replaced wholesale by every merge, so a note you meant to come back to disappeared the moment another idea merged. Now each merge **adds** what it noticed to what is already there. A card goes when you act on it: tick its options and press Add, or wave it away with the ×. Nothing else removes one.

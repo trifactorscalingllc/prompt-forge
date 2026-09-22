@@ -21,6 +21,8 @@ Prompt Forge has no model of its own and no server. It uses whatever you already
 | OpenAI | `codex` CLI, signed in with `codex login` | OpenAI API key |
 | OpenAI-compatible | — | Any base URL (Ollama, LM Studio, OpenRouter, a company gateway), key optional |
 
+**No CLI yet? Prompt Forge installs one.** If `claude` is not on the machine, the Claude row in settings says so and **Install** runs the official installer for you: it shows the command first, runs it in a terminal you can watch, needs no admin rights, waits for the CLI to appear, then offers the sign-in. It also looks where the installer puts `claude` (`~/.local/bin`, `%USERPROFILE%\.local\bin` on Windows), so a CLI installed a minute ago works without reloading the window.
+
 **Sign-in rides on the vendor's own CLI.** No vendor lets a third-party extension log into a chat subscription directly, so Prompt Forge detects the CLI, reads its login state, and opens the vendor's login in a terminal when you click Sign in. API keys are stored in VS Code SecretStorage (your OS keychain), never in settings, logs or files.
 
 Two models are chosen per provider: a fast one for every merge and the best one for Polish. `auto` picks sensible defaults from the models your account can reach; you can pick others or type any model id.

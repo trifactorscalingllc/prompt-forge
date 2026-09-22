@@ -265,7 +265,8 @@ function create({ runCli, openCli = null, resolveBin, fetch, fs, home }) {
 
   return {
     id: 'claude', label: 'Claude', modes: ['cli', 'apiKey'],
-    installUrl: 'https://code.claude.com/docs/en/overview',
+    installUrl: 'https://code.claude.com/docs/en/setup',
+    installable: true,
     keyUrl: 'https://console.anthropic.com/settings/keys',
     signIn: { cli: { command: 'claude', args: ['auth', 'login'] } },
     detect, listModels, defaults,

@@ -28,6 +28,7 @@ const { createAutoForge } = require('./autoforge/controller');
 const { createAgent } = require('./autoforge/agent');
 const { createInstaller, pluginVersion } = require('./autoforge/install');
 const afDetect = require('./autoforge/detect');
+const installCli = require('./install-cli');
 const clipfiles = require('./clipfiles');
 const { selectionIdea } = require('./selection');
 const { createSync } = require('./sync');
@@ -105,7 +106,16 @@ function create(host) {
     docHtml: view.docHtml,
     mediaRoots: () => (host.mediaRoots ? host.mediaRoots() : []),
   });
-  const providers = createProviders({ runCli, openCli, resolveBin, fetch: globalThis.fetch, fs, home: os.homedir() });
+  // The engine's CLI: what the settings name, then PATH, then where the official installer puts it.
+  // The last one is what makes an install we just ran usable without reloading the window, because
+  // this extension host's PATH is the one it started with.
+  function resolveEngineBin(name, opts = {}) {
+    const found = resolveBin(name, opts);
+    if (found || (opts.configured && String(opts.configured).trim())) return found;
+    return installCli.installedPath(name);
+  }
+
+  const providers = createProviders({ runCli, openCli, resolveBin: resolveEngineBin, fetch: globalThis.fetch, fs, home: os.homedir() });
   const engine = createEngine({ providers, config: effectiveConfig, secrets, log });
 
   // A live library (src/live): this window shares its library, or has joined someone else's. What a
@@ -530,15 +540,18 @@ function create(host) {
     if (mode === 'apiKey' || !p.signIn) return setKey(id);
     const det = engine.detections().find((d) => d.id === id);
     if (!det || !det.cli.found) {
+      const plan = installCli.installPlan(p.id);
       const choice = await uiPick({
-        title: `The ${p.label} CLI is not on your PATH.`,
-        detail: 'Install it and sign in, or use an API key instead.',
+        title: `The ${p.label} CLI is not installed.`,
+        detail: plan ? 'Prompt Forge can install it for you, or you can pay per token with an API key instead.' : 'Install it and sign in, or use an API key instead.',
         items: [
-          ...(p.installUrl ? [{ value: 'install', label: 'Open the install page', description: p.installUrl, icon: 'link' }] : []),
+          ...(plan ? [{ value: 'install', label: `Install the ${p.label} CLI`, description: 'Prompt Forge runs the official installer in a terminal and waits for it', icon: 'cloud-download' }] : []),
+          ...(p.installUrl ? [{ value: 'page', label: 'Open the install page', description: p.installUrl, icon: 'link' }] : []),
           { value: 'key', label: 'Use an API key instead', description: 'Stored in your OS keychain, never in settings', icon: 'key' },
         ],
       });
-      if (choice === 'install' && p.installUrl) await vscode.env.openExternal(vscode.Uri.parse(p.installUrl));
+      if (choice === 'install') { await installEngineCli(id); return; }
+      if (choice === 'page' && p.installUrl) await vscode.env.openExternal(vscode.Uri.parse(p.installUrl));
       if (choice === 'key') await setKey(id);
       return;
     }
@@ -547,6 +560,67 @@ function create(host) {
     term.show(true);
     term.sendText(cmd, true);
     notice('info', `Finish the ${p.label} login in the terminal, then click "Detect again".`);
+  }
+
+  /** Say what the engine is missing, with the button that fixes the commonest case: no CLI at all. */
+  function noticeEngine(reason) {
+    const claude = engine.detections().find((d) => d.id === 'claude');
+    const offer = claude && !claude.cli.found && installCli.installPlan('claude');
+    notice('error', reason, offer ? { label: 'Install the Claude CLI', message: { type: 'engine.installCli', provider: 'claude' } } : null);
+  }
+
+  /**
+   * Install a vendor CLI for the person: the official command, in a terminal they can watch, and
+   * then Prompt Forge waits for the CLI to appear and offers the sign-in. Nobody should have to read
+   * a docs page to make the tool they just installed work.
+   */
+  async function installEngineCli(id) {
+    const p = providerById(id);
+    if (!p) return;
+    const plan = installCli.installPlan(p.id);
+    if (!plan) {
+      if (p.installUrl) await vscode.env.openExternal(vscode.Uri.parse(p.installUrl));
+      return;
+    }
+    const det = engine.detections().find((d) => d.id === id);
+    if (det && det.cli.found) {
+      notice('info', `The ${p.label} CLI is already installed${det.cli.version ? ` (${det.cli.version})` : ''}. Sign in to it next.`, { label: 'Sign in', message: { type: 'engine.signIn', provider: id, mode: 'cli' } });
+      return;
+    }
+    const ok = await uiConfirm({
+      title: `Install the ${p.label} CLI?`,
+      text: `Prompt Forge will run the official installer in a terminal, where you can watch it:\n\n${plan.command}\n\nIt installs to ${plan.where}, asks for no admin rights, and changes nothing else. You can also install it yourself and click Detect again.`,
+      okLabel: 'Install it',
+    });
+    if (!ok) return;
+    const shellPath = plan.shell === 'powershell'
+      ? (resolveBin('pwsh', {}) || resolveBin('powershell', {}) || undefined)
+      : undefined;
+    const term = vscode.window.createTerminal({ name: `Prompt Forge: install ${p.label}`, shellPath });
+    term.show(true);
+    term.sendText(plan.command, true);
+    notice('info', `Installing the ${p.label} CLI in the terminal. Prompt Forge is watching for it and will say when it is ready.`);
+    const cli = await waitForCli(id, 240000);
+    if (!cli) {
+      notice('warn', `Prompt Forge cannot see \`${p.id}\` yet. If the installer is still going, give it a moment and click Detect again.`, { label: 'Open the install page', message: { type: 'openUrl', url: plan.docsUrl } });
+      return;
+    }
+    notice('info', `The ${p.label} CLI is installed${cli.version ? ` (${cli.version})` : ''}. One more step: sign in to it.`, { label: 'Sign in', message: { type: 'engine.signIn', provider: id, mode: 'cli' } });
+    post();
+  }
+
+  /** Re-detect every few seconds until the CLI is there, so the person is told rather than left guessing. */
+  async function waitForCli(id, timeoutMs) {
+    const until = Date.now() + timeoutMs;
+    while (!disposed && Date.now() < until) {
+      await sleep(3000);
+      if (disposed) return null;
+      await engine.detectAll();
+      const det = engine.detections().find((d) => d.id === id);
+      post();
+      if (det && det.cli.found) return det.cli;
+    }
+    return null;
   }
 
   async function setKey(id) {
@@ -1639,7 +1713,7 @@ function create(host) {
         return;
       case 'idea':
         if (!s) { notice('info', 'Create or open a prompt first.'); return; }
-        if (!engine.selection().ok) { notice('error', engine.selection().reason); return; }
+        if (!engine.selection().ok) { noticeEngine(engine.selection().reason); return; }
         // While the library is shared, every idea says who sent it; the people who joined see it.
         s.submitIdea(m.text, Array.isArray(m.attachments) ? m.attachments : Array.isArray(m.images) ? m.images : [], live.isHost() ? { by: live.me() } : {});
         return;
@@ -1647,13 +1721,13 @@ function create(host) {
         const target = await sessionForCommand();
         if (!target) return;
         if (m.text != null && String(m.text).trim()) {
-          if (!engine.selection().ok) { notice('error', engine.selection().reason); return; }
+          if (!engine.selection().ok) { noticeEngine(engine.selection().reason); return; }
           target.submitIdea(String(m.text), [], live.isHost() ? { by: live.me() } : {});
           return;
         }
         // Ideas are typed in the idea box: the panel comes forward with the cursor in it.
         panelOnce({ type: 'focus', target: 'idea' });
-        if (!engine.selection().ok) notice('error', engine.selection().reason);
+        if (!engine.selection().ok) noticeEngine(engine.selection().reason);
         return;
       }
       case 'addSelection': {
@@ -1661,7 +1735,7 @@ function create(host) {
         if (!target) return;
         // Into the idea box, with the cursor above the code so a note can go first; Enter sends it.
         panelOnce({ type: 'draft', text: selectionIdea({ note: '', text: m.text, file: m.file, start: m.start, end: m.end, lang: m.lang }) });
-        if (!engine.selection().ok) notice('error', engine.selection().reason);
+        if (!engine.selection().ok) noticeEngine(engine.selection().reason);
         return;
       }
       case 'idea.dismiss':
@@ -1721,7 +1795,7 @@ function create(host) {
         if (!sg) { notice('info', 'That suggestion has gone; the prompt changed since.'); post(); return; }
         const picks = suggestMod.picksFrom(sg.options, m.picks);
         if (!picks.length) return;
-        if (!engine.selection().ok) { notice('error', engine.selection().reason); post(); return; }
+        if (!engine.selection().ok) { noticeEngine(engine.selection().reason); post(); return; }
         s.submitIdea(suggestMod.clarificationIdea({ section: sg.section, text: sg.text, picks }), [], live.isHost() ? { by: live.me() } : {});
         s.dismissSuggestion(sg.text);
         return;
@@ -1784,12 +1858,12 @@ function create(host) {
         return;
       case 'polish':
         if (!s) return;
-        if (!engine.selection().ok) { notice('error', engine.selection().reason); return; }
+        if (!engine.selection().ok) { noticeEngine(engine.selection().reason); return; }
         s.polish({ full: Boolean(m.full) });
         return;
       case 'run': {
         if (!s) { notice('info', 'Create or open a prompt first.'); return; }
-        if (!engine.selection().ok) { notice('error', engine.selection().reason); return; }
+        if (!engine.selection().ok) { noticeEngine(engine.selection().reason); return; }
         post();
         const r = await s.run();
         if (r && r.error && r.error !== 'disposed') notice('error', `The run failed: ${r.error}`);
@@ -1962,7 +2036,7 @@ function create(host) {
         return;
       case 'editIdea':
         if (!s) return;
-        if (!engine.selection().ok) { notice('error', engine.selection().reason); return; }
+        if (!engine.selection().ok) { noticeEngine(engine.selection().reason); return; }
         if (!s.editIdea(m.entryId, m.text)) notice('info', 'Nothing changed.');
         return;
       case 'openDoc':
@@ -2033,6 +2107,9 @@ function create(host) {
         return;
       case 'engine.signIn':
         await signIn(m.provider || await pickProvider('Sign in to which engine?', (p) => Boolean(p.signIn)), m.mode || 'cli');
+        return;
+      case 'engine.installCli':
+        await installEngineCli(String(m.provider || 'claude'));
         return;
       case 'engine.setKey':
         await setKey(m.provider || await pickProvider('Store an API key for which engine?'));
