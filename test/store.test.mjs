@@ -261,3 +261,31 @@ test('a project path is stored portably, so the same library opens on another ma
   assert.equal(s.resolvePortable(`~${pathn.sep}a`), pathn.join(osn.homedir(), 'a'));
   fsn.rmSync(dir, { recursive: true, force: true });
 });
+
+test('advice is added to what is already there, never replaced, and a dismissal is what removes it', () => {
+  const s = store.open(path.join(tmp(), 'lib'));
+  const { slug } = s.create('Advice');
+  s.addSuggestions(slug, [{ section: 'Goal', text: 'Say who reads it.' }, { section: 'Requirements', text: 'Name the formats.' }]);
+  s.addSuggestions(slug, [{ section: 'Goal', text: '  say WHO reads it!  ' }, { section: 'Output format', text: 'Say what it returns.' }]);
+  assert.deepEqual(s.read(slug).suggestions.map((x) => x.text), ['Say who reads it.', 'Name the formats.', 'Say what it returns.'], 'the same advice reworded is one card, in the order it first arrived');
+  assert.ok(s.read(slug).suggestions.every((x) => x.ts > 0));
+
+  s.dismissSuggestion(slug, 'name the formats');
+  assert.deepEqual(s.read(slug).suggestions.map((x) => x.text), ['Say who reads it.', 'Say what it returns.'], 'dismissed by what it says, not by exact characters');
+  s.addSuggestions(slug, [{ section: 'Requirements', text: 'Name the formats.' }]);
+  assert.equal(s.read(slug).suggestions.length, 2, 'a dismissed one never comes back');
+
+  // Only an explicit clear empties them, and a prompt that collects too many drops its oldest.
+  s.setSuggestions(slug, [{ section: 'Goal', text: 'Fresh advice for the new target.' }]);
+  assert.deepEqual(s.read(slug).suggestions.map((x) => x.text), ['Fresh advice for the new target.']);
+  for (let n = 0; n < 60; n++) s.addSuggestions(slug, [{ section: 'Goal', text: `advice ${n}` }]);
+  const kept = s.read(slug).suggestions;
+  assert.equal(kept.length, 40);
+  assert.equal(kept[kept.length - 1].text, 'advice 59');
+
+  s.addIdeas(slug, [{ text: 'Add a launch checklist.' }]);
+  s.addIdeas(slug, [{ text: 'Add a launch checklist.' }, { text: 'Add a rollback plan.' }]);
+  assert.deepEqual(s.read(slug).ideas.map((x) => x.text), ['Add a launch checklist.', 'Add a rollback plan.']);
+  s.dismissIdea(slug, 'Add a launch checklist.');
+  assert.deepEqual(s.read(slug).ideas.map((x) => x.text), ['Add a rollback plan.']);
+});

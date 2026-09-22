@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.18.0
+
+- **Advice beside the prompt stays until you act on it.** Suggestions and ideas used to be replaced wholesale by every merge, so a note you meant to come back to disappeared the moment another idea merged. Now each merge **adds** what it noticed to what is already there. A card goes when you act on it: tick its options and press Add, or wave it away with the ×. Nothing else removes one.
+- **No pile of rewordings.** The engine is now told what is already on your panel and asked to say nothing rather than repeat it in other words. The same advice said twice is one card, a dismissed one never comes back, and a prompt keeps its last 40.
+- **An open question is yours to close.** A line under Open questions stays word for word through every merge unless that merge's ideas answer it, and then only that line goes.
+- Changing the target model still clears the advice, because it was written about the old model. That is the one thing that does.
+
 ## 0.17.0
 
 **Auto-forge, phase 1: a Claude Code chat that turns into a bigger job can be forged into one prompt, from inside the chat.** Off by default.

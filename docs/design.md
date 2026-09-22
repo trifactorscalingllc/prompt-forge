@@ -12,6 +12,7 @@ Complicated prompts written in a chat box drift. Ideas get repeated, an earlier 
 | Two models per provider | A fast one for every merge, the best one for Polish; `auto` derives both from the account's model list | Merges must feel instant; Polish is worth the wait. |
 | Target vs engine | Independent | Build a GPT-5 prompt on a Claude subscription, or the reverse. |
 | Document | A real `.md` opened beside the panel, hand-editable at any time | The file is the truth; the engine reads the live text before every merge. |
+| Advice (suggestions, ideas) | Accumulates in the sidecar; only a dismissal, acting on it, or a change of target removes one. The engine is sent what is already shown and asked for nothing but new advice | Advice that disappears when the next idea merges is advice the person loses before they act on it. |
 | Conflicts | Never resolved by the engine. The existing text stays, the incoming text is kept out of the body and listed under "Open conflicts" with keep-old / keep-new chips | A silently resolved contradiction is exactly the assumption the tool exists to prevent. |
 | Persistence | `<slug>.md` plus `<slug>.forge.json` per prompt, plain files, atomic writes | Readable, portable, no database. |
 | Secrets | VS Code SecretStorage only | Never in settings, logs, state, or the sidecar. |

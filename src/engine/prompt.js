@@ -29,6 +29,12 @@ const block = (s) => (String(s == null ? '' : s).endsWith('\n') ? String(s) : `$
 const q = (s) => `"${String(s == null ? '' : s).replace(/\s+/g, ' ').trim()}"`;
 const oneLine = (s, max = 400) => { const t = String(s || '').replace(/\s+/g, ' ').trim(); return t.length > max ? `${t.slice(0, max)}…` : t; };
 
+/** What the person can already see beside the prompt, so the engine does not say it twice. */
+function adviceBlock(advice) {
+  const list = (Array.isArray(advice) ? advice : []).map((t) => oneLine(t, 200)).filter(Boolean).slice(-40);
+  return list.length ? `\n<advice-already-shown>\n${list.map((t) => `- ${t}`).join('\n')}\n</advice-already-shown>\n` : '';
+}
+
 function mergeRules(mode) {
   return `Rules:
 1. Merge every new idea into the section it belongs to. The document's own sections are the structure; the canonical set is ${SECTIONS.join(', ')}. When the message carries <section-names>, the document has been polished for the target model, so those sections appear under those names — they are the same sections, and a heading below is never a reason to add a second one. Keep whatever naming the document already uses. Never append an idea as a loose bullet at the end and never invent a "Notes" or "Misc" section. If nothing fits, the closest section takes it; add a section only when the idea is clearly a new kind of thing.
@@ -42,6 +48,7 @@ function mergeRules(mode) {
     ? 'Return the COMPLETE document, not a diff, and not a summary of it.'
     : 'Change only what the new ideas, resolutions and revisions require, and report it as edits to named sections. A section you do not name is kept exactly as it is, so never re-send a section you are not changing.'}
 9. Write clearly enough that a model reading the finished prompt has nothing to assume: prefer a concrete statement over a vague one, and put anything the person left undecided under Open questions rather than guessing.
+9a. A line already under Open questions stays, word for word, unless the ideas, resolutions or revisions in THIS message answer it. When one is answered, write the answer into the section it belongs to and remove that line, and nothing else from Open questions. Never reword, reorder or thin out the questions that are still open.
 10. Add nothing of your own. Every line you write must come from a new idea, a resolution, or text already in the document. Do not invent requirements, constraints, examples, names, numbers or file paths the person has not given, and do not fill a section to make it look complete — a section with no material is left out. Rule 9 asks you to state the person's material precisely; it is not permission to supply material they did not.
 11. An idea may come with attached files: images and PDFs arrive with this message, text files inline in <attachment> blocks, and anything unreadable by name only. Fold in the material the idea points at — what the screenshot shows, the fields in the file, the requirement in the brief — in your own words and in the section it belongs to; never paste a whole file. Where the finished prompt needs the file itself, refer to it by its file name exactly as given ("match the layout in homepage.png"), because the person sends that file along with the prompt.
 12. Keep any {{variable}} exactly as written. It is a slot the person fills in when the prompt is copied.`;
@@ -87,6 +94,7 @@ function attachmentBlocks(ideas) {
 
 const SUGGEST = `
 Also return "suggestions": up to three objects {"section": "<section name>", "kind": "action" or "info", "text": "<one or two sentences>"}. Each names a section of THIS document that is empty, thin, or missing something a model would have to guess at, and says concretely what belongs there — drawn from what the document and the ideas already establish. "kind" is "action" when the prompt stays worse until the person supplies it (a missing requirement, an unstated output format) and "info" when it is background that would help but is not required (audience, history, an example). When a suggestion asks the person to choose or name something and its likely answers can be drawn from the document or are standard for the case, add "options": 2 to 6 short candidate answers they can tick, each under 60 characters (for "Name the formats you accept here": ["CSV", "JSON", "XML"]). Leave "options" out when there is no sensible set to offer. Options are choices put to the person, never assumptions about what they want. Write them as advice to the person, addressed to them ("Name the three formats you accept here"), never as text to paste in. Nothing to say is an empty array; do not manufacture three. Suggestions are advice only and must never appear in the document.
+Advice already on the person's panel is listed in <advice-already-shown>. It stays there until they act on it, so never repeat or reword any of it: say nothing rather than saying the same thing again in other words.
 Also return "ideas": up to three objects {"text": "<one sentence>"}, each a concrete way to take this prompt further that its own context makes natural — an angle, a case or a deliverable the person has not asked for yet — phrased so it could be sent as their next idea ("Add a follow-up email for leads who open but never reply"). Draw only on what the document establishes; no generic advice. Nothing worth proposing is an empty array. Ideas are advice only and must never appear in the document.`;
 
 const TITLE = `
@@ -96,7 +104,7 @@ Also return "title": a name for this prompt of AT MOST FIVE WORDS, describing wh
  * { system, prompt } for one merge.
  * ideas: [{ text, attached?: { blocks, texts, notes } }]   -- attached comes from attachments.forEngine
  */
-function buildMergePrompt({ doc, ideas = [], resolutions = [], revisions = [], conflicts = [], recent = [], target, projects = [], excerpts = [], needsTitle = false, suggest = false, sectionNames = [], mergedTotal = null, mode = 'edits' }) {
+function buildMergePrompt({ doc, ideas = [], resolutions = [], revisions = [], conflicts = [], recent = [], target, projects = [], excerpts = [], needsTitle = false, suggest = false, advice = [], sectionNames = [], mergedTotal = null, mode = 'edits' }) {
   const label = (target && target.label) || 'the target model';
   const merged = recent.length
     ? recent.map((e) => `- [${iso(e.ts)}] ${oneLine(e.text)}`).join('\n')
@@ -144,7 +152,7 @@ ${resLines}
 <revisions>
 ${revLines}
 </revisions>
-${suggest ? SUGGEST : ''}${needsTitle ? TITLE : ''}
+${suggest ? SUGGEST : ''}${suggest ? adviceBlock(advice) : ''}${needsTitle ? TITLE : ''}
 `;
   return { system: mergeSystem(mode), prompt };
 }
@@ -174,7 +182,7 @@ When the message asks for suggestions or ideas, add those keys to the same objec
  * { system, prompt } for one polish. `only` lists the section names to rewrite; empty means the
  * whole document.
  */
-function buildPolishPrompt({ doc, conflicts = [], target, styleGuide, projects = [], only = [], suggest = false, previousTarget = null }) {
+function buildPolishPrompt({ doc, conflicts = [], target, styleGuide, projects = [], only = [], suggest = false, advice = [], previousTarget = null }) {
   const label = (target && target.label) || 'the target model';
   const family = (target && target.family) || 'claude';
   const rewrite = only.length
@@ -193,7 +201,7 @@ ${block(doc)}</document>
 <open-conflicts>
 ${JSON.stringify(conflicts, null, 2)}
 </open-conflicts>
-${rewrite}${retarget}${suggest ? `${SUGGEST}\n` : ''}`;
+${rewrite}${retarget}${suggest ? `${SUGGEST}\n${adviceBlock(advice)}` : ''}`;
   return { system: polishSystem(family, styleGuide), prompt };
 }
 

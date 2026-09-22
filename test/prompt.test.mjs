@@ -280,3 +280,17 @@ test('an idea’s attachments are named on its line, text files inline, and byte
   assert.ok(!p.includes('QUFBQUFB'), 'an image goes as a content block, never as text');
   assert.match(p, /refer to it by its file name/, 'the engine is told how the finished prompt points at a file');
 });
+
+test('advice already on the panel is listed for the engine, and only when advice is asked for', () => {
+  const advice = ['Name the formats you accept here.', 'Say who reads it.'];
+  const block = /\n<advice-already-shown>\n/;
+  const asked = whole(buildMergePrompt({ ...solo, suggest: true, advice }));
+  assert.match(asked, block);
+  for (const a of advice) assert.ok(asked.includes(`- ${a}`), a);
+  assert.ok(/never repeat or reword any of it/i.test(asked), 'and told not to say it again');
+  assert.doesNotMatch(whole(buildMergePrompt({ ...solo, advice })), block, 'not when advice was not asked for');
+  assert.doesNotMatch(whole(buildMergePrompt({ ...solo, suggest: true })), block, 'nor when there is none yet');
+  const polished = whole(buildPolishPrompt({ ...solo, styleGuide: 'g', suggest: true, advice }));
+  assert.match(polished, block);
+  assert.ok(polished.includes('- Say who reads it.'));
+});

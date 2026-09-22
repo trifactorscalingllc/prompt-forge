@@ -454,7 +454,7 @@
       small('Even split', null, () => vscode.postMessage({ type: 'setLayout', split: 50 })));
     row('Suggestions', (s.suggestions === false)
       ? 'Off. The prompt is shown exactly as it is.'
-      : 'On. Where a section is empty or thin, a note in the prompt says what belongs there. They live beside the prompt and never inside it, so a copy never carries one and a hand edit cannot save one into the document.',
+      : 'On. Where a section is empty or thin, a note in the prompt says what belongs there, and it stays until you act on it or wave it away — a later merge adds to these, never replaces them. They live beside the prompt and never inside it, so a copy never carries one and a hand edit cannot save one into the document.',
       small(s.suggestions === false ? 'Turn on' : 'Turn off', null,
         () => vscode.postMessage({ type: 'setSuggestions', value: s.suggestions === false })));
     const af = s.autoForge || { mode: 'off', minChars: 400, minPrompts: 3 };
@@ -680,7 +680,7 @@
         vscode.postMessage({ type: 'idea.dismiss', text: it.text });
       });
       const x = el('button', 'sg-x', '×');
-      x.title = 'Dismiss. It will not come back for this prompt.';
+      x.title = 'Dismiss. It stays through every merge until you do this, and then it never comes back for this prompt.';
       x.addEventListener('click', () => vscode.postMessage({ type: 'idea.dismiss', text: it.text }));
       card.append(el('span', 'ic-text', it.text), use, x);
       box.append(card);
@@ -775,7 +775,7 @@
     body.append(el('span', 'sg-text', sg.text));
     if (Array.isArray(sg.options) && sg.options.length) body.append(suggestionChoices(sg));
     const x = el('button', 'sg-x', '\u00d7');
-    x.title = 'Dismiss. It will not come back for this prompt.';
+    x.title = 'Dismiss. It stays through every merge until you do this, and then it never comes back for this prompt.';
     x.addEventListener('click', () => vscode.postMessage({ type: 'suggestion.dismiss', text: sg.text }));
     card.append(body, x);
     return card;

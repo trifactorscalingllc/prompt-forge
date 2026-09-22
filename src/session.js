@@ -106,6 +106,9 @@ function createSession({ slug, store, docio, engine, cfg, log, publish = () => {
   const mergeMode = () => (engineCfg().mergeOutput === 'document' ? 'document' : 'edits');
   const timeoutMs = () => (engineCfg().timeoutSeconds || 240) * 1000;
   const suggesting = () => (cfg() || {}).suggestions !== false;
+  // Advice accumulates on the panel until the person acts on it, so the engine is told what is
+  // already there and asked for nothing but new advice.
+  const adviceShown = () => [...(sc.suggestions || []), ...(sc.ideas || [])].map((x) => x && x.text).filter(Boolean);
   const isUntitled = () => /^Untitled( \d+)?$/.test(sc.title) && !sc.entries.some((e) => e.status === 'merged');
 
   const queue = createQueue({
@@ -246,7 +249,7 @@ function createSession({ slug, store, docio, engine, cfg, log, publish = () => {
       const suggest = suggesting();
       const built = buildMergePrompt({
         doc: body, ideas, resolutions, revisions, conflicts, recent: merged.slice(-recentN), target, projects, excerpts,
-        needsTitle: entryIds.length > 0 && isUntitled(), suggest, sectionNames: targets.sectionsFor(target.family), mergedTotal: merged.length, mode,
+        needsTitle: entryIds.length > 0 && isUntitled(), suggest, advice: adviceShown(), sectionNames: targets.sectionsFor(target.family), mergedTotal: merged.length, mode,
       });
 
       const res = await engine.call({ role: 'merge', system: built.system, prompt: built.prompt, blocks, timeoutMs: timeoutMs(), onProgress: progress });
@@ -295,8 +298,12 @@ function createSession({ slug, store, docio, engine, cfg, log, publish = () => {
       }
       // Written to the sidecar, never to the document: that is the whole guarantee that a copy
       // cannot carry them. `doc` is what reaches disk and it has never seen them.
-      store.setSuggestions(slug, suggest ? out.suggestions : []);
-      store.setIdeas(slug, suggest ? out.ideas : []);
+      // Added, not replaced: advice waits for the person, not for the next merge. With suggestions
+      // switched off nothing new is taken, and what is already there is left alone.
+      if (suggest) {
+        store.addSuggestions(slug, out.suggestions);
+        store.addIdeas(slug, out.ideas);
+      }
       reread();
       const kind = entryIds.length ? 'merge' : revised.length ? 'revise' : 'resolve';
       await land({ kind, doc, touched, changes: out.changes, call: res.call });
@@ -337,7 +344,7 @@ function createSession({ slug, store, docio, engine, cfg, log, publish = () => {
       // the merge's advice, which was already written for this target.
       const suggest = suggesting() && !only.length;
       const previousTarget = batch.from && batch.from !== sc.target ? targets.resolve(batch.from) : null;
-      const built = buildPolishPrompt({ doc: body, conflicts, target, styleGuide: targets.styleGuide(target.family), projects: sc.projects || [], only, suggest, previousTarget });
+      const built = buildPolishPrompt({ doc: body, conflicts, target, styleGuide: targets.styleGuide(target.family), projects: sc.projects || [], only, suggest, advice: adviceShown(), previousTarget });
       const res = await engine.call({ role: 'polish', system: built.system, prompt: built.prompt, timeoutMs: timeoutMs(), onProgress: progress });
       if (disposed) return;
       if (res.call) engineState.model = res.call.model;
@@ -361,8 +368,8 @@ function createSession({ slug, store, docio, engine, cfg, log, publish = () => {
       const doc = formatDoc(docm.ensureTitle(out.doc, docm.titleOf(body) || sc.title), { family: target.family });
       await land({ kind: 'polish', doc, changes: out.changes.length ? out.changes : only.length ? [`rewrote ${only.join(', ')}`] : [], call: res.call });
       if (suggest) {
-        store.setSuggestions(slug, out.suggestions);
-        store.setIdeas(slug, out.ideas);
+        store.addSuggestions(slug, out.suggestions);
+        store.addIdeas(slug, out.ideas);
       }
       store.setPolished(slug, { doc, target: sc.target });
       reread();

@@ -305,26 +305,56 @@ function open(libraryPath, { home } = {}) {
     }
     return sc.vars;
   });
+  // Advice stays until the person acts on it. A merge ADDS what it noticed to what is already
+  // there: a note someone meant to act on must not vanish because another idea merged first. The
+  // same advice said twice is one card, a dismissed one never comes back, and the oldest go only
+  // when a prompt has collected more than KEEP_ADVICE of them.
+  const KEEP_ADVICE = 40;
+  const adviceKey = (t) => String(t == null ? '' : t).toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
+
+  function addAdvice(have, incoming, dismissed, ts) {
+    const out = (Array.isArray(have) ? have : []).filter((x) => x && x.text);
+    const seen = new Set(out.map((x) => adviceKey(x.text)));
+    const waved = new Set((dismissed || []).map(adviceKey));
+    for (const x of Array.isArray(incoming) ? incoming : []) {
+      if (!x || !x.text) continue;
+      const k = adviceKey(x.text);
+      if (!k || seen.has(k) || waved.has(k)) continue;
+      seen.add(k);
+      out.push({ ...x, ts });
+    }
+    return out.length > KEEP_ADVICE ? out.slice(out.length - KEEP_ADVICE) : out;
+  }
+
+  const addSuggestions = (slug, list) => withSidecar(slug, (sc) => {
+    sc.suggestions = addAdvice(sc.suggestions, list, sc.dismissed, now());
+    return sc.suggestions;
+  });
+  /** Clear them: only an explicit change of target does this, never a merge. */
   const setSuggestions = (slug, list) => withSidecar(slug, (sc) => {
-    const gone = new Set(sc.dismissed || []);
-    sc.suggestions = (Array.isArray(list) ? list : []).filter((x) => x && x.text && !gone.has(x.text));
+    sc.suggestions = addAdvice([], list, sc.dismissed, now());
     return sc.suggestions;
   });
   const dismissSuggestion = (slug, text) => withSidecar(slug, (sc) => {
     const t = String(text || '');
+    const k = adviceKey(t);
     if (t && !sc.dismissed.includes(t)) sc.dismissed.push(t);
-    sc.suggestions = sc.suggestions.filter((x) => x && x.text !== t);
+    sc.suggestions = sc.suggestions.filter((x) => x && adviceKey(x.text) !== k);
     return sc.suggestions;
   });
+  const addIdeas = (slug, list) => withSidecar(slug, (sc) => {
+    sc.ideas = addAdvice(sc.ideas, list, sc.dismissedIdeas, now());
+    return sc.ideas;
+  });
   const setIdeas = (slug, list) => withSidecar(slug, (sc) => {
-    const gone = new Set(sc.dismissedIdeas || []);
-    sc.ideas = (Array.isArray(list) ? list : []).filter((x) => x && x.text && !gone.has(x.text));
+    sc.ideas = addAdvice([], list, sc.dismissedIdeas, now());
     return sc.ideas;
   });
   const dismissIdea = (slug, text) => withSidecar(slug, (sc) => {
     const t = String(text || '');
+    const k = adviceKey(t);
     if (t && !sc.dismissedIdeas.includes(t)) sc.dismissedIdeas.push(t);
-    sc.ideas = sc.ideas.filter((x) => x && x.text !== t);
+    sc.ideas = sc.ideas.filter((x) => x && adviceKey(x.text) !== k);
     return sc.ideas;
   });
 
@@ -413,7 +443,7 @@ function open(libraryPath, { home } = {}) {
     dir, docPath, sidecarPath, exists, read, write, create, list, stats,
     appendEntry, updateEntry, addSnapshot, pruneBodies, setTarget, setTitle, setProjects, setCopyMark, setSentMark, setPolished, setOrigin, setVars, addRun,
     saveImage, saveFile, imageDir, filesDir, attachmentPath, imagePath: attachmentPath, portablePath, resolvePortable,
-    setSuggestions, dismissSuggestion, setIdeas, dismissIdea, setConflicts, answerConflict, unanswerConflicts, resolveConflict, remove,
+    setSuggestions, addSuggestions, dismissSuggestion, setIdeas, addIdeas, dismissIdea, setConflicts, answerConflict, unanswerConflicts, resolveConflict, remove,
     readDoc, writeDoc,
   };
 }

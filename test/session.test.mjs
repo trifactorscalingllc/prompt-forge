@@ -235,7 +235,7 @@ test('streaming progress is published while the engine works, and ideas for taki
   session.submitIdea('ship it');
   await session.idle();
   assert.ok(published.includes('progress'));
-  assert.deepEqual(s.read(slug).ideas, [{ text: 'Add a launch checklist.' }]);
+  assert.deepEqual(s.read(slug).ideas.map((x) => x.text), ['Add a launch checklist.']);
   session.dismissIdea('Add a launch checklist.');
   assert.deepEqual(session.snapshot().ideas, []);
 });
@@ -386,7 +386,7 @@ test('switching the target clears the old target\'s advice at once, and the poli
   assert.ok(polish.prompt.includes('This prompt was written for Claude Fable 5.1 and is now for Claude Opus 5.'));
   assert.ok(polish.prompt.includes('"suggestions"'));
   assert.match(s.read(slug).suggestions[0].text, /Opus 5/, 'and the new advice is for the new model');
-  assert.deepEqual(s.read(slug).ideas, [{ text: 'Add an example.' }]);
+  assert.deepEqual(s.read(slug).ideas.map((x) => x.text), ['Add an example.']);
   session.setTarget('opus-5');
   await session.idle();
   assert.equal(calls.length, 2, 'choosing the target it already has does nothing');
@@ -583,7 +583,9 @@ test('a suggestion never reaches the document, the disk, or the clipboard', asyn
   await session.idle();
 
   // It exists, and the panel can see it.
-  assert.deepEqual(s.read(slug).suggestions, [{ section: 'Output format', kind: 'info', text: ADVICE }]);
+  const [advice] = s.read(slug).suggestions;
+  assert.deepEqual({ section: advice.section, kind: advice.kind, text: advice.text }, { section: 'Output format', kind: 'info', text: ADVICE });
+  assert.ok(advice.ts > 0, 'stamped when it arrived, so the panel can keep them in that order');
   assert.equal(session.snapshot().suggestions[0].text, ADVICE);
 
   // And it is in none of the three places a prompt actually leaves the tool from. This is the
@@ -594,7 +596,7 @@ test('a suggestion never reaches the document, the disk, or the clipboard', asyn
   assert.ok(!sc.snapshots.some((x) => String(x.doc || '').includes(ADVICE)), 'not in any snapshot, so restore cannot resurrect it');
 });
 
-test('suggestions are replaced wholesale by the next merge, never accumulated', async () => {
+test('advice stays on the panel until it is answered, dismissed, or the target changes', async () => {
   let n = 0;
   const { s, slug, session } = setup((req) => {
     n += 1;
@@ -604,6 +606,7 @@ test('suggestions are replaced wholesale by the next merge, never accumulated', 
         doc: doc.includes('## Goal\n') ? doc.replace('## Goal\n', `## Goal\n\nL${n}\n`) : `${doc}\n## Goal\n\nL${n}\n`,
         conflicts: [], changes: [],
         suggestions: [{ section: 'Goal', text: `advice ${n}` }],
+        ideas: [{ text: `idea ${n}` }],
       }),
       usage: { input: 1, output: 1 }, error: null,
       call: { provider: 'fake', mode: 'cli', model: 'fast', role: req.role, ms: 1, usage: { input: 1, output: 1 } },
@@ -614,8 +617,16 @@ test('suggestions are replaced wholesale by the next merge, never accumulated', 
   await session.idle();
   session.submitIdea('two');
   await session.idle();
-  // Stale advice about a section that has since been filled is worse than none.
-  assert.deepEqual(s.read(slug).suggestions.map((x) => x.text), ['advice 2']);
+  // The point of the rule: advice someone meant to act on cannot vanish because another idea merged.
+  assert.deepEqual(s.read(slug).suggestions.map((x) => x.text), ['advice 1', 'advice 2']);
+  assert.deepEqual(s.read(slug).ideas.map((x) => x.text), ['idea 1', 'idea 2']);
+  session.dismissSuggestion('advice 1');
+  assert.deepEqual(s.read(slug).suggestions.map((x) => x.text), ['advice 2'], 'dismissing is how one goes');
+  session.submitIdea('three');
+  await session.idle();
+  assert.deepEqual(s.read(slug).suggestions.map((x) => x.text), ['advice 2', 'advice 3'], 'and a dismissed one never comes back');
+  session.setTarget('gpt-5');
+  assert.deepEqual(s.read(slug).suggestions, [], 'changing the model is the one thing that clears them: the advice named the old one');
 });
 
 test('the add-on copy appears only after a copy, carries just the change, and repeats', async () => {
